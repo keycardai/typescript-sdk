@@ -1,0 +1,76 @@
+{
+  "name": "@keycardai/mcp",
+  "version": "0.1.0",
+  "description": "High-security OAuth implementation for Model Context Protocol",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    "./client/auth/providers/base": {
+      "import": "./dist/esm/client/auth/providers/base.js",
+      "require": "./dist/cjs/client/auth/providers/base.js",
+      "types": "./dist/esm/client/auth/providers/base.d.ts"
+    },
+    "./client/auth/signers/jwt": {
+      "import": "./dist/esm/client/auth/signers/jwt.js",
+      "require": "./dist/cjs/client/auth/signers/jwt.js",
+      "types": "./dist/esm/client/auth/signers/jwt.d.ts"
+    },
+    "./server/auth/router": {
+      "import": "./dist/esm/server/auth/router.js",
+      "require": "./dist/cjs/server/auth/router.js",
+      "types": "./dist/esm/server/auth/router.d.ts"
+    },
+    "./server/auth/middleware/bearerAuth": {
+      "import": "./dist/esm/server/auth/middleware/bearerAuth.js",
+      "require": "./dist/cjs/server/auth/middleware/bearerAuth.js",
+      "types": "./dist/esm/server/auth/middleware/bearerAuth.d.ts"
+    },
+    "./server/auth/verifiers/jwt": {
+      "import": "./dist/esm/server/auth/verifiers/jwt.js",
+      "require": "./dist/cjs/server/auth/verifiers/jwt.js",
+      "types": "./dist/esm/server/auth/verifiers/jwt.d.ts"
+    },
+    "./server/auth/errors": {
+      "import": "./dist/esm/server/auth/errors.js",
+      "require": "./dist/cjs/server/auth/errors.js",
+      "types": "./dist/esm/server/auth/errors.d.ts"
+    },
+    "./shared/auth": {
+      "import": "./dist/esm/shared/auth.js",
+      "require": "./dist/cjs/shared/auth.js",
+      "types": "./dist/esm/shared/auth.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "typesVersions": {
+    "*": {
+      "*": ["./dist/esm/*"]
+    }
+  },
+  "scripts": {
+    "build": "pnpm run build:esm && pnpm run build:cjs",
+    "build:esm": "tsc -p tsconfig.prod.json && echo '{\"type\": \"module\"}' > dist/esm/package.json",
+    "build:cjs": "tsc -p tsconfig.cjs.json && echo '{\"type\": \"commonjs\"}' > dist/cjs/package.json",
+    "test": "NODE_OPTIONS='--experimental-vm-modules' jest",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@keycardai/oauth": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.15.0",
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
+    "zod": "^3.25.74"
+  },
+  "devDependencies": {
+    "@jest/globals": "^30.0.4",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.3",
+    "jest": "^30.0.4",
+    "supertest": "^7.1.1",
+    "ts-jest": "^29.4.0",
+    "typescript": "^5.8.3"
+  }
+}

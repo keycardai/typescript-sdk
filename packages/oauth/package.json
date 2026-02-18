@@ -1,0 +1,65 @@
+{
+  "name": "@keycardai/oauth",
+  "version": "0.1.0",
+  "description": "Pure OAuth 2.0 primitives for Keycard — JWKS key management, JWT signing/verification, and authorization server discovery",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/esm/index.js",
+      "require": "./dist/cjs/index.js",
+      "types": "./dist/esm/index.d.ts"
+    },
+    "./keyring": {
+      "import": "./dist/esm/keyring.js",
+      "require": "./dist/cjs/keyring.js",
+      "types": "./dist/esm/keyring.d.ts"
+    },
+    "./base64url": {
+      "import": "./dist/esm/base64url.js",
+      "require": "./dist/cjs/base64url.js",
+      "types": "./dist/esm/base64url.d.ts"
+    },
+    "./discovery": {
+      "import": "./dist/esm/discovery.js",
+      "require": "./dist/cjs/discovery.js",
+      "types": "./dist/esm/discovery.d.ts"
+    },
+    "./errors": {
+      "import": "./dist/esm/errors.js",
+      "require": "./dist/cjs/errors.js",
+      "types": "./dist/esm/errors.d.ts"
+    },
+    "./jwt/signer": {
+      "import": "./dist/esm/jwt/signer.js",
+      "require": "./dist/cjs/jwt/signer.js",
+      "types": "./dist/esm/jwt/signer.d.ts"
+    },
+    "./jwt/verifier": {
+      "import": "./dist/esm/jwt/verifier.js",
+      "require": "./dist/cjs/jwt/verifier.js",
+      "types": "./dist/esm/jwt/verifier.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "typesVersions": {
+    "*": {
+      "*": ["./dist/esm/*"]
+    }
+  },
+  "scripts": {
+    "build": "pnpm run build:esm && pnpm run build:cjs",
+    "build:esm": "tsc -p tsconfig.prod.json && echo '{\"type\": \"module\"}' > dist/esm/package.json",
+    "build:cjs": "tsc -p tsconfig.cjs.json && echo '{\"type\": \"commonjs\"}' > dist/cjs/package.json",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "zod": "^3.25.74"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3"
+  }
+}
