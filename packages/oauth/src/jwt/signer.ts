@@ -4,7 +4,7 @@ import base64url from "../base64url.js"
 export interface JWTClaims {
   iss?: string;
   sub?: string;
-  aud?: string;
+  aud?: string | string[];
   exp?: number;
   nbf?: number;
   iat?: number;

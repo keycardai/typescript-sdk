@@ -17,7 +17,7 @@ export class JWTOAuthTokenVerifier implements OAuthTokenVerifier {
     return {
       token,
       clientId: claims.client_id ?? '',
-      resource: claims.aud ? new URL(claims.aud) : undefined,
+      resource: claims.aud ? new URL(Array.isArray(claims.aud) ? claims.aud[0] : claims.aud) : undefined,
       scopes: claims.scope ? claims.scope.split(' ') : [],
       expiresAt: claims.exp,
     };
