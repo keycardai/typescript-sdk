@@ -39,6 +39,21 @@
       "import": "./dist/esm/shared/auth.js",
       "require": "./dist/cjs/shared/auth.js",
       "types": "./dist/esm/shared/auth.d.ts"
+    },
+    "./server/auth/provider": {
+      "import": "./dist/esm/server/auth/provider.js",
+      "require": "./dist/cjs/server/auth/provider.js",
+      "types": "./dist/esm/server/auth/provider.d.ts"
+    },
+    "./server/auth/credentials": {
+      "import": "./dist/esm/server/auth/credentials.js",
+      "require": "./dist/cjs/server/auth/credentials.js",
+      "types": "./dist/esm/server/auth/credentials.d.ts"
+    },
+    "./server/auth/privateKey": {
+      "import": "./dist/esm/server/auth/privateKey.js",
+      "require": "./dist/cjs/server/auth/privateKey.js",
+      "types": "./dist/esm/server/auth/privateKey.d.ts"
     }
   },
   "files": [

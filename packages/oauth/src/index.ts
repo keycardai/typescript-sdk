@@ -7,3 +7,5 @@ export { HTTPError, BadRequestError, UnauthorizedError, OAuthError, InvalidToken
 export { JWTSigner } from "./jwt/signer.js";
 export type { JWTClaims } from "./jwt/signer.js";
 export { JWTVerifier } from "./jwt/verifier.js";
+export { TokenExchangeClient } from "./tokenExchange.js";
+export type { TokenExchangeRequest, TokenResponse, TokenExchangeClientOptions } from "./tokenExchange.js";
