@@ -229,7 +229,9 @@ class PemPrivateKeyring implements PrivateKeyring {
     );
 
     return {
-      key: cryptoKey,
+      // node:crypto.webcrypto.CryptoKey and global CryptoKey are identical at runtime
+      // but TypeScript treats them as separate declarations
+      key: cryptoKey as CryptoKey,
       kid: this.#kid,
       issuer: this.#issuer,
     };
