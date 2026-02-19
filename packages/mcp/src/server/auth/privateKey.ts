@@ -172,14 +172,16 @@ export class PrivateKeyManager {
   }
 
   async #generateAndStoreKeyPair(): Promise<void> {
-    const { privateKey, publicKey } = crypto.generateKeyPairSync("rsa", {
+    const keyPair = crypto.generateKeyPairSync("rsa", {
       modulusLength: 2048,
       publicKeyEncoding: { type: "spki", format: "pem" },
       privateKeyEncoding: { type: "pkcs8", format: "pem" },
     });
+    const privateKeyPem = String(keyPair.privateKey);
+    const publicKeyPem = String(keyPair.publicKey);
 
-    // Convert public key PEM to JWK format using Web Crypto
-    const publicKeyObj = crypto.createPublicKey(publicKey);
+    // Convert public key PEM to JWK format
+    const publicKeyObj = crypto.createPublicKey(publicKeyPem);
     const jwk = publicKeyObj.export({ format: "jwk" });
 
     const publicKeyJwk: JsonWebKey = {
@@ -191,9 +193,9 @@ export class PrivateKeyManager {
       use: "sig",
     };
 
-    await this.#storage.storeKeyPair(this.#keyId, privateKey as string, publicKeyJwk);
+    await this.#storage.storeKeyPair(this.#keyId, privateKeyPem, publicKeyJwk);
 
-    this.#privateKeyPem = privateKey as string;
+    this.#privateKeyPem = privateKeyPem;
     this.#publicKeyJwk = publicKeyJwk;
   }
 }
