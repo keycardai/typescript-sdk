@@ -39,6 +39,11 @@
       "import": "./dist/esm/jwt/verifier.js",
       "require": "./dist/cjs/jwt/verifier.js",
       "types": "./dist/esm/jwt/verifier.d.ts"
+    },
+    "./tokenExchange": {
+      "import": "./dist/esm/tokenExchange.js",
+      "require": "./dist/cjs/tokenExchange.js",
+      "types": "./dist/esm/tokenExchange.d.ts"
     }
   },
   "files": [

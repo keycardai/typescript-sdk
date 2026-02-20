@@ -109,6 +109,145 @@ class MyOAuthProvider extends BaseOAuthClientProvider {
 }
 ```
 
+## Delegated Access (Token Exchange)
+
+The SDK supports OAuth 2.0 token exchange (RFC 8693) for delegated access — exchanging a user's bearer token for resource-specific tokens to call external APIs on behalf of authenticated users.
+
+### Setup with Client Credentials
+
+```typescript
+import express from "express";
+import { AuthProvider } from "@keycardai/mcp/server/auth/provider";
+import { ClientSecret } from "@keycardai/mcp/server/auth/credentials";
+import { requireBearerAuth } from "@keycardai/mcp/server/auth/middleware/bearerAuth";
+import type { DelegatedRequest } from "@keycardai/mcp/server/auth/provider";
+
+const authProvider = new AuthProvider({
+  zoneUrl: "https://your-zone.keycard.cloud",
+  applicationCredential: new ClientSecret("your-client-id", "your-client-secret"),
+});
+
+const app = express();
+
+// 1. Verify the user's bearer token
+app.use(requireBearerAuth());
+
+// 2. Exchange for a resource-specific token
+app.get(
+  "/api/github-user",
+  authProvider.grant("https://api.github.com"),
+  async (req, res) => {
+    const { accessContext } = req as DelegatedRequest;
+
+    if (accessContext.hasErrors()) {
+      return res.status(502).json(accessContext.getErrors());
+    }
+
+    const token = accessContext.access("https://api.github.com").accessToken;
+    const response = await fetch("https://api.github.com/user", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    res.json(await response.json());
+  },
+);
+```
+
+### Error Handling
+
+`AccessContext` never throws during token exchange — errors are captured and queryable:
+
+```typescript
+const { accessContext } = req as DelegatedRequest;
+
+// Check overall status
+const status = accessContext.getStatus(); // "success" | "partial_error" | "error"
+
+// Check for global errors (e.g., missing auth token)
+if (accessContext.hasError()) {
+  console.error(accessContext.getError());
+}
+
+// Check for resource-specific errors
+if (accessContext.hasResourceError("https://api.github.com")) {
+  console.error(accessContext.getResourceErrors("https://api.github.com"));
+}
+
+// List successes and failures
+console.log("OK:", accessContext.getSuccessfulResources());
+console.log("Failed:", accessContext.getFailedResources());
+```
+
+### Multiple Resources
+
+```typescript
+app.get(
+  "/api/dashboard",
+  authProvider.grant(["https://api.github.com", "https://api.slack.com"]),
+  async (req, res) => {
+    const { accessContext } = req as DelegatedRequest;
+
+    // Partial success: some resources may succeed while others fail
+    if (accessContext.getStatus() === "partial_error") {
+      // Handle gracefully — use what succeeded
+    }
+
+    const githubToken = accessContext.access("https://api.github.com").accessToken;
+    const slackToken = accessContext.access("https://api.slack.com").accessToken;
+    // ...
+  },
+);
+```
+
+### Standalone Usage (Without Express Middleware)
+
+For non-Express contexts (e.g., MCP tool handlers), use `exchangeTokens()` directly:
+
+```typescript
+const accessContext = await authProvider.exchangeTokens(
+  userBearerToken,
+  "https://api.github.com",
+);
+
+if (accessContext.hasErrors()) {
+  // Handle error
+}
+
+const token = accessContext.access("https://api.github.com").accessToken;
+```
+
+### WebIdentity (Private Key JWT)
+
+For servers that authenticate with private key JWT (RFC 7523) instead of client secrets:
+
+```typescript
+import { AuthProvider } from "@keycardai/mcp/server/auth/provider";
+import { WebIdentity } from "@keycardai/mcp/server/auth/credentials";
+
+const authProvider = new AuthProvider({
+  zoneUrl: "https://your-zone.keycard.cloud",
+  applicationCredential: new WebIdentity({
+    serverName: "My MCP Server",
+    storageDir: "./mcp_keys", // RSA keys stored here
+  }),
+});
+```
+
+### EKS Workload Identity
+
+For servers running on EKS with mounted pod identity tokens:
+
+```typescript
+import { AuthProvider } from "@keycardai/mcp/server/auth/provider";
+import { EKSWorkloadIdentity } from "@keycardai/mcp/server/auth/credentials";
+
+const authProvider = new AuthProvider({
+  zoneUrl: "https://your-zone.keycard.cloud",
+  applicationCredential: new EKSWorkloadIdentity(),
+  // Discovers token from: KEYCARD_EKS_WORKLOAD_IDENTITY_TOKEN_FILE,
+  // AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE, or AWS_WEB_IDENTITY_TOKEN_FILE
+});
+```
+
 ## Development
 
 ### Install from Source

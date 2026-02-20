@@ -23,3 +23,12 @@ export type { AuthMetadataOptions, InferredAuthMetadataOptions } from "@keycarda
 export { requireBearerAuth } from "@keycardai/mcp/server/auth/middleware/bearerAuth";
 export type { BearerAuthMiddlewareOptions } from "@keycardai/mcp/server/auth/middleware/bearerAuth";
 export { JWTOAuthTokenVerifier } from "@keycardai/mcp/server/auth/verifiers/jwt";
+
+// Delegated access
+export { AuthProvider, AccessContext } from "@keycardai/mcp/server/auth/provider";
+export type { AuthProviderOptions, DelegatedRequest, ErrorDetail, AccessContextStatus } from "@keycardai/mcp/server/auth/provider";
+export { ClientSecret, WebIdentity, EKSWorkloadIdentity } from "@keycardai/mcp/server/auth/credentials";
+export type { ApplicationCredential } from "@keycardai/mcp/server/auth/credentials";
+export { TokenExchangeClient } from "@keycardai/oauth/tokenExchange";
+export type { TokenExchangeRequest, TokenResponse, TokenExchangeClientOptions } from "@keycardai/oauth/tokenExchange";
+export { ResourceAccessError, AuthProviderConfigurationError, EKSWorkloadIdentityConfigurationError } from "@keycardai/mcp/server/auth/errors";
