@@ -1,6 +1,6 @@
 {
   "name": "@keycardai/oauth",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Pure OAuth 2.0 primitives for Keycard — JWKS key management, JWT signing/verification, and authorization server discovery",
   "license": "MIT",
   "type": "module",
