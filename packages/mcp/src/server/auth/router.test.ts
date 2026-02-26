@@ -1,18 +1,17 @@
 import { jest } from '@jest/globals';
-import { mcpAuthMetadataRouter, AuthMetadataOptions, getOAuthProtectedResourceMetadataUrl } from './router.js';
-import { OAuthMetadata } from '@modelcontextprotocol/sdk/shared/auth';
+import { mcpAuthMetadataRouter, InferredAuthMetadataOptions, getOAuthProtectedResourceMetadataUrl } from './router.js';
 import express from 'express';
 import supertest from 'supertest';
 
 describe('MCP Auth Metadata Router', () => {
 
-  const mockOAuthMetadata : OAuthMetadata = {
+  const mockOAuthMetadata = {
     issuer: 'https://auth.example.com',
-  }
+  };
 
   describe('Router creation', () => {
     it('successfully creates router with valid options', () => {
-      const options: AuthMetadataOptions = {
+      const options: InferredAuthMetadataOptions = {
         oauthMetadata: mockOAuthMetadata,
       };
 
@@ -25,7 +24,7 @@ describe('MCP Auth Metadata Router', () => {
 
     beforeEach(() => {
       app = express();
-      const options: AuthMetadataOptions = {
+      const options: InferredAuthMetadataOptions = {
         oauthMetadata: mockOAuthMetadata,
         serviceDocumentationUrl: new URL('https://docs.example.com'),
         scopesSupported: ['read', 'write'],
@@ -160,7 +159,7 @@ describe('MCP Auth Metadata Router', () => {
 
     it('works with minimal configuration', async () => {
       const minimalApp = express();
-      const options: AuthMetadataOptions = {
+      const options: InferredAuthMetadataOptions = {
         oauthMetadata: mockOAuthMetadata,
       };
       minimalApp.use(mcpAuthMetadataRouter(options));

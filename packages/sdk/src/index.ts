@@ -19,7 +19,7 @@ export type { OAuthTokensStore, OAuthCodeVerifierStore } from "@keycardai/mcp/cl
 export { JSONWebTokenSigner } from "@keycardai/mcp/client/auth/signers/jwt";
 export type { FullAuthInfo } from "@keycardai/mcp/client/auth/signers/jwt";
 export { mcpAuthMetadataRouter, getOAuthProtectedResourceMetadataUrl } from "@keycardai/mcp/server/auth/router";
-export type { AuthMetadataOptions, InferredAuthMetadataOptions } from "@keycardai/mcp/server/auth/router";
+export type { InferredAuthMetadataOptions } from "@keycardai/mcp/server/auth/router";
 export { requireBearerAuth } from "@keycardai/mcp/server/auth/middleware/bearerAuth";
 export type { BearerAuthMiddlewareOptions } from "@keycardai/mcp/server/auth/middleware/bearerAuth";
 export { JWTOAuthTokenVerifier } from "@keycardai/mcp/server/auth/verifiers/jwt";
