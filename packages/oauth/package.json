@@ -3,6 +3,11 @@
   "version": "0.1.1",
   "description": "Pure OAuth 2.0 primitives for Keycard — JWKS key management, JWT signing/verification, and authorization server discovery",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/keycardai/typescript-sdk.git",
+    "directory": "packages/oauth"
+  },
   "type": "module",
   "exports": {
     ".": {

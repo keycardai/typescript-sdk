@@ -3,6 +3,11 @@
   "version": "0.1.1",
   "description": "Keycard TypeScript SDK — Aggregate package re-exporting from @keycardai/oauth and @keycardai/mcp",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/keycardai/typescript-sdk.git",
+    "directory": "packages/sdk"
+  },
   "type": "module",
   "exports": {
     ".": {

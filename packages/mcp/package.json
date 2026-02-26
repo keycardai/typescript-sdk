@@ -3,6 +3,11 @@
   "version": "0.1.1",
   "description": "High-security OAuth implementation for Model Context Protocol",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/keycardai/typescript-sdk.git",
+    "directory": "packages/mcp"
+  },
   "type": "module",
   "exports": {
     "./client/auth/providers/base": {
