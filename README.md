@@ -15,6 +15,14 @@ A collection of TypeScript packages for Keycard services, organized as a pnpm wo
 | [`@keycardai/mcp`](packages/mcp/) | MCP OAuth integration — Express middleware, token verification, client providers | [![npm](https://img.shields.io/npm/v/@keycardai/mcp)](https://www.npmjs.com/package/@keycardai/mcp) |
 | [`@keycardai/sdk`](packages/sdk/) | Aggregate package re-exporting from oauth + mcp | [![npm](https://img.shields.io/npm/v/@keycardai/sdk)](https://www.npmjs.com/package/@keycardai/sdk) |
 
+## Key Concepts
+
+- **Zone** — A Keycard environment that groups your identity providers, MCP resources, and access policies. Get your zone ID from [console.keycard.ai](https://console.keycard.ai).
+- **Delegated Access** — Calling external APIs (Google, GitHub, Slack, etc.) on behalf of your authenticated users via [RFC 8693](https://datatracker.ietf.org/doc/html/rfc8693) token exchange.
+- **`.grant()` middleware** — Declares which external APIs a route needs. Automatically exchanges the user's token for a scoped token before your handler runs.
+- **AccessContext** — The result of a grant. Contains exchanged tokens or errors. Non-throwing by design — always check `.hasErrors()` before using tokens.
+- **Application Credentials** — How your server authenticates with Keycard for token exchange. Three types: `ClientSecret`, `WebIdentity` (private key JWT), `EKSWorkloadIdentity` (AWS EKS).
+
 ## Installation
 
 ### For MCP Servers (Express)
@@ -55,7 +63,11 @@ import { mcpAuthMetadataRouter } from "@keycardai/mcp/server/auth/router";
 const app = express();
 
 // Mount OAuth metadata endpoints (.well-known)
-app.use(mcpAuthMetadataRouter("https://your-zone.keycard.ai"));
+app.use(
+  mcpAuthMetadataRouter({
+    oauthMetadata: { issuer: "https://your-zone.keycard.cloud" },
+  }),
+);
 
 // Protect routes with bearer token verification
 app.use("/api", requireBearerAuth({ requiredScopes: ["read"] }));
@@ -108,6 +120,15 @@ class MyOAuthProvider extends BaseOAuthClientProvider {
   }
 }
 ```
+
+## Examples
+
+Runnable example projects with full setup instructions:
+
+| Example | Description |
+|---|---|
+| [Hello World Server](examples/hello-world-server/) | Minimal MCP server with bearer auth and OAuth metadata |
+| [Delegated Access](examples/delegated-access/) | Token exchange for external APIs (GitHub) with error handling |
 
 ## Delegated Access (Token Exchange)
 
@@ -291,6 +312,20 @@ packages/
 
 `@keycardai/oauth` is the foundational layer with zero MCP dependencies. `@keycardai/mcp` builds on top for MCP-specific concerns (Express middleware, MCP SDK type adapters). Extensions for specific frameworks branch out from there.
 
+## Known Limitations & Non-Goals
+
+### Current Limitations
+
+- **Alpha Status**: All packages are in early development (`0.x.y`). APIs may change between minor versions.
+- **Express Only**: Server-side middleware targets Express 5. Other frameworks (Fastify, Koa, Hono) are not supported yet.
+- **MCP Protocol Version**: Tested against MCP protocol version as implemented by `@modelcontextprotocol/sdk@^1.15.0`.
+
+### Non-Goals
+
+- **Standalone Identity Provider**: These packages integrate with Keycard's hosted identity service, not standalone identity management.
+- **TypeScript Only**: This SDK is TypeScript/JavaScript only. See the [Python SDK](https://github.com/keycardai/python-sdk) for Python.
+- **Offline Operation**: All authentication flows require network connectivity to Keycard services.
+
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
@@ -299,4 +334,5 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 - GitHub Issues: [https://github.com/keycardai/typescript-sdk/issues](https://github.com/keycardai/typescript-sdk/issues)
 - Documentation: [https://docs.keycard.ai](https://docs.keycard.ai/)
+- Python SDK: [https://github.com/keycardai/python-sdk](https://github.com/keycardai/python-sdk)
 - Email: support@keycard.ai

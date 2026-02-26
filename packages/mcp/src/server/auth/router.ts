@@ -1,10 +1,13 @@
 import express from "express";
-import { AuthMetadataOptions } from "@modelcontextprotocol/sdk/server/auth/router.js";
 import type { InferredOAuthProtectedResourceMetadata } from "../../shared/auth.js";
 import { protectedResourceMetadataHandler, authorizationServerMetadataHandler } from "./handlers/metadata.js";
 
-export type { AuthMetadataOptions };
-export type InferredAuthMetadataOptions = Omit<AuthMetadataOptions, "resourceServerUrl">;
+export type InferredAuthMetadataOptions = {
+  oauthMetadata: { issuer: string };
+  serviceDocumentationUrl?: URL;
+  scopesSupported?: string[];
+  resourceName?: string;
+};
 
 
 export function mcpAuthMetadataRouter(options: InferredAuthMetadataOptions): express.Router {
