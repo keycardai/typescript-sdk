@@ -11,7 +11,10 @@ const OAuthAuthorizationServerMetadataSchema = z.object({
 
 export type OAuthAuthorizationServerMetadata = z.infer<typeof OAuthAuthorizationServerMetadataSchema>;
 
-export async function fetchAuthorizationServerMetadata(issuer: string): Promise<OAuthAuthorizationServerMetadata> {
+export async function fetchAuthorizationServerMetadata(
+  issuer: string,
+  options?: { signal?: AbortSignal },
+): Promise<OAuthAuthorizationServerMetadata> {
   const issuerURL = new URL(issuer);
   let path = issuerURL.pathname;
   if (path.endsWith("/")) {
@@ -19,7 +22,7 @@ export async function fetchAuthorizationServerMetadata(issuer: string): Promise<
   }
 
   const url = new URL(`/.well-known/oauth-authorization-server${path}`, issuer);
-  const response = await fetch(url);
+  const response = await fetch(url, { signal: options?.signal });
   if (!response.ok) {
     throw new Error(
       `Failed to fetch OAuth authorization server metadata for "${issuer}"`,

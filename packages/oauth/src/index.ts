@@ -1,4 +1,4 @@
-export type { OAuthKeyring, PrivateKeyring, IdentifiableKey } from "./keyring.js";
+export type { OAuthKeyring, PrivateKeyring, IdentifiableKey, JWKSOAuthKeyringOptions } from "./keyring.js";
 export { JWKSOAuthKeyring } from "./keyring.js";
 export { default as base64url } from "./base64url.js";
 export { fetchAuthorizationServerMetadata } from "./discovery.js";
