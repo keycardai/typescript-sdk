@@ -30,9 +30,10 @@ A collection of TypeScript packages for Keycard services, organized as a pnpm wo
 If you're building an MCP server with Express:
 
 ```bash
-npm install @keycardai/mcp
+npm install @keycardai/mcp @modelcontextprotocol/sdk
 ```
 
+`@keycardai/mcp` requires `@modelcontextprotocol/sdk` as a peer dependency (`^1.15.0`).
 This includes `@keycardai/oauth` as a dependency.
 
 ### For OAuth Functionality Only
@@ -318,7 +319,7 @@ packages/
 
 - **Alpha Status**: All packages are in early development (`0.x.y`). APIs may change between minor versions.
 - **Express Only**: Server-side middleware targets Express 5. Other frameworks (Fastify, Koa, Hono) are not supported yet.
-- **MCP Protocol Version**: Tested against MCP protocol version as implemented by `@modelcontextprotocol/sdk@^1.15.0`.
+- **MCP Protocol Version**: Requires `@modelcontextprotocol/sdk@^1.15.0` as a peer dependency. Compatible with any 1.x release from 1.15.0 onward.
 
 ### Non-Goals
 

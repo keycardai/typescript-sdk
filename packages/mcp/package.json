@@ -1,6 +1,6 @@
 {
   "name": "@keycardai/mcp",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "High-security OAuth implementation for Model Context Protocol",
   "license": "MIT",
   "repository": {
@@ -79,13 +79,16 @@
   },
   "dependencies": {
     "@keycardai/oauth": "workspace:*",
-    "@modelcontextprotocol/sdk": "^1.15.0",
     "cors": "^2.8.5",
     "express": "^5.1.0",
     "zod": "^3.25.74"
   },
+  "peerDependencies": {
+    "@modelcontextprotocol/sdk": "^1.15.0"
+  },
   "devDependencies": {
     "@jest/globals": "^30.0.4",
+    "@modelcontextprotocol/sdk": "^1.15.0",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.3",
     "jest": "^30.0.4",
