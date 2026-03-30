@@ -29,13 +29,13 @@ describe("AccessContext", () => {
       "https://api.example.com": { accessToken: "token", tokenType: "bearer" },
     });
 
-    ctx.setError({ error: "Global failure" });
+    ctx.setError({ message: "Global failure" });
     expect(() => ctx.access("https://api.example.com")).toThrow(ResourceAccessError);
   });
 
   it("should throw ResourceAccessError when resource has error", () => {
     const ctx = new AccessContext();
-    ctx.setResourceError("https://api.example.com", { error: "Failed" });
+    ctx.setResourceError("https://api.example.com", { message: "Failed" });
 
     expect(() => ctx.access("https://api.example.com")).toThrow(ResourceAccessError);
   });
@@ -48,13 +48,13 @@ describe("AccessContext", () => {
     expect(ctx.getStatus()).toBe("success");
 
     // Set resource error → partial_error
-    ctx.setResourceError("https://api1.com", { error: "Failed" });
+    ctx.setResourceError("https://api1.com", { message: "Failed" });
     expect(ctx.hasErrors()).toBe(true);
     expect(ctx.hasResourceError("https://api1.com")).toBe(true);
     expect(ctx.getStatus()).toBe("partial_error");
 
     // Set global error → error
-    ctx.setError({ error: "Global failure" });
+    ctx.setError({ message: "Global failure" });
     expect(ctx.hasError()).toBe(true);
     expect(ctx.getStatus()).toBe("error");
   });
@@ -62,7 +62,7 @@ describe("AccessContext", () => {
   it("should clear error when setting token for same resource", () => {
     const ctx = new AccessContext();
 
-    ctx.setResourceError("https://api.test.com", { error: "Failed" });
+    ctx.setResourceError("https://api.test.com", { message: "Failed" });
     expect(ctx.hasResourceError("https://api.test.com")).toBe(true);
 
     ctx.setToken("https://api.test.com", { accessToken: "new_token", tokenType: "bearer" });
@@ -74,7 +74,7 @@ describe("AccessContext", () => {
     const ctx = new AccessContext();
 
     ctx.setToken("https://api.test.com", { accessToken: "original_token", tokenType: "bearer" });
-    ctx.setResourceError("https://api.test.com", { error: "Now failed" });
+    ctx.setResourceError("https://api.test.com", { message: "Now failed" });
 
     expect(() => ctx.access("https://api.test.com")).toThrow(ResourceAccessError);
     expect(ctx.getFailedResources()).toContain("https://api.test.com");
@@ -96,7 +96,7 @@ describe("AccessContext", () => {
   it("should return correct successful and failed resources", () => {
     const ctx = new AccessContext();
     ctx.setToken("https://ok.com", { accessToken: "ok", tokenType: "bearer" });
-    ctx.setResourceError("https://fail.com", { error: "fail" });
+    ctx.setResourceError("https://fail.com", { message: "fail" });
 
     expect(ctx.getSuccessfulResources()).toEqual(["https://ok.com"]);
     expect(ctx.getFailedResources()).toEqual(["https://fail.com"]);
@@ -104,12 +104,12 @@ describe("AccessContext", () => {
 
   it("should return all errors via getErrors()", () => {
     const ctx = new AccessContext();
-    ctx.setResourceError("https://api1.com", { error: "err1" });
-    ctx.setError({ error: "global" });
+    ctx.setResourceError("https://api1.com", { message: "err1" });
+    ctx.setError({ message: "global" });
 
     const errors = ctx.getErrors();
-    expect(errors.error).toEqual({ error: "global" });
-    expect(errors.resourceErrors["https://api1.com"]).toEqual({ error: "err1" });
+    expect(errors.error).toEqual({ message: "global" });
+    expect(errors.resources["https://api1.com"]).toEqual({ message: "err1" });
   });
 
   it("should return null for getError() when no global error", () => {
@@ -173,7 +173,7 @@ describe("AuthProvider", () => {
       expect(next).toHaveBeenCalled();
       expect(req.accessContext).toBeDefined();
       expect(req.accessContext.hasError()).toBe(true);
-      expect(req.accessContext.getError()!.error).toContain("No authentication token");
+      expect(req.accessContext.getError()!.message).toContain("No authentication token");
     });
 
     it("should always call next() even on error", async () => {

@@ -2,6 +2,7 @@ import type { Request, Response, NextFunction, RequestHandler } from "express";
 import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import { TokenExchangeClient } from "@keycardai/oauth/tokenExchange";
 import type { TokenResponse } from "@keycardai/oauth/tokenExchange";
+import { OAuthError } from "@keycardai/oauth/errors";
 import { ResourceAccessError, AuthProviderConfigurationError } from "./errors.js";
 import type { ApplicationCredential } from "./credentials.js";
 
@@ -12,7 +13,9 @@ import type { ApplicationCredential } from "./credentials.js";
 export type { TokenResponse } from "@keycardai/oauth/tokenExchange";
 
 export type ErrorDetail = {
-  error: string;
+  message: string;
+  code?: string;
+  description?: string;
   rawError?: string;
 };
 
@@ -99,9 +102,9 @@ export class AccessContext {
     return this.#resourceErrors.get(resource) ?? null;
   }
 
-  getErrors(): { resourceErrors: Record<string, ErrorDetail>; error: ErrorDetail | null } {
+  getErrors(): { resources: Record<string, ErrorDetail>; error: ErrorDetail | null } {
     return {
-      resourceErrors: Object.fromEntries(this.#resourceErrors),
+      resources: Object.fromEntries(this.#resourceErrors),
       error: this.#error,
     };
   }
@@ -150,7 +153,7 @@ export class AuthProvider {
       if (!subjectToken) {
         const accessCtx = new AccessContext();
         accessCtx.setError({
-          error: "No authentication token available. Ensure requireBearerAuth() middleware runs before grant().",
+          message: "No authentication token available. Ensure requireBearerAuth() middleware runs before grant().",
         });
         authReq.accessContext = accessCtx;
         return next();
@@ -171,7 +174,7 @@ export class AuthProvider {
       client = await this.#getOrCreateClient();
     } catch (e) {
       accessCtx.setError({
-        error: "Failed to initialize OAuth client. Server configuration issue.",
+        message: "Failed to initialize OAuth client. Server configuration issue.",
         rawError: String(e),
       });
       return accessCtx;
@@ -200,10 +203,18 @@ export class AuthProvider {
         const response = await client.exchangeToken(request);
         tokens[resource] = response;
       } catch (e) {
-        accessCtx.setResourceError(resource, {
-          error: `Token exchange failed for ${resource}: ${e}`,
-          rawError: String(e),
-        });
+        const detail: ErrorDetail = {
+          message: `Token exchange failed for ${resource}`,
+        };
+        if (e instanceof OAuthError) {
+          detail.code = e.errorCode;
+          if (e.message) {
+            detail.description = e.message;
+          }
+        } else {
+          detail.rawError = String(e);
+        }
+        accessCtx.setResourceError(resource, detail);
       }
     }
 
