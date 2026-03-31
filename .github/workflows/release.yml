@@ -44,10 +44,11 @@ jobs:
             echo "dir=packages/sdk" >> $GITHUB_OUTPUT
           fi
 
+      - name: Upgrade npm for OIDC trusted publishing
+        run: npm install -g npm@latest
+
       - name: Build all packages
         run: pnpm -r run build
 
       - name: Publish
-        run: pnpm --filter "${{ steps.package.outputs.name }}" publish --access public --no-git-checks
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: pnpm --filter "${{ steps.package.outputs.name }}" publish --access public --no-git-checks --provenance
