@@ -1,0 +1,53 @@
+name: Merge to Main
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+concurrency:
+  group: main
+  cancel-in-progress: false
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      changed-packages: ${{ steps.changes.outputs.changed-packages }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install commitizen
+        run: pip install commitizen
+
+      - name: Detect package changes
+        id: changes
+        run: |
+          PACKAGES=$(python scripts/changelog.py changes --output-format github)
+          echo "changed-packages=$PACKAGES" >> $GITHUB_OUTPUT
+
+  bump-packages:
+    if: needs.detect-changes.outputs.changed-packages != '[]' && !startsWith(github.event.head_commit.message, 'bump:')
+    needs: detect-changes
+    permissions:
+      contents: write
+    strategy:
+      matrix:
+        package: ${{ fromJson(needs.detect-changes.outputs.changed-packages) }}
+      max-parallel: 1
+    uses: ./.github/workflows/bump-package.yml
+    with:
+      package_name: ${{ matrix.package.package_name }}
+      package_dir: ${{ matrix.package.package_dir }}
+    secrets: inherit
