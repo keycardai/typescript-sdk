@@ -1,4 +1,5 @@
 import { fetchAuthorizationServerMetadata } from "./discovery.js";
+import { OAuthError } from "./errors.js";
 
 // =============================================================================
 // Token Exchange Types (RFC 8693)
@@ -113,19 +114,24 @@ export class TokenExchangeClient {
     });
 
     if (!response.ok) {
-      let errorDetail = "";
       try {
         const errorBody = await response.json() as Record<string, unknown>;
-        errorDetail = typeof errorBody.error_description === "string"
-          ? errorBody.error_description
-          : typeof errorBody.error === "string"
-            ? errorBody.error
-            : "";
-      } catch {
-        // ignore parse errors
+        if (typeof errorBody.error === "string") {
+          const errorCode = errorBody.error;
+          const description = typeof errorBody.error_description === "string"
+            ? errorBody.error_description
+            : errorCode;
+          const errorUri = typeof errorBody.error_uri === "string"
+            ? errorBody.error_uri
+            : undefined;
+          throw new OAuthError(errorCode, description, errorUri);
+        }
+      } catch (e) {
+        if (e instanceof OAuthError) throw e;
+        // non-JSON or no "error" key — fall through
       }
       throw new Error(
-        `Token exchange failed (HTTP ${response.status})${errorDetail ? `: ${errorDetail}` : ""}`,
+        `Token exchange failed (HTTP ${response.status})`,
       );
     }
 
