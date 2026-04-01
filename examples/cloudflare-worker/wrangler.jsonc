@@ -1,0 +1,21 @@
+{
+  "name": "keycard-mcp-worker",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-04-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Non-secret configuration — baked into the Worker
+  "vars": {
+    "KEYCARD_ISSUER": "https://your-zone-id.keycard.cloud",
+    "KEYCARD_RESOURCE_URL": "https://api.github.com"
+  }
+
+  // Secrets — set via `wrangler secret put`:
+  //
+  // Option A: Client credentials
+  //   wrangler secret put KEYCARD_CLIENT_ID
+  //   wrangler secret put KEYCARD_CLIENT_SECRET
+  //
+  // Option B: Web identity (private key JWT — no client secret needed)
+  //   wrangler secret put KEYCARD_PRIVATE_KEY
+}

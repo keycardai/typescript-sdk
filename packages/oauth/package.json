@@ -49,6 +49,11 @@
       "import": "./dist/esm/tokenExchange.js",
       "require": "./dist/cjs/tokenExchange.js",
       "types": "./dist/esm/tokenExchange.d.ts"
+    },
+    "./credentials": {
+      "import": "./dist/esm/credentials.js",
+      "require": "./dist/cjs/credentials.js",
+      "types": "./dist/esm/credentials.d.ts"
     }
   },
   "files": [
