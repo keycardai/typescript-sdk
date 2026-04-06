@@ -228,15 +228,6 @@ export class PiMonoClient {
     return names;
   }
 
-  /** Get names of servers that had connection errors. */
-  getErrorServers(): string[] {
-    const names: string[] = [];
-    for (const [name, state] of this.#serverStates) {
-      if (state.status === "error") names.push(name);
-    }
-    return names;
-  }
-
   /** Get the full state map for all servers. */
   getServerStates(): ReadonlyMap<string, ServerState> {
     return this.#serverStates;

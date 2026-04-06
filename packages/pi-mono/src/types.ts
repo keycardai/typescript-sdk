@@ -14,7 +14,6 @@ import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 export type {
   AgentTool,
   AgentToolResult,
-  AgentToolUpdateCallback,
 } from "@mariozechner/pi-agent-core";
 
 // ---------------------------------------------------------------------------
@@ -22,7 +21,7 @@ export type {
 // ---------------------------------------------------------------------------
 
 /** Auth status of an MCP server after connection attempt. */
-export type ServerAuthStatus = "authorized" | "unauthorized" | "error";
+export type ServerAuthStatus = "authorized" | "unauthorized";
 
 /** Tracked state for a connected (or failed) MCP server. */
 export interface ServerState {
