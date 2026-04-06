@@ -1,0 +1,67 @@
+{
+  "name": "@keycardai/cloudflare",
+  "version": "0.1.0",
+  "description": "Keycard auth integration for Cloudflare Workers — JWT verification, token exchange, and OAuth metadata",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/keycardai/typescript-sdk.git",
+    "directory": "packages/cloudflare"
+  },
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/esm/index.js",
+      "require": "./dist/cjs/index.js",
+      "types": "./dist/esm/index.d.ts"
+    },
+    "./auth": {
+      "import": "./dist/esm/auth.js",
+      "require": "./dist/cjs/auth.js",
+      "types": "./dist/esm/auth.d.ts"
+    },
+    "./metadata": {
+      "import": "./dist/esm/metadata.js",
+      "require": "./dist/cjs/metadata.js",
+      "types": "./dist/esm/metadata.d.ts"
+    },
+    "./tokenCache": {
+      "import": "./dist/esm/tokenCache.js",
+      "require": "./dist/cjs/tokenCache.js",
+      "types": "./dist/esm/tokenCache.d.ts"
+    },
+    "./credentials": {
+      "import": "./dist/esm/credentials.js",
+      "require": "./dist/cjs/credentials.js",
+      "types": "./dist/esm/credentials.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "typesVersions": {
+    "*": {
+      "*": [
+        "./dist/esm/*"
+      ]
+    }
+  },
+  "scripts": {
+    "build": "pnpm run build:esm && pnpm run build:cjs",
+    "build:esm": "tsc -p tsconfig.prod.json && echo '{\"type\": \"module\"}' > dist/esm/package.json",
+    "build:cjs": "tsc -p tsconfig.cjs.json && echo '{\"type\": \"commonjs\"}' > dist/cjs/package.json",
+    "test": "NODE_OPTIONS='--experimental-vm-modules' jest",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@keycardai/oauth": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250327.0",
+    "@jest/globals": "^30.0.4",
+    "jest": "^30.0.4",
+    "ts-jest": "^29.4.0",
+    "typescript": "^5.8.3"
+  }
+}

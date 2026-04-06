@@ -1,0 +1,22 @@
+{
+  "name": "cloudflare-worker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Keycard-protected MCP server on Cloudflare Workers with bearer auth and token exchange",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "@keycardai/cloudflare": "^0.1.0",
+    "@keycardai/oauth": "^0.2.0",
+    "@modelcontextprotocol/sdk": "^1.15.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250327.0",
+    "typescript": "^5.8.3",
+    "wrangler": "^4.14.0"
+  }
+}

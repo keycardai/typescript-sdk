@@ -9,3 +9,4 @@ export type { JWTClaims } from "./jwt/signer.js";
 export { JWTVerifier } from "./jwt/verifier.js";
 export { TokenExchangeClient } from "./tokenExchange.js";
 export type { TokenExchangeRequest, TokenResponse, TokenExchangeClientOptions } from "./tokenExchange.js";
+export type { ApplicationCredential } from "./credentials.js";

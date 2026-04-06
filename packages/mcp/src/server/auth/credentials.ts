@@ -1,21 +1,11 @@
 import * as fs from "node:fs";
 import type { TokenExchangeRequest } from "@keycardai/oauth/tokenExchange";
+import type { ApplicationCredential } from "@keycardai/oauth/credentials";
 import { PrivateKeyManager, FilePrivateKeyStorage } from "./privateKey.js";
 import type { PrivateKeyStorage } from "./privateKey.js";
 import { EKSWorkloadIdentityConfigurationError } from "./errors.js";
 
-// =============================================================================
-// ApplicationCredential interface
-// =============================================================================
-
-export interface ApplicationCredential {
-  getAuth(): { clientId: string; clientSecret: string } | null;
-  prepareTokenExchangeRequest(
-    subjectToken: string,
-    resource: string,
-    options?: { tokenEndpoint?: string; authInfo?: Record<string, string> },
-  ): Promise<TokenExchangeRequest>;
-}
+export type { ApplicationCredential } from "@keycardai/oauth/credentials";
 
 // =============================================================================
 // ClientSecret
