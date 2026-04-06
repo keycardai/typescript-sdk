@@ -1,6 +1,6 @@
 {
   "name": "@keycardai/cloudflare",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Keycard auth integration for Cloudflare Workers — JWT verification, token exchange, and OAuth metadata",
   "license": "MIT",
   "repository": {
