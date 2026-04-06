@@ -1,0 +1,69 @@
+{
+  "name": "@keycardai/pi-mono",
+  "version": "0.1.0",
+  "description": "Pi-mono (coding agent) integration for Keycard — converts MCP tools to pi-mono AgentTool format with OAuth authentication",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/keycardai/typescript-sdk.git",
+    "directory": "packages/pi-mono"
+  },
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/esm/index.js",
+      "require": "./dist/cjs/index.js",
+      "types": "./dist/esm/index.d.ts"
+    },
+    "./auth-tools": {
+      "import": "./dist/esm/auth-tools.js",
+      "require": "./dist/cjs/auth-tools.js",
+      "types": "./dist/esm/auth-tools.d.ts"
+    },
+    "./tools": {
+      "import": "./dist/esm/tools.js",
+      "require": "./dist/cjs/tools.js",
+      "types": "./dist/esm/tools.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "typesVersions": {
+    "*": {
+      "*": [
+        "./dist/esm/*"
+      ]
+    }
+  },
+  "scripts": {
+    "build": "pnpm run build:esm && pnpm run build:cjs",
+    "build:esm": "tsc -p tsconfig.prod.json && echo '{\"type\": \"module\"}' > dist/esm/package.json",
+    "build:cjs": "tsc -p tsconfig.cjs.json && echo '{\"type\": \"commonjs\"}' > dist/cjs/package.json",
+    "test": "NODE_OPTIONS='--experimental-vm-modules' jest --passWithNoTests",
+    "test:e2e": "npx tsx e2e/e2e.test.ts",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@keycardai/oauth": "workspace:*"
+  },
+  "peerDependencies": {
+    "@modelcontextprotocol/sdk": "^1.15.0",
+    "@mariozechner/pi-agent-core": ">=0.60.0",
+    "@mariozechner/pi-ai": ">=0.60.0",
+    "@sinclair/typebox": ">=0.30.0"
+  },
+  "devDependencies": {
+    "@jest/globals": "^30.0.4",
+    "@mariozechner/pi-agent-core": ">=0.60.0",
+    "@mariozechner/pi-ai": ">=0.60.0",
+    "@mariozechner/pi-coding-agent": ">=0.60.0",
+    "@modelcontextprotocol/sdk": "^1.15.0",
+    "@sinclair/typebox": ">=0.30.0",
+    "jest": "^30.0.4",
+    "ts-jest": "^29.4.0",
+    "typescript": "^5.8.3",
+    "zod": "^3.25.0"
+  }
+}
