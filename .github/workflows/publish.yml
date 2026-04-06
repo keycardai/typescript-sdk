@@ -5,6 +5,8 @@ on:
     tags:
       - "*-keycardai-oauth"
       - "*-keycardai-mcp"
+      - "*-keycardai-cloudflare"
+      - "*-keycardai-pi-mono"
       - "*-keycardai-sdk"
 
 permissions:
@@ -39,6 +41,12 @@ jobs:
           elif [[ "$TAG" == *-keycardai-mcp ]]; then
             echo "name=@keycardai/mcp" >> $GITHUB_OUTPUT
             echo "dir=packages/mcp" >> $GITHUB_OUTPUT
+          elif [[ "$TAG" == *-keycardai-cloudflare ]]; then
+            echo "name=@keycardai/cloudflare" >> $GITHUB_OUTPUT
+            echo "dir=packages/cloudflare" >> $GITHUB_OUTPUT
+          elif [[ "$TAG" == *-keycardai-pi-mono ]]; then
+            echo "name=@keycardai/pi-mono" >> $GITHUB_OUTPUT
+            echo "dir=packages/pi-mono" >> $GITHUB_OUTPUT
           elif [[ "$TAG" == *-keycardai-sdk ]]; then
             echo "name=@keycardai/sdk" >> $GITHUB_OUTPUT
             echo "dir=packages/sdk" >> $GITHUB_OUTPUT
