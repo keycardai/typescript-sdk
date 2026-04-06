@@ -13,7 +13,16 @@ A collection of TypeScript packages for Keycard services, organized as a pnpm wo
 |---|---|---|
 | [`@keycardai/oauth`](packages/oauth/) | Pure OAuth 2.0 primitives — JWKS key management, JWT signing/verification, authorization server discovery | [![npm](https://img.shields.io/npm/v/@keycardai/oauth)](https://www.npmjs.com/package/@keycardai/oauth) |
 | [`@keycardai/mcp`](packages/mcp/) | MCP OAuth integration — Express middleware, token verification, client providers | [![npm](https://img.shields.io/npm/v/@keycardai/mcp)](https://www.npmjs.com/package/@keycardai/mcp) |
+| [`@keycardai/pi-mono`](packages/pi-mono/) | Pi-mono agent integration — MCP tool conversion, OAuth auth, system prompts | [![npm](https://img.shields.io/npm/v/@keycardai/pi-mono)](https://www.npmjs.com/package/@keycardai/pi-mono) |
 | [`@keycardai/sdk`](packages/sdk/) | Aggregate package re-exporting from oauth + mcp | [![npm](https://img.shields.io/npm/v/@keycardai/sdk)](https://www.npmjs.com/package/@keycardai/sdk) |
+
+## Which Package?
+
+| You want to... | Install |
+|---|---|
+| Add auth to your MCP server (Express) | `@keycardai/mcp` |
+| Connect to MCP servers from a pi-mono agent | `@keycardai/pi-mono` |
+| Use OAuth 2.0 primitives directly | `@keycardai/oauth` |
 
 ## Key Concepts
 
@@ -35,6 +44,14 @@ npm install @keycardai/mcp @modelcontextprotocol/sdk
 
 `@keycardai/mcp` requires `@modelcontextprotocol/sdk` as a peer dependency (`^1.15.0`).
 This includes `@keycardai/oauth` as a dependency.
+
+### For Pi-Mono Agent Integration
+
+If you're building a pi-mono agent that connects to Keycard-protected MCP servers:
+
+```bash
+npm install @keycardai/pi-mono @mariozechner/pi-agent-core @mariozechner/pi-ai @modelcontextprotocol/sdk @sinclair/typebox
+```
 
 ### For OAuth Functionality Only
 
