@@ -1,0 +1,23 @@
+{
+  "name": "pi-mono-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pi-mono coding agent with Keycard-protected MCP tools — GitHub, Slack, and more",
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "dev": "tsx watch src/index.ts"
+  },
+  "dependencies": {
+    "@keycardai/pi-mono": "^0.1.0",
+    "@mariozechner/pi-agent-core": ">=0.60.0",
+    "@mariozechner/pi-ai": ">=0.60.0",
+    "@mariozechner/pi-coding-agent": ">=0.60.0",
+    "@modelcontextprotocol/sdk": "^1.15.0",
+    "@sinclair/typebox": ">=0.30.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.3"
+  }
+}
