@@ -80,8 +80,9 @@ export async function verifyBearerToken(
       authInfo.expiresAt = claims.exp;
     }
 
-    // Check resource audience
-    if (authInfo.resource && authInfo.resource.toString() !== url.toString()) {
+    // Check resource audience — compare against origin only, since tokens
+    // are scoped to a resource server, not a specific path or query string.
+    if (authInfo.resource && authInfo.resource.origin !== url.origin) {
       throw new InvalidTokenError("Token not intended for resource");
     }
 

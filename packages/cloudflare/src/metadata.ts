@@ -48,7 +48,6 @@ function handleProtectedResourceMetadata(
   options: MetadataOptions,
 ): Response {
   const baseUrl = url.origin;
-  const resource = url.origin + url.pathname.replace(/^\/.well-known\/oauth-protected-resource/, "") || baseUrl;
 
   const json: Record<string, unknown> = {
     resource: baseUrl,
