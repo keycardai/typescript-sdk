@@ -1,8 +1,8 @@
 export type { OAuthKeyring, PrivateKeyring, IdentifiableKey, JWKSOAuthKeyringOptions } from "./keyring.js";
 export { JWKSOAuthKeyring } from "./keyring.js";
 export { default as base64url } from "./base64url.js";
-export { fetchAuthorizationServerMetadata } from "./discovery.js";
-export type { OAuthAuthorizationServerMetadata } from "./discovery.js";
+export { fetchAuthorizationServerMetadata, fetchProtectedResourceMetadata } from "./discovery.js";
+export type { OAuthAuthorizationServerMetadata, OAuthProtectedResourceMetadata } from "./discovery.js";
 export { HTTPError, BadRequestError, UnauthorizedError, OAuthError, InvalidTokenError, InsufficientScopeError } from "./errors.js";
 export { JWTSigner } from "./jwt/signer.js";
 export type { JWTClaims } from "./jwt/signer.js";
