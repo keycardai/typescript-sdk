@@ -11,14 +11,40 @@ export interface AuthenticatedRequest extends Request {
 }
 
 export type BearerAuthMiddlewareOptions = {
+  /**
+   * Token verifier implementation. If omitted, a `JWTOAuthTokenVerifier` is
+   * constructed from `issuers` / `audiences`. Exactly one of `verifier` or
+   * `issuers` must be provided.
+   */
   verifier?: OAuthTokenVerifier;
+  /**
+   * Issuer(s) to trust when auto-constructing the default verifier. Tokens
+   * whose `iss` doesn't match are rejected before any key lookup.
+   */
+  issuers?: string | readonly string[];
+  /**
+   * Audience(s) to enforce when auto-constructing the default verifier. When
+   * set, tokens must present an `aud` that contains one of these values.
+   */
+  audiences?: string | readonly string[];
   requiredScopes?: string[];
 };
 
-export function requireBearerAuth({ verifier, requiredScopes = [] }: BearerAuthMiddlewareOptions): RequestHandler {
+export function requireBearerAuth({
+  verifier,
+  issuers,
+  audiences,
+  requiredScopes = [],
+}: BearerAuthMiddlewareOptions): RequestHandler {
   if (!verifier) {
+    if (!issuers) {
+      throw new Error(
+        "requireBearerAuth: provide either `verifier` or `issuers` — " +
+          "passing neither would accept any signed JWT",
+      );
+    }
     const keyring = new JWKSOAuthKeyring();
-    verifier = new JWTOAuthTokenVerifier(keyring);
+    verifier = new JWTOAuthTokenVerifier(keyring, { issuers, audiences });
   }
 
   return async (req, res, next) => {
