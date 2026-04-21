@@ -30,8 +30,16 @@ app.use(
   }),
 );
 
-// Protect routes with bearer token verification
-app.use("/api", requireBearerAuth({ requiredScopes: ["read"] }));
+// Protect routes with bearer token verification.
+// `issuers` is required — it binds the verifier to your zone so forged
+// tokens from any other issuer are rejected before key lookup.
+app.use(
+  "/api",
+  requireBearerAuth({
+    issuers: "https://your-zone.keycard.cloud",
+    requiredScopes: ["read"],
+  }),
+);
 
 app.get("/api/data", (req, res) => {
   res.json({ message: "Authenticated!" });
@@ -55,7 +63,7 @@ const authProvider = new AuthProvider({
 });
 
 const app = express();
-app.use(requireBearerAuth());
+app.use(requireBearerAuth({ issuers: "https://your-zone.keycard.cloud" }));
 
 app.get(
   "/api/github-user",
