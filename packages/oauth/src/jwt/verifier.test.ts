@@ -82,6 +82,16 @@ describe('JWTVerifier', () => {
     ).toThrow(/at least one trusted issuer/);
   });
 
+  it('rejects algorithms the signature step cannot verify', () => {
+    const keyring: OAuthKeyring = { key: jest.fn() };
+    expect(
+      () => new JWTVerifier(keyring, { issuers: ISSUER, algorithms: ['RS256', 'ES256'] }),
+    ).toThrow(/does not implement signature verification for "ES256"/);
+    expect(
+      () => new JWTVerifier(keyring, { issuers: ISSUER, algorithms: ['HS256'] }),
+    ).toThrow(/does not implement signature verification for "HS256"/);
+  });
+
   it('accepts a well-formed token with matching issuer and exp', async () => {
     const [privateKey, publicKey] = await Promise.all([importPrivateKey(), importPublicKey()]);
     const { keyring, keyFn } = makeKeyring(publicKey);
@@ -159,6 +169,26 @@ describe('JWTVerifier', () => {
     await expect(verifier.verify(token)).rejects.toThrow(/Token not yet valid/);
   });
 
+  it('rejects tokens whose exp is NaN', async () => {
+    const { keyring } = makeKeyring(await importPublicKey());
+    const forged = forgeUnverifiedJWT(
+      { alg: 'RS256', kid: KID },
+      { iss: ISSUER, client_id: 'c', exp: NaN },
+    );
+    const verifier = new JWTVerifier(keyring, { issuers: ISSUER });
+    await expect(verifier.verify(forged)).rejects.toThrow(/missing expiration/);
+  });
+
+  it('rejects tokens whose nbf is NaN', async () => {
+    const { keyring } = makeKeyring(await importPublicKey());
+    const forged = forgeUnverifiedJWT(
+      { alg: 'RS256', kid: KID },
+      { iss: ISSUER, client_id: 'c', exp: nowSec() + 3600, nbf: NaN },
+    );
+    const verifier = new JWTVerifier(keyring, { issuers: ISSUER });
+    await expect(verifier.verify(forged)).rejects.toThrow(/invalid not-before/);
+  });
+
   it('rejects tokens missing exp', async () => {
     const [privateKey, publicKey] = await Promise.all([importPrivateKey(), importPublicKey()]);
     const { keyring } = makeKeyring(publicKey);
@@ -215,6 +245,30 @@ describe('JWTVerifier', () => {
     });
   });
 
+  it('treats `audiences: []` as unconfigured (no audience check)', async () => {
+    const [privateKey, publicKey] = await Promise.all([importPrivateKey(), importPublicKey()]);
+    const { keyring } = makeKeyring(publicKey);
+
+    const verifier = new JWTVerifier(keyring, {
+      issuers: ISSUER,
+      audiences: [],
+    });
+
+    // Missing aud is fine when audiences is unconfigured.
+    const missingAud = await signWith(
+      { client_id: 'c', exp: nowSec() + 3600 },
+      privateKey,
+    );
+    await expect(verifier.verify(missingAud)).resolves.toBeDefined();
+
+    // Any aud is accepted when audiences is unconfigured.
+    const arbitraryAud = await signWith(
+      { client_id: 'c', exp: nowSec() + 3600, aud: 'whatever-you-want' },
+      privateKey,
+    );
+    await expect(verifier.verify(arbitraryAud)).resolves.toBeDefined();
+  });
+
   it('supports an audience list', async () => {
     const [privateKey, publicKey] = await Promise.all([importPrivateKey(), importPublicKey()]);
     const { keyring } = makeKeyring(publicKey);
@@ -228,6 +282,50 @@ describe('JWTVerifier', () => {
       privateKey,
     );
     await expect(verifier.verify(token)).resolves.toBeDefined();
+  });
+
+  it('accepts tokens from any issuer in a multi-issuer allowlist', async () => {
+    const [privateKey, publicKey] = await Promise.all([importPrivateKey(), importPublicKey()]);
+    const { keyring, keyFn } = makeKeyring(publicKey);
+    const OTHER_ISSUER = 'https://zone-b.keycard.cloud';
+
+    const verifier = new JWTVerifier(keyring, {
+      issuers: [ISSUER, OTHER_ISSUER],
+    });
+
+    // Token from the first issuer.
+    const t1 = await signWith(
+      { client_id: 'c', exp: nowSec() + 3600 },
+      privateKey,
+    );
+    await expect(verifier.verify(t1)).resolves.toMatchObject({ iss: ISSUER });
+    expect(keyFn).toHaveBeenCalledWith(ISSUER, KID);
+
+    // Token from the second issuer — we sign with a PrivateKeyring that
+    // advertises OTHER_ISSUER so the signer sets iss accordingly.
+    const otherPrivateKeyring: PrivateKeyring = {
+      key: jest.fn<() => Promise<{ key: CryptoKey; kid: string; issuer: string }>>()
+        .mockResolvedValue({ key: privateKey, kid: KID, issuer: OTHER_ISSUER }),
+    };
+    const otherSigner = new JWTSigner(otherPrivateKeyring);
+    const t2 = await otherSigner.sign({ client_id: 'c', exp: nowSec() + 3600 });
+    await expect(verifier.verify(t2)).resolves.toMatchObject({ iss: OTHER_ISSUER });
+    expect(keyFn).toHaveBeenLastCalledWith(OTHER_ISSUER, KID);
+  });
+
+  it('requires exact-string issuer match (trailing slash matters)', async () => {
+    const [privateKey, publicKey] = await Promise.all([importPrivateKey(), importPublicKey()]);
+    const { keyring, keyFn } = makeKeyring(publicKey);
+    const verifier = new JWTVerifier(keyring, {
+      issuers: 'https://auth.example.com/', // trailing slash
+    });
+    // Signer issues with no trailing slash (ISSUER === 'https://auth.example.com').
+    const token = await signWith(
+      { client_id: 'c', exp: nowSec() + 3600 },
+      privateKey,
+    );
+    await expect(verifier.verify(token)).rejects.toThrow(/Untrusted issuer/);
+    expect(keyFn).not.toHaveBeenCalled();
   });
 
   it('rejects malformed tokens without calling the keyring', async () => {

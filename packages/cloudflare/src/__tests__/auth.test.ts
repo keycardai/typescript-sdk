@@ -97,9 +97,15 @@ describe("verifyBearerToken", () => {
       iss: "https://auth.keycard.ai",
     });
 
-    const result = await verifyBearerToken(makeRequest("Bearer expired-token"));
+    const result = await verifyBearerToken(makeRequest("Bearer expired-token"), { issuers: "https://auth.keycard.ai" });
     expect(isAuthError(result)).toBe(true);
     expect((result as Response).status).toBe(401);
+  });
+
+  it("throws a clear error when issuers is unset (e.g. KEYCARD_ISSUER env binding missing)", async () => {
+    await expect(
+      verifyBearerToken(makeRequest("Bearer tok"), { issuers: undefined as unknown as string }),
+    ).rejects.toThrow(/KEYCARD_ISSUER env binding is required|`issuers` is required/);
   });
 
   it("includes WWW-Authenticate header with resource_metadata URL", async () => {

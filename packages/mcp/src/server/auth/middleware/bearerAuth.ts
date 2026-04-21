@@ -37,14 +37,23 @@ export function requireBearerAuth({
   requiredScopes = [],
 }: BearerAuthMiddlewareOptions): RequestHandler {
   if (!verifier) {
-    if (!issuers) {
+    const configuredIssuers =
+      typeof issuers === "string" && issuers.length > 0
+        ? issuers
+        : Array.isArray(issuers) && issuers.length > 0
+          ? issuers
+          : undefined;
+    if (!configuredIssuers) {
       throw new Error(
-        "requireBearerAuth: provide either `verifier` or `issuers` — " +
+        "requireBearerAuth: provide either `verifier` or a non-empty `issuers` — " +
           "passing neither would accept any signed JWT",
       );
     }
     const keyring = new JWKSOAuthKeyring();
-    verifier = new JWTOAuthTokenVerifier(keyring, { issuers, audiences });
+    verifier = new JWTOAuthTokenVerifier(keyring, {
+      issuers: configuredIssuers,
+      audiences,
+    });
   }
 
   return async (req, res, next) => {

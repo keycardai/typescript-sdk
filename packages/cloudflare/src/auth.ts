@@ -32,9 +32,11 @@ function getVerifier(
   let verifier = verifierCache.get(key);
   if (!verifier) {
     const keyring = new JWKSOAuthKeyring();
+    // `audienceList` may be an empty array — the core JWTVerifier treats
+    // `[]` as "unconfigured", so both layers agree on the semantic.
     verifier = new JWTVerifier(keyring, {
       issuers: issuerList,
-      audiences: audienceList.length > 0 ? audienceList : undefined,
+      audiences: audienceList,
     });
     verifierCache.set(key, verifier);
   }
@@ -65,6 +67,21 @@ export async function verifyBearerToken(
 ): Promise<AuthInfo | Response> {
   const url = new URL(request.url);
   const resourceMetadataUrl = getResourceMetadataUrl(url);
+
+  // Catch the common deployment footgun where `KEYCARD_ISSUER` is unset in
+  // the Worker's env bindings and flows through as `undefined` despite the
+  // type claiming `string`. Fail the request with a clear message instead of
+  // crashing inside the verifier construction path.
+  const hasIssuers =
+    typeof options.issuers === "string"
+      ? options.issuers.length > 0
+      : Array.isArray(options.issuers) && options.issuers.length > 0;
+  if (!hasIssuers) {
+    throw new Error(
+      "verifyBearerToken: `issuers` is required. When using `createKeycardWorker`, " +
+        "ensure the `KEYCARD_ISSUER` env binding is set.",
+    );
+  }
 
   try {
     const credentials = request.headers.get("Authorization");

@@ -32,6 +32,13 @@ export interface JWTVerifierOptions {
 
 const DEFAULT_ALGORITHMS = ["RS256"] as const;
 
+// Every value `algorithms` accepts must round-trip through the single
+// signature-verify call in `verify()` below, which is hardcoded to
+// RSASSA-PKCS1-v1_5 + SHA-256. Until we do alg-specific dispatch, the
+// option is only meaningful as an allowlist that's a subset of what we
+// actually verify.
+const SUPPORTED_ALGORITHMS = new Set<string>(["RS256"]);
+
 export class JWTVerifier {
   #keyring: OAuthKeyring;
   #issuers: ReadonlySet<string>;
@@ -46,14 +53,28 @@ export class JWTVerifier {
       throw new Error("JWTVerifier requires at least one trusted issuer");
     }
 
+    const rawAudiences =
+      typeof options.audiences === "string"
+        ? [options.audiences]
+        : options.audiences ?? [];
+
+    const rawAlgorithms = options.algorithms ?? DEFAULT_ALGORITHMS;
+    for (const alg of rawAlgorithms) {
+      if (!SUPPORTED_ALGORITHMS.has(alg)) {
+        throw new Error(
+          `JWTVerifier does not implement signature verification for "${alg}". ` +
+            `Supported: ${[...SUPPORTED_ALGORITHMS].join(", ")}.`,
+        );
+      }
+    }
+
     this.#keyring = keyring;
     this.#issuers = new Set(rawIssuers);
-    this.#audiences = options.audiences
-      ? new Set(
-          typeof options.audiences === "string" ? [options.audiences] : options.audiences,
-        )
-      : undefined;
-    this.#algorithms = new Set(options.algorithms ?? DEFAULT_ALGORITHMS);
+    // An empty `audiences` list means "unconfigured" — matches Python parity
+    // and the ergonomic intent of passing `audiences: []`. A non-empty list
+    // switches audience validation on; a missing `aud` fails closed.
+    this.#audiences = rawAudiences.length > 0 ? new Set(rawAudiences) : undefined;
+    this.#algorithms = new Set(rawAlgorithms);
     this.#clockSkewSec = options.clockSkewSec ?? 0;
   }
 
@@ -89,8 +110,11 @@ export class JWTVerifier {
       throw new InvalidTokenError("Untrusted issuer");
     }
 
-    // Required claims per RFC 9068 § 2.2.
-    if (typeof jsonPayload.exp !== "number") {
+    // Required claims per RFC 9068 § 2.2. Reject NaN / Infinity explicitly —
+    // `typeof NaN === "number"` passes the type check but would make every
+    // comparison below false (and with `exp: NaN` that means effectively no
+    // expiration).
+    if (!Number.isFinite(jsonPayload.exp)) {
       throw new InvalidTokenError("JWT missing expiration (exp) claim");
     }
     if (!jsonPayload.client_id) {
@@ -99,11 +123,16 @@ export class JWTVerifier {
 
     // Time-based claims.
     const now = Math.floor(Date.now() / 1000);
-    if (now > jsonPayload.exp + this.#clockSkewSec) {
+    if (now > (jsonPayload.exp as number) + this.#clockSkewSec) {
       throw new InvalidTokenError("Token expired");
     }
-    if (typeof jsonPayload.nbf === "number" && now + this.#clockSkewSec < jsonPayload.nbf) {
-      throw new InvalidTokenError("Token not yet valid");
+    if (jsonPayload.nbf !== undefined) {
+      if (!Number.isFinite(jsonPayload.nbf)) {
+        throw new InvalidTokenError("JWT has invalid not-before (nbf) claim");
+      }
+      if (now + this.#clockSkewSec < (jsonPayload.nbf as number)) {
+        throw new InvalidTokenError("Token not yet valid");
+      }
     }
 
     // Audience check, if configured. Missing `aud` fails closed when audiences
