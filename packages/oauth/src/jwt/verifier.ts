@@ -20,31 +20,26 @@ export interface JWTVerifierOptions {
 
   /**
    * Allowed JWT algorithms. Defaults to `["RS256"]`. The `alg` header of a
-   * presented token must be a member. `"none"` is always rejected.
+   * presented token must be a member. `"none"` is always rejected. Values
+   * must be in the set the verifier actually implements (currently only
+   * `"RS256"`).
    */
   algorithms?: readonly string[];
-
-  /**
-   * Allowed clock skew for `exp` / `nbf` checks, in seconds. Default: 0.
-   */
-  clockSkewSec?: number;
 }
 
-const DEFAULT_ALGORITHMS = ["RS256"] as const;
-
-// Every value `algorithms` accepts must round-trip through the single
-// signature-verify call in `verify()` below, which is hardcoded to
-// RSASSA-PKCS1-v1_5 + SHA-256. Until we do alg-specific dispatch, the
-// option is only meaningful as an allowlist that's a subset of what we
-// actually verify.
-const SUPPORTED_ALGORITHMS = new Set<string>(["RS256"]);
+// The single `crypto.subtle.verify` call in `verify()` is hardcoded to
+// RSASSA-PKCS1-v1_5 + SHA-256, so the `algorithms` option is only meaningful
+// as an allowlist that's a subset of what we actually implement. Used both
+// as the default when the option is omitted and to validate user-supplied
+// values at construction time.
+const SUPPORTED_ALGORITHMS = ["RS256"] as const;
+const SUPPORTED_ALGORITHM_SET = new Set<string>(SUPPORTED_ALGORITHMS);
 
 export class JWTVerifier {
   #keyring: OAuthKeyring;
   #issuers: ReadonlySet<string>;
   #audiences?: ReadonlySet<string>;
   #algorithms: ReadonlySet<string>;
-  #clockSkewSec: number;
 
   constructor(keyring: OAuthKeyring, options: JWTVerifierOptions) {
     const rawIssuers =
@@ -58,12 +53,12 @@ export class JWTVerifier {
         ? [options.audiences]
         : options.audiences ?? [];
 
-    const rawAlgorithms = options.algorithms ?? DEFAULT_ALGORITHMS;
+    const rawAlgorithms = options.algorithms ?? SUPPORTED_ALGORITHMS;
     for (const alg of rawAlgorithms) {
-      if (!SUPPORTED_ALGORITHMS.has(alg)) {
+      if (!SUPPORTED_ALGORITHM_SET.has(alg)) {
         throw new Error(
           `JWTVerifier does not implement signature verification for "${alg}". ` +
-            `Supported: ${[...SUPPORTED_ALGORITHMS].join(", ")}.`,
+            `Supported: ${SUPPORTED_ALGORITHMS.join(", ")}.`,
         );
       }
     }
@@ -75,7 +70,6 @@ export class JWTVerifier {
     // switches audience validation on; a missing `aud` fails closed.
     this.#audiences = rawAudiences.length > 0 ? new Set(rawAudiences) : undefined;
     this.#algorithms = new Set(rawAlgorithms);
-    this.#clockSkewSec = options.clockSkewSec ?? 0;
   }
 
   async verify(token: string): Promise<JWTClaims> {
@@ -123,14 +117,14 @@ export class JWTVerifier {
 
     // Time-based claims.
     const now = Math.floor(Date.now() / 1000);
-    if (now > (jsonPayload.exp as number) + this.#clockSkewSec) {
+    if (now > (jsonPayload.exp as number)) {
       throw new InvalidTokenError("Token expired");
     }
     if (jsonPayload.nbf !== undefined) {
       if (!Number.isFinite(jsonPayload.nbf)) {
         throw new InvalidTokenError("JWT has invalid not-before (nbf) claim");
       }
-      if (now + this.#clockSkewSec < (jsonPayload.nbf as number)) {
+      if (now < (jsonPayload.nbf as number)) {
         throw new InvalidTokenError("Token not yet valid");
       }
     }

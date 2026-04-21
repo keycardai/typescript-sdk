@@ -3,12 +3,10 @@ import { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import type { OAuthKeyring } from "@keycardai/oauth/keyring";
 import { JWTVerifier, type JWTVerifierOptions } from "@keycardai/oauth/jwt/verifier";
 
-export type JWTOAuthTokenVerifierOptions = JWTVerifierOptions;
-
 export class JWTOAuthTokenVerifier implements OAuthTokenVerifier {
   #verifier: JWTVerifier;
 
-  constructor(keyring: OAuthKeyring, options: JWTOAuthTokenVerifierOptions) {
+  constructor(keyring: OAuthKeyring, options: JWTVerifierOptions) {
     this.#verifier = new JWTVerifier(keyring, options);
   }
 

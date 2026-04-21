@@ -8,45 +8,12 @@ import {
 } from "@keycardai/oauth/errors";
 import type { AuthInfo, BearerAuthOptions } from "./types.js";
 
-// Module-level per-config cache. Keyed by the canonicalized issuer list + audience
-// list so the same config across requests in one isolate reuses the verifier (and
-// its keyring cache). Different configs get different verifiers.
-const verifierCache = new Map<string, JWTVerifier>();
-
-function cacheKey(issuers: readonly string[], audiences: readonly string[]): string {
-  return JSON.stringify([[...issuers].sort(), [...audiences].sort()]);
-}
-
-function normalize(value: string | readonly string[]): readonly string[] {
-  return typeof value === "string" ? [value] : value;
-}
-
-function getVerifier(
-  issuers: string | readonly string[],
-  audiences?: string | readonly string[],
-): JWTVerifier {
-  const issuerList = normalize(issuers);
-  const audienceList = audiences ? normalize(audiences) : [];
-  const key = cacheKey(issuerList, audienceList);
-
-  let verifier = verifierCache.get(key);
-  if (!verifier) {
-    const keyring = new JWKSOAuthKeyring();
-    // `audienceList` may be an empty array — the core JWTVerifier treats
-    // `[]` as "unconfigured", so both layers agree on the semantic.
-    verifier = new JWTVerifier(keyring, {
-      issuers: issuerList,
-      audiences: audienceList,
-    });
-    verifierCache.set(key, verifier);
-  }
-  return verifier;
-}
-
-/** @internal Reset cached verifiers (for testing). */
-export function _resetVerifier(): void {
-  verifierCache.clear();
-}
+// Module-level shared keyring. The keyring caches JWKS responses per
+// (issuer, kid) with a TTL, which is the only cache that meaningfully
+// affects request latency. Each `verifyBearerToken` call constructs a
+// fresh `JWTVerifier` around this keyring; that construction is a handful
+// of Set literals and is sub-millisecond.
+const sharedKeyring = new JWKSOAuthKeyring();
 
 /**
  * Constructs the OAuth Protected Resource Metadata URL for WWW-Authenticate headers.
@@ -97,7 +64,10 @@ export async function verifyBearerToken(
       throw new InvalidTokenError("Unsupported authentication scheme");
     }
 
-    const verifier = getVerifier(options.issuers, options.audiences);
+    const verifier = new JWTVerifier(sharedKeyring, {
+      issuers: options.issuers,
+      audiences: options.audiences,
+    });
     const claims = await verifier.verify(token);
 
     const authInfo: AuthInfo = {

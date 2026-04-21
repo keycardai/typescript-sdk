@@ -15,7 +15,7 @@ jest.unstable_mockModule("@keycardai/oauth/jwt/verifier", () => ({
   })),
 }));
 
-const { verifyBearerToken, isAuthError, _resetVerifier } = await import("../auth.js");
+const { verifyBearerToken, isAuthError } = await import("../auth.js");
 
 function makeRequest(authHeader?: string): Request {
   const headers = new Headers();
@@ -28,7 +28,6 @@ function makeRequest(authHeader?: string): Request {
 describe("verifyBearerToken", () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    _resetVerifier();
   });
 
   it("returns 401 when no Authorization header is present", async () => {
