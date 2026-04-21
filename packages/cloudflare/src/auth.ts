@@ -8,20 +8,42 @@ import {
 } from "@keycardai/oauth/errors";
 import type { AuthInfo, BearerAuthOptions } from "./types.js";
 
-// Module-level keyring is safe: it only caches public JWKS keys, not user tokens.
-let sharedVerifier: JWTVerifier | undefined;
+// Module-level per-config cache. Keyed by the canonicalized issuer list + audience
+// list so the same config across requests in one isolate reuses the verifier (and
+// its keyring cache). Different configs get different verifiers.
+const verifierCache = new Map<string, JWTVerifier>();
 
-function getVerifier(): JWTVerifier {
-  if (!sharedVerifier) {
-    const keyring = new JWKSOAuthKeyring();
-    sharedVerifier = new JWTVerifier(keyring);
-  }
-  return sharedVerifier;
+function cacheKey(issuers: readonly string[], audiences: readonly string[]): string {
+  return JSON.stringify([[...issuers].sort(), [...audiences].sort()]);
 }
 
-/** @internal Reset shared verifier (for testing). */
+function normalize(value: string | readonly string[]): readonly string[] {
+  return typeof value === "string" ? [value] : value;
+}
+
+function getVerifier(
+  issuers: string | readonly string[],
+  audiences?: string | readonly string[],
+): JWTVerifier {
+  const issuerList = normalize(issuers);
+  const audienceList = audiences ? normalize(audiences) : [];
+  const key = cacheKey(issuerList, audienceList);
+
+  let verifier = verifierCache.get(key);
+  if (!verifier) {
+    const keyring = new JWKSOAuthKeyring();
+    verifier = new JWTVerifier(keyring, {
+      issuers: issuerList,
+      audiences: audienceList.length > 0 ? audienceList : undefined,
+    });
+    verifierCache.set(key, verifier);
+  }
+  return verifier;
+}
+
+/** @internal Reset cached verifiers (for testing). */
 export function _resetVerifier(): void {
-  sharedVerifier = undefined;
+  verifierCache.clear();
 }
 
 /**
@@ -39,7 +61,7 @@ function getResourceMetadataUrl(requestUrl: URL): string {
  */
 export async function verifyBearerToken(
   request: Request,
-  options: BearerAuthOptions = {},
+  options: BearerAuthOptions,
 ): Promise<AuthInfo | Response> {
   const url = new URL(request.url);
   const resourceMetadataUrl = getResourceMetadataUrl(url);
@@ -58,7 +80,7 @@ export async function verifyBearerToken(
       throw new InvalidTokenError("Unsupported authentication scheme");
     }
 
-    const verifier = getVerifier();
+    const verifier = getVerifier(options.issuers, options.audiences);
     const claims = await verifier.verify(token);
 
     const authInfo: AuthInfo = {
