@@ -65,9 +65,9 @@ export class JWTVerifier {
 
     this.#keyring = keyring;
     this.#issuers = new Set(rawIssuers);
-    // An empty `audiences` list means "unconfigured" — matches Python parity
-    // and the ergonomic intent of passing `audiences: []`. A non-empty list
-    // switches audience validation on; a missing `aud` fails closed.
+    // An empty `audiences` list means "unconfigured" — matches the ergonomic
+    // intent of passing `audiences: []`. A non-empty list switches audience
+    // validation on; a missing `aud` fails closed.
     this.#audiences = rawAudiences.length > 0 ? new Set(rawAudiences) : undefined;
     this.#algorithms = new Set(rawAlgorithms);
   }
