@@ -1,6 +1,19 @@
 name: Publish to npm
 
 on:
+  # Fired by `bump-package.yml` after a successful bump. This is the primary
+  # path: merge a PR → `main.yml` detects changes → `bump-package.yml` runs
+  # `cz bump` → calls this workflow with the resulting tag. No tag-push
+  # event crosses a token boundary, so the run is never silently dropped.
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+        description: "Per-package tag to publish (e.g. 0.4.0-keycardai-mcp)"
+  # Kept as a convenience for tags pushed from a human's terminal (which,
+  # unlike GITHUB_TOKEN pushes, do fire workflow triggers). Not used by the
+  # automated bump flow.
   push:
     tags:
       - "*-keycardai-oauth"
@@ -19,6 +32,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # workflow_call → check out the caller-supplied tag.
+          # push (tag) → github.ref already points at the tag.
+          ref: ${{ inputs.tag || github.ref }}
 
       - uses: pnpm/action-setup@v4
 
@@ -34,7 +51,7 @@ jobs:
       - name: Determine package from tag
         id: package
         run: |
-          TAG="${GITHUB_REF#refs/tags/}"
+          TAG="${{ inputs.tag || github.ref_name }}"
           if [[ "$TAG" == *-keycardai-oauth ]]; then
             echo "name=@keycardai/oauth" >> $GITHUB_OUTPUT
             echo "dir=packages/oauth" >> $GITHUB_OUTPUT
