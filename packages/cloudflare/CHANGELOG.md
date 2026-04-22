@@ -1,3 +1,18 @@
+## 0.3.0-keycardai-cloudflare (2026-04-22)
+
+
+- feat(cloudflare): require trusted issuer for bearer auth
+- `verifyBearerToken` now requires `issuers` (and accepts optional
+`audiences`) and forwards them to the underlying JWTVerifier. The worker
+wrapper passes `env.KEYCARD_ISSUER` through automatically, so anyone using
+`createKeycardWorker` keeps working without config changes.
+- The module-level verifier cache is now keyed by the issuer/audience
+config so different callers within the same isolate get isolated
+verifiers instead of a shared permissive one.
+- Breaking for callers that invoked `verifyBearerToken(req)` directly — add
+`{ issuers: env.KEYCARD_ISSUER }`.
+- Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+
 ## 0.2.0-keycardai-cloudflare (2026-04-06)
 
 
