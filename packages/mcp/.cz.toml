@@ -1,6 +1,6 @@
 [tool.commitizen]
 name = "cz_customize"
-version = "0.2.0"
+version = "0.3.0"
 version_files = ["package.json:version"]
 tag_format = "${version}-keycardai-mcp"
 ignored_tag_formats = ["${version}-*"]
