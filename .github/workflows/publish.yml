@@ -8,6 +8,12 @@ on:
       - "*-keycardai-cloudflare"
       - "*-keycardai-pi-mono"
       - "*-keycardai-sdk"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Per-package tag to publish (e.g. 0.4.0-keycardai-mcp). Must already exist on the repo."
+        required: true
+        type: string
 
 permissions:
   id-token: write
@@ -19,6 +25,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # On workflow_dispatch, check out the specified tag. On tag-push,
+          # the default GITHUB_REF already points at the tag so no ref is needed.
+          ref: ${{ github.event.inputs.tag || github.ref }}
 
       - uses: pnpm/action-setup@v4
 
@@ -34,7 +44,7 @@ jobs:
       - name: Determine package from tag
         id: package
         run: |
-          TAG="${GITHUB_REF#refs/tags/}"
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
           if [[ "$TAG" == *-keycardai-oauth ]]; then
             echo "name=@keycardai/oauth" >> $GITHUB_OUTPUT
             echo "dir=packages/oauth" >> $GITHUB_OUTPUT
