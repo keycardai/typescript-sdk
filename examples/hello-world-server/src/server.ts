@@ -30,8 +30,16 @@ app.use(
   }),
 );
 
-// Protect all /api routes with bearer token verification
-app.use("/api", requireBearerAuth({ requiredScopes: ["mcp:tools"] }));
+// Protect all /api routes with bearer token verification. `issuers` pins
+// the verifier to this zone so forged tokens from any other issuer are
+// rejected before any JWKS lookup.
+app.use(
+  "/api",
+  requireBearerAuth({
+    issuers: ZONE_URL,
+    requiredScopes: ["mcp:tools"],
+  }),
+);
 
 // A simple authenticated endpoint
 app.get("/api/whoami", (req, res) => {

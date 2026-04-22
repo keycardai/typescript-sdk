@@ -74,8 +74,10 @@ export default {
     });
     if (metadata) return metadata;
 
-    // 2. Verify bearer token
+    // 2. Verify bearer token. `issuers` pins the verifier to your zone so
+    // forged tokens from any other issuer are rejected before any JWKS lookup.
     const auth = await verifyBearerToken(request, {
+      issuers: env.KEYCARD_ISSUER,
       requiredScopes: ["read"],
     });
     if (isAuthError(auth)) return auth; // 401/403 Response
