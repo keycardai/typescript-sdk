@@ -70,8 +70,16 @@ app.use(
   }),
 );
 
-// Protect routes with bearer token verification
-app.use("/api", requireBearerAuth({ requiredScopes: ["read"] }));
+// Protect routes with bearer token verification. `issuers` pins the
+// verifier to your zone so forged tokens from any other issuer are
+// rejected before any JWKS lookup.
+app.use(
+  "/api",
+  requireBearerAuth({
+    issuers: "https://your-zone.keycard.cloud",
+    requiredScopes: ["read"],
+  }),
+);
 
 app.get("/api/data", (req, res) => {
   res.json({ message: "Authenticated!" });
@@ -94,8 +102,11 @@ const token = await signer.sign({
   scope: "read write",
 });
 
-// Verify a JWT
-const verifier = new JWTVerifier(keyring);
+// Verify a JWT. `issuers` is required — tokens with any other `iss`
+// are rejected before the keyring is consulted. `audiences` is optional.
+const verifier = new JWTVerifier(keyring, {
+  issuers: "https://your-zone.keycard.cloud",
+});
 const claims = await verifier.verify(token);
 ```
 
@@ -151,8 +162,8 @@ const authProvider = new AuthProvider({
 
 const app = express();
 
-// 1. Verify the user's bearer token
-app.use(requireBearerAuth());
+// 1. Verify the user's bearer token. `issuers` pins the verifier to your zone.
+app.use(requireBearerAuth({ issuers: "https://your-zone.keycard.cloud" }));
 
 // 2. Exchange for a resource-specific token
 app.get(

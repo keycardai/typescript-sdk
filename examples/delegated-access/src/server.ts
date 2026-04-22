@@ -48,8 +48,16 @@ app.use(
   }),
 );
 
-// Verify the user's bearer token on all /api routes
-app.use("/api", requireBearerAuth({ requiredScopes: ["mcp:tools"] }));
+// Verify the user's bearer token on all /api routes. `issuers` pins the
+// verifier to this zone so forged tokens from any other issuer are
+// rejected before any JWKS lookup.
+app.use(
+  "/api",
+  requireBearerAuth({
+    issuers: ZONE_URL,
+    requiredScopes: ["mcp:tools"],
+  }),
+);
 
 // Fetch the authenticated user's GitHub profile via token exchange
 app.get(
