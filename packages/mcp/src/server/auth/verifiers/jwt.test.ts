@@ -61,7 +61,9 @@ describe('JSON Web Token Verifier', () => {
       expiresAt: Math.floor(now / 1000) + 3600, // Token expires in an hour
     });
 
-    const verifier = new JWTOAuthTokenVerifier(mockKeyring);
+    const verifier = new JWTOAuthTokenVerifier(mockKeyring, {
+      issuers: 'https://auth.example.com',
+    });
     const authInfo = await verifier.verifyAccessToken(token);
 
     expect(mockKeyring.key).toHaveBeenCalledWith('https://auth.example.com', 'RjEwOwOA');

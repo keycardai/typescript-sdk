@@ -51,8 +51,10 @@ export function createKeycardWorker<Env extends KeycardEnv = KeycardEnv>(
         return metadataResponse;
       }
 
-      // Verify bearer token
+      // Verify bearer token. `KEYCARD_ISSUER` from env is the trust anchor:
+      // tokens with any other `iss` are rejected before any JWKS lookup.
       const authResult = await verifyBearerToken(request, {
+        issuers: env.KEYCARD_ISSUER,
         requiredScopes: options.requiredScopes,
       });
 

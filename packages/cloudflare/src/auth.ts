@@ -8,21 +8,12 @@ import {
 } from "@keycardai/oauth/errors";
 import type { AuthInfo, BearerAuthOptions } from "./types.js";
 
-// Module-level keyring is safe: it only caches public JWKS keys, not user tokens.
-let sharedVerifier: JWTVerifier | undefined;
-
-function getVerifier(): JWTVerifier {
-  if (!sharedVerifier) {
-    const keyring = new JWKSOAuthKeyring();
-    sharedVerifier = new JWTVerifier(keyring);
-  }
-  return sharedVerifier;
-}
-
-/** @internal Reset shared verifier (for testing). */
-export function _resetVerifier(): void {
-  sharedVerifier = undefined;
-}
+// Module-level shared keyring. The keyring caches JWKS responses per
+// (issuer, kid) with a TTL, which is the only cache that meaningfully
+// affects request latency. Each `verifyBearerToken` call constructs a
+// fresh `JWTVerifier` around this keyring; that construction is a handful
+// of Set literals and is sub-millisecond.
+const sharedKeyring = new JWKSOAuthKeyring();
 
 /**
  * Constructs the OAuth Protected Resource Metadata URL for WWW-Authenticate headers.
@@ -39,10 +30,25 @@ function getResourceMetadataUrl(requestUrl: URL): string {
  */
 export async function verifyBearerToken(
   request: Request,
-  options: BearerAuthOptions = {},
+  options: BearerAuthOptions,
 ): Promise<AuthInfo | Response> {
   const url = new URL(request.url);
   const resourceMetadataUrl = getResourceMetadataUrl(url);
+
+  // Catch the common deployment footgun where `KEYCARD_ISSUER` is unset in
+  // the Worker's env bindings and flows through as `undefined` despite the
+  // type claiming `string`. Fail the request with a clear message instead of
+  // crashing inside the verifier construction path.
+  const hasIssuers =
+    typeof options.issuers === "string"
+      ? options.issuers.length > 0
+      : Array.isArray(options.issuers) && options.issuers.length > 0;
+  if (!hasIssuers) {
+    throw new Error(
+      "verifyBearerToken: `issuers` is required. When using `createKeycardWorker`, " +
+        "ensure the `KEYCARD_ISSUER` env binding is set.",
+    );
+  }
 
   try {
     const credentials = request.headers.get("Authorization");
@@ -58,7 +64,10 @@ export async function verifyBearerToken(
       throw new InvalidTokenError("Unsupported authentication scheme");
     }
 
-    const verifier = getVerifier();
+    const verifier = new JWTVerifier(sharedKeyring, {
+      issuers: options.issuers,
+      audiences: options.audiences,
+    });
     const claims = await verifier.verify(token);
 
     const authInfo: AuthInfo = {

@@ -82,6 +82,17 @@ export interface MetadataOptions {
 // =============================================================================
 
 export interface BearerAuthOptions {
+  /**
+   * Issuer(s) to trust. Required — tokens whose `iss` is not in this set are
+   * rejected before any JWKS lookup. Pass the same Keycard zone URL you
+   * advertise in your protected resource metadata.
+   */
+  issuers: string | readonly string[];
+  /**
+   * Audience(s) the token must be intended for. When set, tokens must present
+   * an `aud` claim containing one of these values.
+   */
+  audiences?: string | readonly string[];
   /** Required scopes. Token must have all of these. */
   requiredScopes?: string[];
 }

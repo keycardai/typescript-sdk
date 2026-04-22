@@ -28,8 +28,13 @@ const token = await signer.sign({
   scope: "read write",
 });
 
-// Verify a JWT
-const verifier = new JWTVerifier(keyring);
+// Verify a JWT. `issuers` is required — it binds the verifier to the
+// authorization server(s) you trust. Tokens with any other `iss` are
+// rejected before the keyring is consulted.
+const verifier = new JWTVerifier(keyring, {
+  issuers: "https://your-zone.keycard.cloud",
+  // audiences: "https://api.example.com", // optional
+});
 const claims = await verifier.verify(token);
 ```
 
