@@ -22,6 +22,9 @@ jobs:
       - name: Validate commit messages
         run: python scripts/changelog.py validate
 
+      - name: Check for .cz.toml / package.json version drift
+        run: python scripts/changelog.py check-drift
+
   validate:
     runs-on: ubuntu-latest
 

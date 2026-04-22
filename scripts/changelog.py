@@ -4,13 +4,15 @@ Changelog management tool for workspace packages.
 
 Usage:
   python scripts/changelog.py validate [base_branch]
+  python scripts/changelog.py check-drift
   python scripts/changelog.py changes [--output-format json|github]
   python scripts/changelog.py package <tag> [--output-format json|github]
 
 Commands:
-  validate    Validate commit messages against conventional commit format
-  changes     Detect packages with unreleased changes
-  package     Extract package information from GitHub tag
+  validate      Validate commit messages against conventional commit format
+  check-drift   Fail if any package's .cz.toml version disagrees with its package.json
+  changes       Detect packages with unreleased changes
+  package       Extract package information from GitHub tag
 """
 
 import argparse
@@ -227,6 +229,67 @@ def cmd_validate(args):
         sys.exit(1)
 
 
+def check_version_drift() -> list[dict]:
+    """Return a list of drift entries. Empty list means no drift.
+
+    Commitizen treats `[tool.commitizen].version` in `.cz.toml` as the source
+    of truth for "what's the current version." `cz bump` uses that to compute
+    the next version and also updates the files listed in `version_files`
+    (here, `package.json:version`). If someone hand-edits `package.json`
+    without running `cz bump`, the two drift apart and the next automated
+    bump tries to create a tag that already exists. This check catches that
+    before it becomes a release outage.
+    """
+    root_dir = Path(__file__).parent.parent
+    drift = []
+
+    for pkg in discover_workspace_packages():
+        pkg_dir = root_dir / pkg["package_dir"]
+        cz_path = pkg_dir / ".cz.toml"
+        pkg_json_path = pkg_dir / "package.json"
+
+        if not cz_path.exists() or not pkg_json_path.exists():
+            continue
+
+        with open(cz_path, "rb") as f:
+            cz_version = tomllib.load(f).get("tool", {}).get("commitizen", {}).get("version")
+
+        with open(pkg_json_path) as f:
+            pkg_json_version = json.load(f).get("version")
+
+        if cz_version and pkg_json_version and cz_version != pkg_json_version:
+            drift.append(
+                {
+                    "package": pkg["package_name"],
+                    "package_dir": pkg["package_dir"],
+                    "cz_toml_version": cz_version,
+                    "package_json_version": pkg_json_version,
+                }
+            )
+
+    return drift
+
+
+def cmd_check_drift(_args):
+    drift = check_version_drift()
+    if not drift:
+        print("✅ No version drift — every .cz.toml matches its package.json.")
+        return
+    print("❌ Version drift detected:")
+    for d in drift:
+        print(
+            f"  {d['package']} ({d['package_dir']}): "
+            f".cz.toml says {d['cz_toml_version']}, "
+            f"package.json says {d['package_json_version']}"
+        )
+    print(
+        "\nFix by updating [tool.commitizen].version in .cz.toml to match "
+        "package.json. Going forward, use `cz bump` (not hand-edits) to change "
+        "package versions so both files stay in sync."
+    )
+    sys.exit(1)
+
+
 def cmd_changes(args):
     changed = detect_changed_packages()
     if args.output_format == "json":
@@ -268,6 +331,12 @@ def main():
         default="github",
     )
     changes_p.set_defaults(func=cmd_changes)
+
+    drift_p = subparsers.add_parser(
+        "check-drift",
+        help="Check that each package's .cz.toml version matches its package.json version",
+    )
+    drift_p.set_defaults(func=cmd_check_drift)
 
     package_p = subparsers.add_parser(
         "package", help="Extract package info from GitHub tag"
