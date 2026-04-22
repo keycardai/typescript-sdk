@@ -42,6 +42,9 @@ jobs:
     needs: detect-changes
     permissions:
       contents: write
+      # Needed for the nested publish job (called from bump-package.yml)
+      # to request an OIDC token for npm trusted publishing.
+      id-token: write
     strategy:
       matrix:
         package: ${{ fromJson(needs.detect-changes.outputs.changed-packages) }}

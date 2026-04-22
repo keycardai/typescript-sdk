@@ -17,6 +17,10 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    outputs:
+      # New package.json version after `cz bump` runs, e.g. "0.4.0".
+      # Empty when no bump was needed (no unreleased commits for this package).
+      new_version: ${{ steps.bump.outputs.new_version }}
     steps:
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -32,5 +36,28 @@ jobs:
         run: pip install commitizen
 
       - name: Bump version for ${{ inputs.package_name }}
+        id: bump
         run: |
           python scripts/bump_package.py "${{ inputs.package_name }}" "${{ inputs.package_dir }}"
+          # Emit the new version so the downstream publish job can reconstruct
+          # the tag. `cz bump` has already updated package.json by this point.
+          NEW_VERSION=$(python3 -c "import json; print(json.load(open('${{ inputs.package_dir }}/package.json'))['version'])")
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "Bumped ${{ inputs.package_name }} to $NEW_VERSION"
+
+  # Publish runs in-chain with the bump instead of waiting for a tag-push
+  # event to fire a separate workflow. The tag push that `cz bump` does is
+  # still useful (it stamps history and lets a human re-run via the
+  # `on: push: tags` trigger in `publish.yml`), but we no longer depend on
+  # it to trigger the publish itself — which matters because tags pushed
+  # by GITHUB_TOKEN do not fire downstream workflows.
+  publish:
+    needs: bump
+    if: needs.bump.outputs.new_version != ''
+    uses: ./.github/workflows/publish.yml
+    with:
+      tag: ${{ needs.bump.outputs.new_version }}-${{ inputs.package_name }}
+    secrets: inherit
+    permissions:
+      id-token: write
+      contents: read
