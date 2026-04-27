@@ -1,5 +1,9 @@
 # Keycard TypeScript SDK
 
+> **Preview.** This SDK has not reached parity with the Keycard Python
+> SDK. APIs may change between minor versions. The preview label will
+> be removed once feature parity is reached.
+
 A collection of TypeScript packages for Keycard services, organized as a pnpm workspace.
 
 ## Requirements

@@ -1,5 +1,9 @@
 # @keycardai/oauth
 
+> **Preview.** This SDK has not reached parity with the Keycard Python
+> SDK. APIs may change between minor versions. The preview label will
+> be removed once feature parity is reached.
+
 Pure OAuth 2.0 primitives for Keycard — JWKS key management, JWT signing/verification, authorization server discovery, and token exchange. **Zero MCP dependencies.**
 
 This is the foundational layer of the [Keycard TypeScript SDK](../../README.md). If you're building an MCP server, you probably want [`@keycardai/mcp`](../mcp/) instead, which includes this package as a dependency.

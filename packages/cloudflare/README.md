@@ -1,5 +1,8 @@
 # @keycardai/cloudflare
 
+> **Preview.** This package is pre-1.0. APIs may change between minor
+> versions.
+
 Keycard auth for Cloudflare Workers — bearer token verification, OAuth metadata endpoints, token exchange, and per-user token caching. **No Express dependency.**
 
 This is the Workers equivalent of [`@keycardai/mcp`](../mcp/)'s server-side middleware. If you're building an Express server, use `@keycardai/mcp` instead.
