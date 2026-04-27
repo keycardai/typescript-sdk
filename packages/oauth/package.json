@@ -1,7 +1,7 @@
 {
   "name": "@keycardai/oauth",
   "version": "0.3.0",
-  "description": "Pure OAuth 2.0 primitives for Keycard — JWKS key management, JWT signing/verification, and authorization server discovery",
+  "description": "[Preview] Pure OAuth 2.0 primitives for Keycard — JWKS key management, JWT signing/verification, and authorization server discovery",
   "license": "MIT",
   "repository": {
     "type": "git",

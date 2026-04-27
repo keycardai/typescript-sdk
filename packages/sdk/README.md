@@ -1,5 +1,9 @@
 # @keycardai/sdk
 
+> **Preview.** This SDK has not reached parity with the Keycard Python
+> SDK. APIs may change between minor versions. The preview label will
+> be removed once feature parity is reached.
+
 Aggregate convenience package for the [Keycard TypeScript SDK](../../README.md). Installs and re-exports everything from [`@keycardai/oauth`](../oauth/) and [`@keycardai/mcp`](../mcp/) so you can use a single dependency.
 
 ## Installation

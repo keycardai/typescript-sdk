@@ -1,5 +1,9 @@
 # @keycardai/mcp
 
+> **Preview.** This SDK has not reached parity with the Keycard Python
+> SDK. APIs may change between minor versions. The preview label will
+> be removed once feature parity is reached.
+
 MCP-specific OAuth integration for Keycard — Express middleware for bearer token verification, OAuth metadata serving, delegated access via token exchange, and MCP client providers.
 
 Builds on [`@keycardai/oauth`](../oauth/) (included as a dependency). Part of the [Keycard TypeScript SDK](../../README.md).
