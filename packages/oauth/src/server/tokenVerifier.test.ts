@@ -214,18 +214,4 @@ describe('TokenVerifier', () => {
     });
     expect(await verifier.verifyTokenForZone(token, 'zone-c')).toBeNull();
   });
-
-  it('clearCache discards per-zone verifier instances', async () => {
-    const [pub, priv] = await Promise.all([importPublicKey(), importPrivateKey()]);
-    const keyring = makeKeyring(pub);
-    const verifier = new TokenVerifier({ issuer: ISSUER, keyring });
-    const token = await signWith(
-      { iss: ISSUER, client_id: 'service-x', exp: nowSec() + 60 },
-      priv,
-    );
-    await verifier.verifyToken(token);
-    verifier.clearCache();
-    await verifier.verifyToken(token);
-    expect(keyring.key).toHaveBeenCalledTimes(2);
-  });
 });

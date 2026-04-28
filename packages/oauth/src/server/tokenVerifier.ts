@@ -3,11 +3,7 @@ import { JWKSOAuthKeyring, type OAuthKeyring } from "../keyring.js";
 import type { JWTClaims } from "../jwt/signer.js";
 import type { AccessToken } from "./accessToken.js";
 
-const DEFAULT_ZONE_KEY = "__default__";
 const DEFAULT_ALLOWED_ALGORITHMS = ["RS256"] as const;
-// Sentinel: per-zone audience dict configured but zoneId has no entry.
-// Verification fails closed rather than silently dropping audience validation.
-const REQUIRED_AUDIENCE_MISSING = Symbol("required-audience-missing");
 
 export interface TokenVerifierOptions {
   /**
@@ -32,7 +28,9 @@ export interface TokenVerifierOptions {
   enableMultiZone?: boolean;
   /**
    * Audience to validate against. A single string applies to every zone.
-   * A `Record<zoneId, audience>` selects the audience per zone.
+   * A `Record<zoneId, audience>` selects the audience per zone; if a request
+   * arrives for a zoneId with no entry in the dict, verification fails closed
+   * (returns null) rather than silently dropping audience validation.
    */
   audience?: string | Record<string, string>;
   /**
@@ -49,7 +47,6 @@ export class TokenVerifier {
   #enableMultiZone: boolean;
   #audience?: string | Record<string, string>;
   #keyring: OAuthKeyring;
-  #verifiers: Map<string, JWTVerifier>;
 
   constructor(options: TokenVerifierOptions) {
     if (!options.issuer) {
@@ -61,7 +58,6 @@ export class TokenVerifier {
     this.#enableMultiZone = options.enableMultiZone ?? false;
     this.#audience = options.audience;
     this.#keyring = options.keyring ?? new JWKSOAuthKeyring();
-    this.#verifiers = new Map();
   }
 
   async verifyToken(token: string): Promise<AccessToken | null> {
@@ -75,62 +71,35 @@ export class TokenVerifier {
     return this.#verify(token, zoneId);
   }
 
-  clearCache(): void {
-    this.#verifiers.clear();
-  }
-
   async #verify(token: string, zoneId: string | undefined): Promise<AccessToken | null> {
-    try {
-      const verifier = this.#getVerifier(zoneId);
-      if (!verifier) {
+    let audience: string | undefined;
+    if (typeof this.#audience === "string") {
+      audience = this.#audience;
+    } else if (this.#audience !== undefined) {
+      if (!zoneId || !Object.prototype.hasOwnProperty.call(this.#audience, zoneId)) {
         return null;
       }
-      const claims = await verifier.verify(token);
-      if (!this.#scopesSatisfied(claims)) {
-        return null;
-      }
-      return this.#toAccessToken(token, claims);
-    } catch {
-      return null;
-    }
-  }
-
-  #getVerifier(zoneId: string | undefined): JWTVerifier | null {
-    const cacheKey = zoneId ?? DEFAULT_ZONE_KEY;
-    const cached = this.#verifiers.get(cacheKey);
-    if (cached) {
-      return cached;
-    }
-
-    const audienceResult = this.#resolveAudience(zoneId);
-    if (audienceResult === REQUIRED_AUDIENCE_MISSING) {
-      return null;
+      audience = this.#audience[zoneId];
     }
 
     const issuer = this.#enableMultiZone && zoneId
       ? buildZoneScopedIssuer(this.#issuer, zoneId)
       : this.#issuer;
 
-    const verifier = new JWTVerifier(this.#keyring, {
-      issuers: [issuer],
-      audiences: audienceResult,
-      algorithms: this.#allowedAlgorithms,
-    });
-    this.#verifiers.set(cacheKey, verifier);
-    return verifier;
-  }
-
-  #resolveAudience(zoneId: string | undefined): string | undefined | typeof REQUIRED_AUDIENCE_MISSING {
-    if (this.#audience === undefined) {
-      return undefined;
+    try {
+      const verifier = new JWTVerifier(this.#keyring, {
+        issuers: [issuer],
+        audiences: audience,
+        algorithms: this.#allowedAlgorithms,
+      });
+      const claims = await verifier.verify(token);
+      if (!this.#scopesSatisfied(claims)) {
+        return null;
+      }
+      return toAccessToken(token, claims);
+    } catch {
+      return null;
     }
-    if (typeof this.#audience === "string") {
-      return this.#audience;
-    }
-    if (zoneId && Object.prototype.hasOwnProperty.call(this.#audience, zoneId)) {
-      return this.#audience[zoneId];
-    }
-    return REQUIRED_AUDIENCE_MISSING;
   }
 
   #scopesSatisfied(claims: JWTClaims): boolean {
@@ -143,22 +112,24 @@ export class TokenVerifier {
     const tokenScopes = new Set(claims.scope.split(" ").filter(Boolean));
     return this.#requiredScopes.every((s) => tokenScopes.has(s));
   }
+}
 
-  #toAccessToken(token: string, claims: JWTClaims): AccessToken {
-    const scopes = typeof claims.scope === "string"
-      ? claims.scope.split(" ").filter(Boolean)
-      : [];
-    const resourceClaim = claims["resource"];
-    const resource = typeof resourceClaim === "string" ? resourceClaim : undefined;
-    const expiresAt = typeof claims.exp === "number" ? claims.exp : undefined;
-    return {
-      token,
-      clientId: typeof claims.client_id === "string" ? claims.client_id : "",
-      scopes,
-      expiresAt,
-      resource,
-    };
-  }
+function toAccessToken(token: string, claims: JWTClaims): AccessToken {
+  const scopes = typeof claims.scope === "string"
+    ? claims.scope.split(" ").filter(Boolean)
+    : [];
+  const resourceClaim = claims["resource"];
+  const resource = typeof resourceClaim === "string" ? resourceClaim : undefined;
+  const expiresAt = typeof claims.exp === "number" ? claims.exp : undefined;
+  // JWTVerifier validates client_id is present and a non-empty string before
+  // returning, so this assertion is load-bearing only at the type boundary.
+  return {
+    token,
+    clientId: claims.client_id as string,
+    scopes,
+    expiresAt,
+    resource,
+  };
 }
 
 function buildZoneScopedIssuer(baseIssuer: string, zoneId: string): string {
