@@ -1,6 +1,6 @@
 {
   "name": "@keycardai/oauth",
-  "version": "0.4.0",
+  "version": "0.3.0",
   "description": "[Preview] OAuth 2.0 primitives for Keycard: JWKS keyring, JWT signing/verification, server-tier token verifier, AccessContext, ClientSecret credentials, and impersonation via RFC 8693 token exchange",
   "license": "MIT",
   "repository": {
