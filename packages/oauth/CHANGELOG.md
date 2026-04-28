@@ -1,3 +1,37 @@
+## 0.4.0-keycardai-oauth (2026-04-28)
+
+
+- feat(oauth)!: add server primitives (AccessContext, TokenVerifier, ClientSecret, impersonate)
+- New server-tier surface under `@keycardai/oauth/server`. Closes the
+  TypeScript-side foundation under impersonation, multi-zone, and the
+  upcoming `@keycardai/express` route-level auth gating.
+- `AccessContext`: non-throwing per-resource token container with
+  partial-error tracking (`success` / `partial_error` / `error`).
+- `AccessToken`: typed verified-token model returned by `TokenVerifier`.
+- `TokenVerifier`: composes `JWTVerifier`; adds JWKS discovery, multi-zone
+  issuer/audience routing (`enableMultiZone`, `verifyTokenForZone`),
+  required-scope validation. Returns `AccessToken | null`.
+- `ClientSecret`: credential provider supporting `(clientId, clientSecret)`,
+  tuple `[id, secret]`, or zone-keyed `Record<zoneId, [id, secret]>`.
+- `TokenExchangeClient.impersonate({ userIdentifier, resource, scope?, zoneId? })`:
+  RFC 8693 substitute-user exchange via the
+  `urn:keycard:params:oauth:token-type:substitute-user` URN.
+- `TokenExchangeClient` accepts an `ApplicationCredential` via the new
+  `credential` constructor option, plus a `{ zoneId }` per-call argument
+  on `exchangeToken` and `impersonate` for per-zone Basic auth resolution.
+- `ApplicationCredential` interface widened additively: `getAuth(zoneId?)`
+  and an optional `zoneId` on `prepareTokenExchangeRequest`'s options bag.
+  All existing implementations (Workers, mcp) satisfy the new contract.
+- `buildSubstituteUserToken(identifier)` helper exported from
+  `@keycardai/oauth/jwt/substituteUser`.
+- `ResourceAccessError` and `AuthProviderConfigurationError` lifted into
+  `@keycardai/oauth/errors`. `@keycardai/mcp` re-exports the same classes;
+  consumer import paths in `@keycardai/mcp/server/auth/{provider,credentials,errors}`
+  are unchanged.
+- New subpath exports: `./server`, `./server/accessContext`,
+  `./server/accessToken`, `./server/tokenVerifier`, `./server/clientSecret`,
+  `./jwt/substituteUser`.
+
 ## 0.3.0-keycardai-oauth (2026-04-22)
 
 
