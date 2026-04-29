@@ -214,4 +214,26 @@ describe('TokenVerifier', () => {
     });
     expect(await verifier.verifyTokenForZone(token, 'zone-c')).toBeNull();
   });
+
+  it('clearCache flushes the underlying keyring after a key rotation', async () => {
+    const [pub, priv] = await Promise.all([importPublicKey(), importPrivateKey()]);
+    const keyring = makeKeyring(pub) as OAuthKeyring & { clear: jest.Mock };
+    keyring.clear = jest.fn();
+    const verifier = new TokenVerifier({ issuer: ISSUER, keyring });
+    const token = await signWith(
+      { iss: ISSUER, client_id: 'service-x', exp: nowSec() + 60 },
+      priv,
+    );
+    expect(await verifier.verifyToken(token)).not.toBeNull();
+    verifier.clearCache();
+    expect(keyring.clear).toHaveBeenCalledTimes(1);
+  });
+
+  it('clearCache is a no-op when the keyring does not expose clear()', () => {
+    const verifier = new TokenVerifier({
+      issuer: ISSUER,
+      keyring: { key: jest.fn() },
+    });
+    expect(() => verifier.clearCache()).not.toThrow();
+  });
 });

@@ -113,6 +113,18 @@ export class JWKSOAuthKeyring implements OAuthKeyring {
     this.#discoveryInflight.delete(issuer);
   }
 
+  /**
+   * Drops all cached keys, JWKS URI discoveries, and inflight resolutions.
+   * Use after a global key rotation when targeted `invalidate(issuer, kid)`
+   * is impractical. Subsequent `key()` calls re-discover and re-fetch.
+   */
+  clear(): void {
+    this.#keyCache.clear();
+    this.#keyInflight.clear();
+    this.#discoveryCache.clear();
+    this.#discoveryInflight.clear();
+  }
+
   // -------------------------------------------------------
   // Discovery resolution with cache + dedup
   // -------------------------------------------------------

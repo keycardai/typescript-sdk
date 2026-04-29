@@ -71,6 +71,16 @@ export class TokenVerifier {
     return this.#verify(token, zoneId);
   }
 
+  /**
+   * Flushes JWKS keys and discovery results from the underlying keyring.
+   * Use after a global key rotation. No-op if the injected keyring does
+   * not expose a `clear()` method.
+   */
+  clearCache(): void {
+    const keyring = this.#keyring as { clear?: () => void };
+    keyring.clear?.();
+  }
+
   async #verify(token: string, zoneId: string | undefined): Promise<AccessToken | null> {
     let audience: string | undefined;
     if (typeof this.#audience === "string") {
