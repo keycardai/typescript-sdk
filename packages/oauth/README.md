@@ -4,7 +4,7 @@
 > SDK. APIs may change between minor versions. The preview label will
 > be removed once feature parity is reached.
 
-Pure OAuth 2.0 primitives for Keycard — JWKS key management, JWT signing/verification, authorization server discovery, and token exchange. **Zero MCP dependencies.**
+OAuth 2.0 primitives for Keycard: JWKS key management, JWT signing and verification, authorization server discovery, RFC 8693 token exchange (including impersonation), and server-tier primitives (`AccessContext`, `TokenVerifier`, `ClientSecret`) with multi-zone support. **Zero MCP dependencies.**
 
 This is the foundational layer of the [Keycard TypeScript SDK](../../README.md). If you're building an MCP server, you probably want [`@keycardai/mcp`](../mcp/) instead, which includes this package as a dependency.
 
@@ -72,6 +72,70 @@ const response = await client.exchangeToken({
 console.log(response.accessToken);
 ```
 
+### Impersonation (substitute-user token exchange)
+
+```typescript
+import { TokenExchangeClient } from "@keycardai/oauth/tokenExchange";
+
+const client = new TokenExchangeClient("https://your-zone.keycard.cloud", {
+  clientId: "your-client-id",
+  clientSecret: "your-client-secret",
+});
+
+const response = await client.impersonate({
+  userIdentifier: "user@example.com",
+  resource: "https://graph.microsoft.com",
+});
+
+console.log(response.accessToken);
+```
+
+Impersonation is a privileged operation gated by Keycard policy. The calling
+application authenticates via client credentials, and the impersonated user
+must have a delegated grant for the target resource.
+
+### Multi-Zone Credentials
+
+```typescript
+import { TokenExchangeClient } from "@keycardai/oauth/tokenExchange";
+import { ClientSecret } from "@keycardai/oauth/server";
+
+const credential = new ClientSecret({
+  "zone-a": ["client-id-a", "client-secret-a"],
+  "zone-b": ["client-id-b", "client-secret-b"],
+});
+
+const client = new TokenExchangeClient("https://keycard.cloud", { credential });
+
+const response = await client.exchangeToken(
+  { subjectToken: userToken, resource: "https://api.example.com" },
+  { zoneId: "zone-a" },
+);
+```
+
+### Server-tier Token Verification
+
+```typescript
+import { TokenVerifier } from "@keycardai/oauth/server";
+
+const verifier = new TokenVerifier({
+  issuer: "https://your-zone.keycard.cloud",
+  requiredScopes: ["read"],
+  audience: "https://api.example.com",
+});
+
+const accessToken = await verifier.verifyToken(bearerToken);
+if (!accessToken) {
+  // 401 Unauthorized
+}
+console.log(accessToken.clientId, accessToken.scopes);
+```
+
+`verifyToken` returns `AccessToken | null`. Verification failures (bad signature,
+expired token, missing scope, audience mismatch) return `null`; callers map that
+to an HTTP 401. `verifyTokenForZone(token, zoneId)` enables per-zone validation
+when the verifier is constructed with `enableMultiZone: true`.
+
 ## API Overview
 
 ### JWKS Key Management
@@ -95,7 +159,19 @@ console.log(response.accessToken);
 | Export | Import Path | Description |
 |---|---|---|
 | `fetchAuthorizationServerMetadata` | `@keycardai/oauth/discovery` | Fetches `.well-known/oauth-authorization-server` metadata |
-| `TokenExchangeClient` | `@keycardai/oauth/tokenExchange` | RFC 8693 token exchange client with auto-discovery |
+| `TokenExchangeClient` | `@keycardai/oauth/tokenExchange` | RFC 8693 token exchange client with auto-discovery, plus `impersonate()` for substitute-user exchange |
+| `TokenType` | `@keycardai/oauth/tokenExchange` | URN constants: `ACCESS_TOKEN`, `SUBSTITUTE_USER` |
+| `buildSubstituteUserToken` | `@keycardai/oauth/jwt/substituteUser` | Builds the unsigned subject JWT for impersonation calls |
+
+### Server-tier Primitives
+
+| Export | Import Path | Description |
+|---|---|---|
+| `TokenVerifier` | `@keycardai/oauth/server` | High-level JWT verifier with JWKS discovery, multi-zone, audience and scope validation; returns `AccessToken \| null` |
+| `AccessToken` (type) | `@keycardai/oauth/server` | Verified token shape (`token`, `clientId`, `scopes`, `expiresAt?`, `resource?`) |
+| `AccessContext` | `@keycardai/oauth/server` | Non-throwing per-resource token container with partial-error tracking |
+| `ClientSecret` | `@keycardai/oauth/server` | Application credential provider; supports `(clientId, clientSecret)`, tuple, or `Record<zoneId, [id, secret]>` |
+| `ApplicationCredential` (type) | `@keycardai/oauth/credentials` | Interface for credential providers |
 
 ### Errors
 
@@ -107,6 +183,8 @@ console.log(response.accessToken);
 | `OAuthError` | `@keycardai/oauth/errors` | OAuth error with error code and URI |
 | `InvalidTokenError` | `@keycardai/oauth/errors` | Token validation failure |
 | `InsufficientScopeError` | `@keycardai/oauth/errors` | Missing required scopes |
+| `ResourceAccessError` | `@keycardai/oauth/errors` | Thrown by `AccessContext.access()` on missing or failed resource |
+| `AuthProviderConfigurationError` | `@keycardai/oauth/errors` | Configuration guard for auth providers |
 
 ### Utilities
 

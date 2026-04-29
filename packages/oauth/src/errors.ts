@@ -33,3 +33,17 @@ export class InsufficientScopeError extends OAuthError {
     super("insufficient_scope", message, errorUri);
   }
 }
+
+export class ResourceAccessError extends Error {
+  constructor(message?: string) {
+    super(message ?? "Resource access denied or token not available");
+    this.name = "ResourceAccessError";
+  }
+}
+
+export class AuthProviderConfigurationError extends Error {
+  constructor(message?: string) {
+    super(message ?? "AuthProvider configuration is invalid");
+    this.name = "AuthProviderConfigurationError";
+  }
+}

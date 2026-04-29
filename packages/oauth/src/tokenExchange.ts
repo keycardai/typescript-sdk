@@ -1,9 +1,21 @@
 import { fetchAuthorizationServerMetadata } from "./discovery.js";
 import { OAuthError } from "./errors.js";
+import type { ApplicationCredential } from "./credentials.js";
+import { buildSubstituteUserToken } from "./jwt/substituteUser.js";
 
 // =============================================================================
 // Token Exchange Types (RFC 8693)
 // =============================================================================
+
+export const TokenType = {
+  ACCESS_TOKEN: "urn:ietf:params:oauth:token-type:access_token",
+  /**
+   * Vendor URN for substitute-user (impersonation) subject tokens.
+   * Recognized by the Keycard authorization server; not registered with IANA.
+   */
+  SUBSTITUTE_USER: "urn:keycard:params:oauth:token-type:substitute-user",
+} as const;
+export type TokenType = (typeof TokenType)[keyof typeof TokenType];
 
 export interface TokenExchangeRequest {
   grantType?: string;
@@ -31,6 +43,23 @@ export interface TokenResponse {
 export interface TokenExchangeClientOptions {
   clientId?: string;
   clientSecret?: string;
+  /**
+   * Application credential provider. When set, takes precedence over
+   * static `clientId`/`clientSecret` and resolves the per-request
+   * Authorization header from the credential's `getAuth(zoneId)`.
+   */
+  credential?: ApplicationCredential;
+}
+
+export interface ExchangeOptions {
+  zoneId?: string;
+}
+
+export interface ImpersonateRequest {
+  userIdentifier: string;
+  resource: string;
+  scope?: string;
+  zoneId?: string;
 }
 
 // =============================================================================
@@ -85,6 +114,7 @@ export class TokenExchangeClient {
   #issuerUrl: string;
   #clientId?: string;
   #clientSecret?: string;
+  #credential?: ApplicationCredential;
   #tokenEndpoint?: string;
   #discoveryPromise?: Promise<string>;
 
@@ -92,9 +122,13 @@ export class TokenExchangeClient {
     this.#issuerUrl = issuerUrl;
     this.#clientId = options?.clientId;
     this.#clientSecret = options?.clientSecret;
+    this.#credential = options?.credential;
   }
 
-  async exchangeToken(request: TokenExchangeRequest): Promise<TokenResponse> {
+  async exchangeToken(
+    request: TokenExchangeRequest,
+    options?: ExchangeOptions,
+  ): Promise<TokenResponse> {
     const tokenEndpoint = await this.#getTokenEndpoint();
     const body = serializeRequest(request);
 
@@ -102,8 +136,9 @@ export class TokenExchangeClient {
       "Content-Type": "application/x-www-form-urlencoded",
     };
 
-    if (this.#clientId && this.#clientSecret) {
-      const credentials = btoa(`${this.#clientId}:${this.#clientSecret}`);
+    const basicAuth = this.#resolveBasicAuth(options?.zoneId);
+    if (basicAuth) {
+      const credentials = btoa(`${basicAuth.clientId}:${basicAuth.clientSecret}`);
       headers["Authorization"] = `Basic ${credentials}`;
     }
 
@@ -137,6 +172,37 @@ export class TokenExchangeClient {
 
     const json = await response.json() as Record<string, unknown>;
     return deserializeResponse(json);
+  }
+
+  async impersonate(req: ImpersonateRequest): Promise<TokenResponse> {
+    if (!req.userIdentifier) {
+      throw new Error("impersonate: userIdentifier is required");
+    }
+    if (!req.resource) {
+      throw new Error("impersonate: resource is required");
+    }
+    const subjectToken = buildSubstituteUserToken(req.userIdentifier);
+    return this.exchangeToken(
+      {
+        subjectToken,
+        subjectTokenType: TokenType.SUBSTITUTE_USER,
+        resource: req.resource,
+        scope: req.scope,
+      },
+      { zoneId: req.zoneId },
+    );
+  }
+
+  #resolveBasicAuth(
+    zoneId: string | undefined,
+  ): { clientId: string; clientSecret: string } | null {
+    if (this.#credential) {
+      return this.#credential.getAuth(zoneId);
+    }
+    if (this.#clientId && this.#clientSecret) {
+      return { clientId: this.#clientId, clientSecret: this.#clientSecret };
+    }
+    return null;
   }
 
   async #getTokenEndpoint(): Promise<string> {
