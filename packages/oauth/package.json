@@ -54,6 +54,11 @@
       "import": "./dist/esm/credentials.js",
       "require": "./dist/cjs/credentials.js",
       "types": "./dist/esm/credentials.d.ts"
+    },
+    "./registration": {
+      "import": "./dist/esm/registration.js",
+      "require": "./dist/cjs/registration.js",
+      "types": "./dist/esm/registration.d.ts"
     }
   },
   "files": [

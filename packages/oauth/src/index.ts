@@ -10,3 +10,9 @@ export { JWTVerifier } from "./jwt/verifier.js";
 export { TokenExchangeClient } from "./tokenExchange.js";
 export type { TokenExchangeRequest, TokenResponse, TokenExchangeClientOptions } from "./tokenExchange.js";
 export type { ApplicationCredential } from "./credentials.js";
+export { registerClient } from "./registration.js";
+export type {
+  ClientRegistrationRequest,
+  ClientRegistrationResponse,
+  RegisterClientOptions,
+} from "./registration.js";

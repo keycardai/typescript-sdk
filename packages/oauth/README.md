@@ -72,6 +72,27 @@ const response = await client.exchangeToken({
 console.log(response.accessToken);
 ```
 
+### Dynamic Client Registration (RFC 7591)
+
+```typescript
+import { registerClient } from "@keycardai/oauth/registration";
+
+const response = await registerClient("https://your-zone.keycard.cloud", {
+  clientName: "My Service",
+  redirectUris: ["https://app.example.com/callback"],
+  grantTypes: ["client_credentials"],
+  scope: "read write",
+});
+
+console.log(response.clientId, response.clientSecret);
+```
+
+`registerClient` discovers the AS's `registration_endpoint` from
+`.well-known/oauth-authorization-server`, posts the request as JSON, and
+returns the issued client credentials. Throws `OAuthError` on RFC 6749 §5.2
+error responses, a plain `Error` on missing `registration_endpoint` or
+non-OAuth HTTP failures.
+
 ## API Overview
 
 ### JWKS Key Management
@@ -96,6 +117,7 @@ console.log(response.accessToken);
 |---|---|---|
 | `fetchAuthorizationServerMetadata` | `@keycardai/oauth/discovery` | Fetches `.well-known/oauth-authorization-server` metadata |
 | `TokenExchangeClient` | `@keycardai/oauth/tokenExchange` | RFC 8693 token exchange client with auto-discovery |
+| `registerClient` | `@keycardai/oauth/registration` | RFC 7591 dynamic client registration with auto-discovery |
 
 ### Errors
 
