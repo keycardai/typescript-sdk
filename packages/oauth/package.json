@@ -1,7 +1,7 @@
 {
   "name": "@keycardai/oauth",
   "version": "0.3.0",
-  "description": "[Preview] Pure OAuth 2.0 primitives for Keycard — JWKS key management, JWT signing/verification, and authorization server discovery",
+  "description": "[Preview] OAuth 2.0 primitives for Keycard: JWKS keyring, JWT signing/verification, server-tier token verifier, AccessContext, ClientSecret credentials, and impersonation via RFC 8693 token exchange",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -54,6 +54,36 @@
       "import": "./dist/esm/credentials.js",
       "require": "./dist/cjs/credentials.js",
       "types": "./dist/esm/credentials.d.ts"
+    },
+    "./jwt/substituteUser": {
+      "import": "./dist/esm/jwt/substituteUser.js",
+      "require": "./dist/cjs/jwt/substituteUser.js",
+      "types": "./dist/esm/jwt/substituteUser.d.ts"
+    },
+    "./server": {
+      "import": "./dist/esm/server/index.js",
+      "require": "./dist/cjs/server/index.js",
+      "types": "./dist/esm/server/index.d.ts"
+    },
+    "./server/accessContext": {
+      "import": "./dist/esm/server/accessContext.js",
+      "require": "./dist/cjs/server/accessContext.js",
+      "types": "./dist/esm/server/accessContext.d.ts"
+    },
+    "./server/accessToken": {
+      "import": "./dist/esm/server/accessToken.js",
+      "require": "./dist/cjs/server/accessToken.js",
+      "types": "./dist/esm/server/accessToken.d.ts"
+    },
+    "./server/tokenVerifier": {
+      "import": "./dist/esm/server/tokenVerifier.js",
+      "require": "./dist/cjs/server/tokenVerifier.js",
+      "types": "./dist/esm/server/tokenVerifier.d.ts"
+    },
+    "./server/clientSecret": {
+      "import": "./dist/esm/server/clientSecret.js",
+      "require": "./dist/cjs/server/clientSecret.js",
+      "types": "./dist/esm/server/clientSecret.d.ts"
     }
   },
   "files": [
