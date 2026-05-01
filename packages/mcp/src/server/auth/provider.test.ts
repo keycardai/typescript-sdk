@@ -117,9 +117,9 @@ describe("AccessContext", () => {
     expect(ctx.getError()).toBeNull();
   });
 
-  it("should return null for getResourceErrors() when no error for resource", () => {
+  it("should return null for getResourceError() when no error for resource", () => {
     const ctx = new AccessContext();
-    expect(ctx.getResourceErrors("https://nonexistent.com")).toBeNull();
+    expect(ctx.getResourceError("https://nonexistent.com")).toBeNull();
   });
 });
 

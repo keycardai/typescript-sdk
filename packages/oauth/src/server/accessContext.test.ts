@@ -26,6 +26,65 @@ describe('AccessContext', () => {
     expect(() => ctx.access('https://missing.example.com')).toThrow(ResourceAccessError);
   });
 
+  it('access() carries missing_token context on the thrown error', () => {
+    const ctx = new AccessContext();
+    ctx.setToken('https://api.example.com', TOKEN);
+    try {
+      ctx.access('https://missing.example.com');
+      throw new Error('expected throw');
+    } catch (e) {
+      expect(e).toBeInstanceOf(ResourceAccessError);
+      const err = e as ResourceAccessError;
+      expect(err.errorType).toBe('missing_token');
+      expect(err.resource).toBe('https://missing.example.com');
+      expect(err.availableResources).toEqual(['https://api.example.com']);
+      expect(err.errorDetails).toBeNull();
+      expect(err.message).toContain("'https://missing.example.com'");
+      expect(err.message).toContain('https://api.example.com');
+    }
+  });
+
+  it('access() carries resource_error context on the thrown error', () => {
+    const ctx = new AccessContext();
+    const detail = { message: 'denied by AS', code: 'access_denied' };
+    ctx.setResourceError('https://api.example.com', detail);
+    try {
+      ctx.access('https://api.example.com');
+      throw new Error('expected throw');
+    } catch (e) {
+      expect(e).toBeInstanceOf(ResourceAccessError);
+      const err = e as ResourceAccessError;
+      expect(err.errorType).toBe('resource_error');
+      expect(err.resource).toBe('https://api.example.com');
+      expect(err.errorDetails).toEqual(detail);
+      expect(err.message).toContain('denied by AS');
+    }
+  });
+
+  it('access() carries global_error context on the thrown error', () => {
+    const ctx = new AccessContext();
+    const detail = { message: 'token exchange failed' };
+    ctx.setError(detail);
+    try {
+      ctx.access('https://api.example.com');
+      throw new Error('expected throw');
+    } catch (e) {
+      expect(e).toBeInstanceOf(ResourceAccessError);
+      const err = e as ResourceAccessError;
+      expect(err.errorType).toBe('global_error');
+      expect(err.resource).toBe('https://api.example.com');
+      expect(err.errorDetails).toEqual(detail);
+      expect(err.message).toContain('token exchange failed');
+    }
+  });
+
+  it('getResourceError returns the stored detail or null', () => {
+    const ctx = new AccessContext();
+    ctx.setResourceError('https://api.example.com', { message: 'transient' });
+    expect(ctx.getResourceError('https://api.example.com')).toEqual({ message: 'transient' });
+    expect(ctx.getResourceError('https://other.example.com')).toBeNull();
+  });
+
   it('reports partial_error when one resource fails', () => {
     const ctx = new AccessContext();
     ctx.setToken('https://api.example.com', TOKEN);

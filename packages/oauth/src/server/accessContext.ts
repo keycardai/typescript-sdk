@@ -1,12 +1,7 @@
 import type { TokenResponse } from "../tokenExchange.js";
-import { ResourceAccessError } from "../errors.js";
+import { ResourceAccessError, type ErrorDetail } from "../errors.js";
 
-export type ErrorDetail = {
-  message: string;
-  code?: string;
-  description?: string;
-  rawError?: string;
-};
+export type { ErrorDetail } from "../errors.js";
 
 export type AccessContextStatus = "success" | "partial_error" | "error";
 
@@ -43,14 +38,27 @@ export class AccessContext {
 
   access(resource: string): TokenResponse {
     if (this.#error) {
-      throw new ResourceAccessError();
+      throw new ResourceAccessError(undefined, {
+        resource,
+        errorType: "global_error",
+        errorDetails: this.#error,
+      });
     }
-    if (this.#resourceErrors.has(resource)) {
-      throw new ResourceAccessError();
+    const resourceError = this.#resourceErrors.get(resource);
+    if (resourceError) {
+      throw new ResourceAccessError(undefined, {
+        resource,
+        errorType: "resource_error",
+        errorDetails: resourceError,
+      });
     }
     const token = this.#accessTokens.get(resource);
     if (!token) {
-      throw new ResourceAccessError();
+      throw new ResourceAccessError(undefined, {
+        resource,
+        errorType: "missing_token",
+        availableResources: [...this.#accessTokens.keys()],
+      });
     }
     return token;
   }
@@ -71,7 +79,7 @@ export class AccessContext {
     return this.#error;
   }
 
-  getResourceErrors(resource: string): ErrorDetail | null {
+  getResourceError(resource: string): ErrorDetail | null {
     return this.#resourceErrors.get(resource) ?? null;
   }
 
