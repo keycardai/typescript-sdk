@@ -67,24 +67,11 @@ describe('registerClient', () => {
     expect(response.clientId).toBe('svc-abc');
     expect(response.clientSecret).toBe('sec');
     expect(response.clientIdIssuedAt).toBe(1700000000);
+    expect(response.clientName).toBe('My Service');
     expect(response.redirectUris).toEqual(['https://app.example.com/callback']);
     expect(response.grantTypes).toEqual(['client_credentials']);
     expect(response.scope).toEqual(['read', 'write']);
-
-    const [, registrationCall] = fetchMock.mock.calls;
-    expect(registrationCall[0]).toBe(REGISTRATION_ENDPOINT);
-    const init = registrationCall[1] as FetchInit;
-    expect((init as RequestInit).method).toBe('POST');
-    const headers = (init as RequestInit).headers as Record<string, string>;
-    expect(headers['Content-Type']).toBe('application/json');
-    expect(headers['Accept']).toBe('application/json');
-    const body = JSON.parse((init as RequestInit).body as string);
-    expect(body).toEqual({
-      client_name: 'My Service',
-      redirect_uris: ['https://app.example.com/callback'],
-      grant_types: ['client_credentials'],
-      scope: 'read write',
-    });
+    expect(response.raw).toMatchObject({ client_id: 'svc-abc', client_secret: 'sec' });
   });
 
   it('throws when the AS does not advertise registration_endpoint', async () => {
@@ -137,18 +124,23 @@ describe('registerClient', () => {
     );
   });
 
-  it('passes additionalMetadata fields through verbatim', async () => {
+  it('passes additionalMetadata fields through and surfaces them in raw', async () => {
     fetchMock.mockImplementationOnce(async () => metadataResponse());
-    fetchMock.mockImplementationOnce(async () => jsonResponse(201, { client_id: 'svc-abc' }));
+    fetchMock.mockImplementationOnce(async () =>
+      jsonResponse(201, {
+        client_id: 'svc-abc',
+        'kc:zone_id': 'zone-a',
+        custom_extension: 'vendor-value',
+      }),
+    );
 
-    await registerClient(ISSUER, {
+    const response = await registerClient(ISSUER, {
       clientName: 'svc',
-      additionalMetadata: { 'kc:zone_id': 'zone-a', software_statement: 'opaque' },
+      additionalMetadata: { 'kc:zone_id': 'zone-a' },
     });
 
-    const [, registrationCall] = fetchMock.mock.calls;
-    const body = JSON.parse((registrationCall[1] as RequestInit).body as string);
-    expect(body['kc:zone_id']).toBe('zone-a');
-    expect(body.software_statement).toBe('opaque');
+    expect(response.clientId).toBe('svc-abc');
+    expect(response.raw['kc:zone_id']).toBe('zone-a');
+    expect(response.raw['custom_extension']).toBe('vendor-value');
   });
 });

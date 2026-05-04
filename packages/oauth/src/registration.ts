@@ -99,20 +99,33 @@ export async function registerClient(
     signal: options?.signal,
   });
 
-  const body = await readJsonBody(response);
-
   if (!response.ok) {
-    if (body && typeof body.error === "string") {
-      const description = typeof body.error_description === "string"
-        ? body.error_description
-        : body.error;
-      const errorUri = typeof body.error_uri === "string" ? body.error_uri : undefined;
-      throw new OAuthError(body.error, description, errorUri);
+    let errorBody: Record<string, unknown> | null = null;
+    try {
+      const json = await response.json() as unknown;
+      if (json && typeof json === "object" && !Array.isArray(json)) {
+        errorBody = json as Record<string, unknown>;
+      }
+    } catch {
+      // non-JSON error body — fall through to generic error
+    }
+    if (errorBody && typeof errorBody.error === "string") {
+      const description = typeof errorBody.error_description === "string"
+        ? errorBody.error_description
+        : errorBody.error;
+      const errorUri = typeof errorBody.error_uri === "string" ? errorBody.error_uri : undefined;
+      throw new OAuthError(errorBody.error, description, errorUri);
     }
     throw new Error(`Client registration failed (HTTP ${response.status})`);
   }
 
-  if (!body || typeof body.client_id !== "string") {
+  const json = await response.json() as unknown;
+  if (!json || typeof json !== "object" || Array.isArray(json)) {
+    throw new Error("Client registration response is not a valid JSON object");
+  }
+  const body = json as Record<string, unknown>;
+
+  if (typeof body.client_id !== "string") {
     throw new Error("Client registration response missing client_id");
   }
 
@@ -199,14 +212,3 @@ function normalizeScope(value: unknown): string[] | undefined {
   return normalizeStringArray(value);
 }
 
-async function readJsonBody(response: Response): Promise<Record<string, unknown> | null> {
-  try {
-    const json = await response.json();
-    if (json && typeof json === "object" && !Array.isArray(json)) {
-      return json as Record<string, unknown>;
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
