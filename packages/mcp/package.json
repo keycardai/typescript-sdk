@@ -78,6 +78,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
+    "@keycardai/express": "workspace:*",
     "@keycardai/oauth": "workspace:*",
     "cors": "^2.8.5",
     "express": "^5.1.0",

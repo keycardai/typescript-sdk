@@ -26,9 +26,7 @@ describe("ClientSecret", () => {
 describe("EKSWorkloadIdentity", () => {
   it("should throw when no token file path can be found", async () => {
     const { EKSWorkloadIdentity } = await import("./credentials.js");
-    const { EKSWorkloadIdentityConfigurationError } = await import("./errors.js");
 
-    // Clear any env vars that might exist
     const savedEnvs: Record<string, string | undefined> = {};
     for (const envName of [
       "KEYCARD_EKS_WORKLOAD_IDENTITY_TOKEN_FILE",
@@ -40,13 +38,12 @@ describe("EKSWorkloadIdentity", () => {
     }
 
     try {
-      expect(() => new EKSWorkloadIdentity()).toThrow(EKSWorkloadIdentityConfigurationError);
+      expect(() => new EKSWorkloadIdentity()).toThrow(
+        /could not find token file path in environment variables/,
+      );
     } finally {
-      // Restore env vars
       for (const [key, value] of Object.entries(savedEnvs)) {
-        if (value !== undefined) {
-          process.env[key] = value;
-        }
+        if (value !== undefined) process.env[key] = value;
       }
     }
   });
