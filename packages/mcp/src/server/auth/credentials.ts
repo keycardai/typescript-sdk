@@ -11,30 +11,8 @@ export type { ApplicationCredential } from "@keycardai/oauth/credentials";
 // ClientSecret
 // =============================================================================
 
-export class ClientSecret implements ApplicationCredential {
-  #clientId: string;
-  #clientSecret: string;
-
-  constructor(clientId: string, clientSecret: string) {
-    this.#clientId = clientId;
-    this.#clientSecret = clientSecret;
-  }
-
-  getAuth(): { clientId: string; clientSecret: string } {
-    return { clientId: this.#clientId, clientSecret: this.#clientSecret };
-  }
-
-  async prepareTokenExchangeRequest(
-    subjectToken: string,
-    resource: string,
-  ): Promise<TokenExchangeRequest> {
-    return {
-      subjectToken,
-      resource,
-      subjectTokenType: "urn:ietf:params:oauth:token-type:access_token",
-    };
-  }
-}
+export { ClientSecret } from "@keycardai/oauth/server/clientSecret";
+export type { ClientSecretCredentials } from "@keycardai/oauth/server/clientSecret";
 
 // =============================================================================
 // WebIdentity (private_key_jwt - RFC 7523)

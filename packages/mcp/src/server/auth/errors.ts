@@ -1,18 +1,13 @@
-export { HTTPError, BadRequestError, UnauthorizedError, OAuthError, InvalidTokenError, InsufficientScopeError } from "@keycardai/oauth/errors";
-
-export class ResourceAccessError extends Error {
-  constructor(message?: string) {
-    super(message ?? "Resource access denied or token not available");
-    this.name = "ResourceAccessError";
-  }
-}
-
-export class AuthProviderConfigurationError extends Error {
-  constructor(message?: string) {
-    super(message ?? "AuthProvider configuration is invalid");
-    this.name = "AuthProviderConfigurationError";
-  }
-}
+export {
+  HTTPError,
+  BadRequestError,
+  UnauthorizedError,
+  OAuthError,
+  InvalidTokenError,
+  InsufficientScopeError,
+  ResourceAccessError,
+  AuthProviderConfigurationError,
+} from "@keycardai/oauth/errors";
 
 export class EKSWorkloadIdentityConfigurationError extends Error {
   constructor(message?: string) {

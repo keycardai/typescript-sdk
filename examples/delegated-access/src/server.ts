@@ -127,7 +127,7 @@ app.get(
       result[resource] = { tokenAvailable: true };
     }
     for (const resource of accessContext.getFailedResources()) {
-      result[resource] = { error: accessContext.getResourceErrors(resource) };
+      result[resource] = { error: accessContext.getResourceError(resource) };
     }
 
     res.json(result);
