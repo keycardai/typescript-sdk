@@ -91,9 +91,9 @@
   ],
   "typesVersions": {
     "*": {
-      "*": [
-        "./dist/esm/*"
-      ]
+      "server": ["./dist/esm/server/index.d.ts"],
+      "server/*": ["./dist/esm/server/*.d.ts"],
+      "*": ["./dist/esm/*"]
     }
   },
   "scripts": {
