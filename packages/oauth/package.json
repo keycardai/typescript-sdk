@@ -84,6 +84,11 @@
       "import": "./dist/esm/server/clientSecret.js",
       "require": "./dist/cjs/server/clientSecret.js",
       "types": "./dist/esm/server/clientSecret.d.ts"
+    },
+    "./pkce": {
+      "import": "./dist/esm/pkce.js",
+      "require": "./dist/cjs/pkce.js",
+      "types": "./dist/esm/pkce.d.ts"
     }
   },
   "files": [
