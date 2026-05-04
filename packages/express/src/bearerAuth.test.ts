@@ -40,11 +40,12 @@ describe('requireBearerAuth', () => {
     expect(res.body.clientId).toBe('svc-x');
   });
 
-  it('returns 401 with WWW-Authenticate when no Authorization header', async () => {
+  it('returns 401 with a resource_metadata URL in WWW-Authenticate when no Authorization header', async () => {
     const app = makeApp(makeVerifier(VALID_TOKEN));
     const res = await request(app).get('/resource');
     expect(res.status).toBe(401);
-    expect(res.headers['www-authenticate']).toMatch(/resource_metadata=/);
+    const wwwAuth = res.headers['www-authenticate'] as string;
+    expect(wwwAuth).toMatch(/resource_metadata="http:\/\/127\.0\.0\.1(:\d+)?\/\.well-known\/oauth-protected-resource"/);
   });
 
   it('returns 401 when verifier returns null (invalid token)', async () => {
@@ -80,5 +81,27 @@ describe('requireBearerAuth', () => {
       .set('Authorization', 'Bearer valid-jwt');
     expect(res.status).toBe(403);
     expect(res.headers['www-authenticate']).toMatch(/insufficient_scope/);
+  });
+
+  it('returns 401 when token resource audience does not match request origin', async () => {
+    const tokenForOtherService: AccessToken = {
+      ...VALID_TOKEN,
+      resource: 'https://other-service.example.com',
+    };
+    const app = makeApp(makeVerifier(tokenForOtherService));
+    const res = await request(app)
+      .get('/resource')
+      .set('Authorization', 'Bearer valid-jwt');
+    expect(res.status).toBe(401);
+    expect(res.headers['www-authenticate']).toMatch(/error="invalid_token"/);
+  });
+
+  it('accepts a token with no resource claim (audience not enforced by token)', async () => {
+    const tokenNoResource: AccessToken = { ...VALID_TOKEN, resource: undefined };
+    const app = makeApp(makeVerifier(tokenNoResource));
+    const res = await request(app)
+      .get('/resource')
+      .set('Authorization', 'Bearer valid-jwt');
+    expect(res.status).toBe(200);
   });
 });

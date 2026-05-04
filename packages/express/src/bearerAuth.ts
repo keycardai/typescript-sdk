@@ -39,6 +39,9 @@ export type BearerAuthOptions =
  * ```
  */
 export function requireBearerAuth(options: BearerAuthOptions): RequestHandler {
+  // Do not pass requiredScopes to TokenVerifier: it returns null on scope
+  // failure, which the middleware would interpret as a generic 401. The
+  // explicit scope check below produces the correct 403 InsufficientScopeError.
   const verifier = "verifier" in options
     ? options.verifier
     : new TokenVerifier({
@@ -46,7 +49,6 @@ export function requireBearerAuth(options: BearerAuthOptions): RequestHandler {
         audience: options.audience,
         enableMultiZone: options.enableMultiZone,
         keyring: options.keyring,
-        requiredScopes: options.requiredScopes,
       });
 
   return async (req: Request, res: Response, next: NextFunction) => {
@@ -69,6 +71,22 @@ export function requireBearerAuth(options: BearerAuthOptions): RequestHandler {
       const accessToken = await verifier.verifyToken(token);
       if (!accessToken) {
         throw new InvalidTokenError("Token validation failed");
+      }
+
+      // Validate resource audience: a token scoped to a different resource
+      // server must not be accepted here. Compare origins so path and query
+      // string differences are ignored (mirrors Workers auth.ts:88-92).
+      if (accessToken.resource) {
+        const requestOrigin = `${req.protocol}://${req.host}`;
+        try {
+          const tokenOrigin = new URL(accessToken.resource).origin;
+          if (tokenOrigin !== requestOrigin) {
+            throw new InvalidTokenError("Token not intended for resource");
+          }
+        } catch (e) {
+          if (e instanceof InvalidTokenError) throw e;
+          // resource claim is not a URL — opaque audience, skip origin check
+        }
       }
 
       if (
