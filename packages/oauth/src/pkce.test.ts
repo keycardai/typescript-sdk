@@ -221,8 +221,10 @@ describe('authenticate', () => {
       timeoutMs: 5000,
     });
 
-    // Give the loopback server time to start
-    await new Promise((r) => setTimeout(r, 80));
+    // Give the loopback server time to start. 250ms is conservative but
+    // avoids ECONNREFUSED flakes on loaded CI machines without needing a
+    // TCP-probe helper.
+    await new Promise((r) => setTimeout(r, 250));
 
     // Simulate the browser being redirected back with an authorization code.
     // Use the real fetch (saved before mocking) so it actually hits the loopback server.

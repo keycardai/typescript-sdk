@@ -227,10 +227,13 @@ async function openBrowser(url: string): Promise<void> {
   exec(cmd);
 }
 
-function waitForCode(port: number, redirectUri: string, timeoutMs: number): Promise<string> {
-  return new Promise(async (resolve, reject) => {
-    const { createServer } = await import("node:http");
+async function waitForCode(port: number, redirectUri: string, timeoutMs: number): Promise<string> {
+  // Import before entering the Promise constructor to avoid the async-executor
+  // anti-pattern: if the dynamic import throws, the rejection propagates through
+  // this async function rather than escaping an async Promise constructor.
+  const { createServer } = await import("node:http");
 
+  return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       server.close();
       reject(new Error(`PKCE authentication timed out after ${timeoutMs}ms`));
