@@ -233,6 +233,27 @@ def create_signed_commit_on_branch(
     return True
 
 
+def wait_for_pr_stable(pr_number: int, timeout_seconds: int = 120) -> bool:
+    """Poll mergeStateStatus until GitHub has a definite state for the PR.
+
+    A freshly opened PR starts as UNKNOWN or UNSTABLE while required checks
+    register. Auto-merge can only be enabled once the PR leaves that limbo.
+    """
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        exit_code, stdout, _ = run_command(
+            ["gh", "pr", "view", str(pr_number), "--json", "mergeStateStatus"]
+        )
+        if exit_code == 0:
+            state = json.loads(stdout).get("mergeStateStatus", "")
+            print(f"PR #{pr_number} merge state: {state}")
+            if state not in ("UNKNOWN", "UNSTABLE"):
+                return True
+        time.sleep(5)
+    print(f"Timed out waiting for PR #{pr_number} to reach a stable merge state")
+    return False
+
+
 def create_pr_with_automerge(
     branch: str, package_name: str, new_version: str
 ) -> int | None:
@@ -275,6 +296,9 @@ def create_pr_with_automerge(
         return None
     pr_number = int(pr_number_match.group(1))
     print(f"Opened PR #{pr_number}: {pr_url}")
+
+    if not wait_for_pr_stable(pr_number):
+        return None
 
     print("Enabling auto-merge (squash)...")
     exit_code, _, stderr = run_command(
