@@ -2,14 +2,14 @@
 
 > **Preview.** This SDK has not reached parity with the Keycard Python SDK. APIs may change between minor versions.
 
-Keycard auth integration for the [Agent-to-Agent (A2A) protocol](https://google.github.io/A2A). Build authenticated A2A agent servers and clients with Keycard-issued bearer tokens.
+Keycard auth integration for the [Agent-to-Agent (A2A) protocol](https://google.github.io/A2A). Wraps [`@a2a-js/sdk`](https://github.com/a2aproject/a2a-js) the same way Python's `keycardai-a2a` wraps `a2a-sdk 1.x` — adds Keycard auth on top of the existing SDK's routing, executor, and task store infrastructure.
 
-**No external A2A SDK dependency** — implements the A2A JSONRPC protocol directly. Python equivalent: [`keycardai-a2a`](https://github.com/keycardai/python-sdk/tree/main/packages/a2a).
+Python equivalent: [`keycardai-a2a`](https://github.com/keycardai/python-sdk/tree/main/packages/a2a).
 
 ## Installation
 
 ```bash
-npm install @keycardai/a2a express
+npm install @keycardai/a2a @a2a-js/sdk express
 ```
 
 ## Quick Start
@@ -18,19 +18,25 @@ npm install @keycardai/a2a express
 
 ```typescript
 import express from "express";
-import { createAgentRouter, AgentExecutor } from "@keycardai/a2a";
+import { agentCardHandler, jsonRpcHandler } from "@a2a-js/sdk/server/express";
+import { InMemoryTaskStore, type AgentExecutor, type RequestContext, type ExecutionEventBus } from "@a2a-js/sdk/server";
+import {
+  keycardUserBuilder,
+  getKeycardAuth,
+  createKeycardRequestHandler,
+  buildAgentCard,
+} from "@keycardai/a2a";
 
 const executor: AgentExecutor = {
-  async execute(message, context) {
-    // context.auth is the verified AccessToken
-    // context.accessToken is the raw bearer string for downstream delegation
-    const text = message.parts[0].type === "text" ? message.parts[0].text : "";
-    return {
-      messageId: crypto.randomUUID(),
-      role: "agent",
-      parts: [{ type: "text", text: `Hello: ${text}` }],
-    };
+  async execute(requestContext: RequestContext, eventBus: ExecutionEventBus) {
+    const auth = getKeycardAuth(requestContext); // AccessToken | null
+    // auth.token is usable for downstream delegation
+    const text = (requestContext.userMessage.parts[0] as any).text;
+    eventBus.publish({ messageId: crypto.randomUUID(), role: "agent",
+      parts: [{ kind: "text", text: `Hello: ${text}` }] } as any);
+    eventBus.finished();
   },
+  async cancelTask() {},
 };
 
 const config = {
@@ -41,65 +47,63 @@ const config = {
   zoneId: process.env.KEYCARD_ZONE_ID,
 };
 
+const agentCard = buildAgentCard(config);
+const requestHandler = createKeycardRequestHandler(executor, agentCard);
+const userBuilder = keycardUserBuilder({
+  issuer: `https://${config.zoneId}.keycard.cloud`,
+});
+
 const app = express();
 app.use(express.json());
-app.use(createAgentRouter(executor, config, {
-  issuer: `https://${config.zoneId}.keycard.cloud`,
-}));
+app.use("/.well-known/agent-card.json", agentCardHandler({ agentCardProvider: requestHandler }));
+app.use("/a2a/jsonrpc", jsonRpcHandler({ requestHandler, userBuilder }));
 
 app.listen(3000);
 ```
 
-`createAgentRouter` mounts:
-- `GET /.well-known/agent-card.json` — serves agent metadata
-- `POST /a2a/jsonrpc` — Keycard-authenticated, dispatches to `executor.execute()`
-
 ### Call a remote A2A agent
 
 ```typescript
-import { DelegationClient } from "@keycardai/a2a";
+import { DelegationClient, getKeycardAuth } from "@keycardai/a2a";
 
-const client = new DelegationClient({
-  serviceName: "My Service",
-  clientId: process.env.KEYCARD_CLIENT_ID!,
-  clientSecret: process.env.KEYCARD_CLIENT_SECRET!,
-  identityUrl: "https://my-service.example.com",
-  zoneId: process.env.KEYCARD_ZONE_ID,
-});
+const client = new DelegationClient(config);
 
-// Inside a request handler — pass the caller's token for delegation chain
-const result = await client.invokeService(
-  "https://remote-agent.example.com",
-  "What is the weather today?",
-  { subjectToken: context.accessToken },
-);
-console.log(result.message.parts[0].text);
+// Inside your executor — pass the caller's token for delegation chain
+async execute(requestContext, eventBus) {
+  const auth = getKeycardAuth(requestContext)!;
+  const result = await client.invokeService(
+    "https://remote-agent.example.com",
+    "Summarize this document",
+    { subjectToken: auth.token },
+  );
+  eventBus.publish(result.message);
+  eventBus.finished();
+}
 ```
 
-### Discover remote agents
+## How it works
 
-```typescript
-import { ServiceDiscovery } from "@keycardai/a2a";
+`keycardUserBuilder` implements [`@a2a-js/sdk`'s `UserBuilder`](https://github.com/a2aproject/a2a-js) interface — the auth extension point where Keycard JWT validation is wired in. This is the same pattern as Python's `KeycardServerCallContextBuilder`. The builder validates the bearer token with `TokenVerifier`, creates a `KeycardUser` carrying the `AccessToken`, and injects it into each `RequestContext` via `ServerCallContext`.
 
-const discovery = new ServiceDiscovery();
-const card = await discovery.getServiceCard("https://remote-agent.example.com");
-console.log(card.name, card.skills);
-```
+`getKeycardAuth(requestContext)` extracts that `AccessToken` in the executor, giving you the caller's identity and a ready-to-use `token` string for downstream RFC 8693 delegation.
 
 ## API
 
 | Export | Description |
 |---|---|
-| `createAgentRouter(executor, config, options)` | Express Router with `/.well-known/agent-card.json` and `/a2a/jsonrpc` |
-| `AgentExecutor` (interface) | Implement to handle incoming A2A tasks |
-| `AgentExecutorContext` | Context passed to executor: `auth: AccessToken`, `accessToken: string` |
-| `DelegationClient` | Client for calling remote A2A agents with Keycard delegation |
+| `keycardUserBuilder(options)` | Returns a `UserBuilder` for `@a2a-js/sdk`'s Express handlers; validates Keycard JWTs |
+| `KeycardUser` | Implements `User`, carries `AccessToken` |
+| `getKeycardAuth(requestContext)` | Extracts `AccessToken` from executor context; returns `null` if unauthenticated |
+| `createKeycardRequestHandler(executor, agentCard, options?)` | Convenience wrapper creating `DefaultRequestHandler` with `InMemoryTaskStore` |
+| `buildAgentCard(config)` | Builds an `AgentCard` from `AgentServiceConfig` |
+| `DelegationClient` | Discovers, exchanges tokens, and invokes remote A2A agents |
 | `ServiceDiscovery` | Fetches and caches agent cards from `/.well-known/agent-card.json` |
-| `AgentServiceConfig` | Config bag: service identity, credentials, agent card metadata |
-| `AgentCard`, `A2AMessage`, `Part` | A2A protocol types |
+| `AgentServiceConfig` | Config: service name, credentials, identity URL, zone |
+
+Re-exports from `@a2a-js/sdk`: `agentCardHandler`, `jsonRpcHandler`, `restHandler`, `UserBuilder`, `AgentExecutor`, `RequestContext`, `ExecutionEventBus`, `InMemoryTaskStore`, `DefaultRequestHandler`, `AgentCard`, `Message`, `Task`.
 
 ## Related Packages
 
-- [`@keycardai/express`](../express/) — bearer auth middleware used by the agent server
-- [`@keycardai/oauth`](../oauth/) — token exchange primitives used by the delegation client
-- [Keycard TypeScript SDK](../../README.md) — root documentation
+- [`@keycardai/oauth`](../oauth/) — Token exchange primitives used by `DelegationClient`
+- [`@keycardai/express`](../express/) — Bearer auth middleware for plain HTTP APIs
+- [Keycard TypeScript SDK](../../README.md) — Root documentation

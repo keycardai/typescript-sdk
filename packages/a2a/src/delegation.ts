@@ -1,43 +1,50 @@
 import { TokenExchangeClient } from "@keycardai/oauth/tokenExchange";
 import { ClientSecret } from "@keycardai/oauth/server/clientSecret";
-import type { AgentCard, A2AMessage, A2ARequest, A2ASuccessResponse } from "./types.js";
-import {
-  A2A_JSONRPC_VERSION,
-  A2A_VERSION_HEADER,
-  A2A_PROTOCOL_VERSION,
-  A2A_JSONRPC_PATH,
-} from "./types.js";
+import type { AgentCard } from "@a2a-js/sdk";
+import type { Message } from "@a2a-js/sdk";
 import { ServiceDiscovery } from "./discovery.js";
 import type { AgentServiceConfig } from "./config.js";
-import { getAuthServerUrl, getJsonrpcUrl } from "./config.js";
+import { getAuthServerUrl } from "./config.js";
 
 export interface DelegationResult {
   /** The agent's response message. */
-  message: A2AMessage;
+  message: Message;
   /** Resolved agent card for the target service. */
   agentCard: AgentCard;
 }
 
 export interface InvokeOptions {
   /**
-   * Keycard bearer token from the current request context, used as the
-   * subject token for RFC 8693 delegation to the target service. In a
-   * server handler this is typically `context.accessToken` from the
-   * `AgentExecutorContext`.
-   *
-   * Required. Service-to-service flows without a user token should acquire
-   * a service access token via client credentials first, then pass it here.
+   * Keycard bearer token from the current request context. Pass
+   * `getKeycardAuth(requestContext)?.token` from the executor.
+   * Required: used as the RFC 8693 subject token for delegated exchange.
    */
   subjectToken: string;
   /** Timeout in ms for the JSONRPC call. Default: 30 000. */
   timeoutMs?: number;
-  /** Arbitrary metadata to include in the A2A message. */
+  /** Arbitrary metadata to attach to the A2A message. */
   metadata?: Record<string, unknown>;
 }
+
+const A2A_JSONRPC_PATH = "/a2a/jsonrpc";
+const A2A_PROTOCOL_VERSION = "0.3";
+const A2A_VERSION_HEADER = "x-a2a-protocol-version";
 
 /**
  * Client for delegating tasks to remote A2A agent services with
  * Keycard token exchange.
+ *
+ * ```ts
+ * const client = new DelegationClient(config);
+ *
+ * // Inside your AgentExecutor.execute():
+ * const auth = getKeycardAuth(requestContext);
+ * const result = await client.invokeService(targetUrl, "summarize this", {
+ *   subjectToken: auth!.token,
+ * });
+ * eventBus.publish(result.message);
+ * eventBus.finished();
+ * ```
  *
  * Python equivalent: `keycardai.a2a.DelegationClient`
  */
@@ -64,9 +71,14 @@ export class DelegationClient {
   ): Promise<DelegationResult> {
     const agentCard = await this.#discovery.getServiceCard(serviceUrl);
     const delegationToken = await this.#getDelegationToken(serviceUrl, options.subjectToken);
-    const message = buildUserMessage(task, options?.metadata);
+    const message = buildUserMessage(task, options.metadata);
     const jsonrpcUrl = buildJsonrpcUrl(serviceUrl, agentCard);
-    const responseMessage = await this.#sendMessage(jsonrpcUrl, message, delegationToken, options?.timeoutMs);
+    const responseMessage = await this.#sendMessage(
+      jsonrpcUrl,
+      message,
+      delegationToken,
+      options.timeoutMs,
+    );
     return { message: responseMessage, agentCard };
   }
 
@@ -81,12 +93,12 @@ export class DelegationClient {
 
   async #sendMessage(
     jsonrpcUrl: string,
-    message: A2AMessage,
+    message: Message,
     bearerToken: string,
     timeoutMs = 30_000,
-  ): Promise<A2AMessage> {
-    const requestBody: A2ARequest = {
-      jsonrpc: A2A_JSONRPC_VERSION,
+  ): Promise<Message> {
+    const requestBody = {
+      jsonrpc: "2.0",
       id: crypto.randomUUID(),
       method: "message/send",
       params: { message },
@@ -117,11 +129,10 @@ export class DelegationClient {
       throw new Error(`DelegationClient: response from "${jsonrpcUrl}" is not valid JSON`);
     }
 
-    const envelope = body as Partial<A2ASuccessResponse>;
+    const envelope = body as { result?: { message?: Message }; error?: { message?: string } };
     if (!envelope.result?.message) {
-      const err = (body as { error?: { message?: string } }).error;
       throw new Error(
-        `DelegationClient: A2A error from "${jsonrpcUrl}": ${err?.message ?? "unknown error"}`,
+        `DelegationClient: A2A error from "${jsonrpcUrl}": ${envelope.error?.message ?? "unknown error"}`,
       );
     }
 
@@ -129,23 +140,16 @@ export class DelegationClient {
   }
 }
 
-function buildUserMessage(text: string, metadata?: Record<string, unknown>): A2AMessage {
+function buildUserMessage(text: string, metadata?: Record<string, unknown>): Message {
   return {
     messageId: crypto.randomUUID(),
     role: "user",
-    parts: [{ type: "text", text }],
+    parts: [{ kind: "text", text }],
     ...(metadata ? { metadata } : {}),
-  };
+  } as Message;
 }
 
 function buildJsonrpcUrl(serviceUrl: string, agentCard: AgentCard): string {
-  // Prefer the agent card's own URL if it has a jsonrpc path.
-  if (agentCard.url) {
-    const base = agentCard.url.endsWith("/")
-      ? agentCard.url.slice(0, -1)
-      : agentCard.url;
-    return `${base}${A2A_JSONRPC_PATH}`;
-  }
-  const base = serviceUrl.endsWith("/") ? serviceUrl.slice(0, -1) : serviceUrl;
+  const base = (agentCard.url ?? serviceUrl).replace(/\/$/, "");
   return `${base}${A2A_JSONRPC_PATH}`;
 }

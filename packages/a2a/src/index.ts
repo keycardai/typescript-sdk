@@ -1,26 +1,11 @@
-// Types
-export type {
-  AgentCard,
-  AgentSkill,
-  AgentCapabilities,
-  Part,
-  TextPart,
-  DataPart,
-  MessageRole,
-  A2AMessage,
-  A2ARequest,
-  A2ASuccessResponse,
-  A2AErrorResponse,
-  A2AResponse,
-} from "./types.js";
-export {
-  A2A_JSONRPC_VERSION,
-  A2A_PROTOCOL_VERSION,
-  A2A_VERSION_HEADER,
-  A2A_JSONRPC_PATH,
-  A2A_AGENT_CARD_PATH,
-  A2A_ERROR_CODES,
-} from "./types.js";
+// Keycard auth adapter for @a2a-js/sdk
+export { KeycardUser, keycardUserBuilder, getKeycardAuth } from "./auth.js";
+export type { KeycardUserBuilderOptions } from "./auth.js";
+
+// Server convenience helpers (thin wrappers over @a2a-js/sdk)
+export { createKeycardRequestHandler, buildAgentCard } from "./server.js";
+export type { AgentExecutor, RequestContext, ExecutionEventBus } from "./server.js";
+export { InMemoryTaskStore } from "./server.js";
 
 // Config
 export type { AgentServiceConfig } from "./config.js";
@@ -33,6 +18,15 @@ export { ServiceDiscovery } from "./discovery.js";
 export { DelegationClient } from "./delegation.js";
 export type { DelegationResult, InvokeOptions } from "./delegation.js";
 
-// Server (Express)
-export { createAgentRouter } from "./server.js";
-export type { AgentExecutor, AgentExecutorContext, AgentRouterOptions } from "./server.js";
+// Re-export the SDK's Express handlers and UserBuilder so customers
+// import from one place.
+export {
+  agentCardHandler,
+  jsonRpcHandler,
+  restHandler,
+  UserBuilder,
+} from "@a2a-js/sdk/server/express";
+
+// Re-export core SDK types customers need for executor implementations.
+export type { AgentCard, Message, Task } from "@a2a-js/sdk";
+export { DefaultRequestHandler } from "@a2a-js/sdk/server";

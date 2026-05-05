@@ -1,10 +1,9 @@
-import type { AgentSkill } from "./types.js";
+import type { AgentSkill } from "@a2a-js/sdk";
+
+export type { AgentSkill } from "@a2a-js/sdk";
 
 /**
  * Configuration for a Keycard-protected A2A agent service.
- *
- * Holds the service identity, Keycard credentials for delegation, and
- * the agent card metadata served at `/.well-known/agent-card.json`.
  *
  * Python equivalent: `keycardai.a2a.AgentServiceConfig`
  */
@@ -17,7 +16,7 @@ export interface AgentServiceConfig {
   clientSecret: string;
   /**
    * Public URL of this agent service, e.g. "https://my-agent.example.com".
-   * Used to construct `agentCardUrl` and `jsonrpcUrl`.
+   * Used to construct the JSONRPC endpoint URL.
    */
   identityUrl: string;
   /** Keycard zone ID, e.g. "abc1234". Constructs the auth server URL. */
@@ -27,7 +26,7 @@ export interface AgentServiceConfig {
    * `https://{zoneId}.keycard.cloud` when `zoneId` is provided.
    */
   authorizationServerUrl?: string;
-  /** Optional description for the agent card. */
+  /** Description for the agent card. */
   description?: string;
   /** Skills advertised in the agent card. */
   skills?: readonly AgentSkill[];

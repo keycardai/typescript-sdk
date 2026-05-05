@@ -1,7 +1,9 @@
-import type { AgentCard } from "./types.js";
-import { A2A_AGENT_CARD_PATH } from "./types.js";
+import type { AgentCard } from "@a2a-js/sdk";
+
+export type { AgentCard } from "@a2a-js/sdk";
 
 const DEFAULT_CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
+const AGENT_CARD_PATH = "/.well-known/agent-card.json";
 
 interface CacheEntry {
   card: AgentCard;
@@ -74,7 +76,7 @@ export class ServiceDiscovery {
 
 function buildAgentCardUrl(serviceUrl: string): string {
   const base = serviceUrl.endsWith("/") ? serviceUrl.slice(0, -1) : serviceUrl;
-  return `${base}${A2A_AGENT_CARD_PATH}`;
+  return `${base}${AGENT_CARD_PATH}`;
 }
 
 function normalizeUrl(url: string): string {
