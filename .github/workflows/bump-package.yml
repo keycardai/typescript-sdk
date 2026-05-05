@@ -24,12 +24,17 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Generate GitHub App token
+        id: generate-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.GH_REPO_ACCESS_APP_ID }}
+          private-key: ${{ secrets.GH_REPO_ACCESS_PRIVATE_KEY }}
+
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
-          # Checkout with PAT so git operations (fetch, reset) use an identity
-          # that can create PRs and whose tag pushes fire downstream workflows.
-          token: ${{ secrets.RELEASE_GITHUB_PAT }}
+          token: ${{ steps.generate-token.outputs.token }}
           fetch-depth: 0
 
       - name: Install commitizen
@@ -37,6 +42,6 @@ jobs:
 
       - name: Bump version for ${{ inputs.package_name }}
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_GITHUB_PAT }}
+          GH_TOKEN: ${{ steps.generate-token.outputs.token }}
         run: |
           python scripts/bump_package.py "${{ inputs.package_name }}" "${{ inputs.package_dir }}"
