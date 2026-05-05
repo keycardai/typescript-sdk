@@ -1,3 +1,17 @@
+## 0.4.1-keycardai-oauth (2026-05-05)
+
+
+- fix(oauth): map server barrel in typesVersions for node moduleResolution (ACC-269)
+- The typesVersions glob "*" maps "server" to "./dist/esm/server" —
+TypeScript then looks for "./dist/esm/server.d.ts" (does not exist)
+when the actual types live at "./dist/esm/server/index.d.ts". This
+caused @keycardai/express to work around the issue by importing from
+specific file paths (@keycardai/oauth/server/tokenVerifier etc.)
+rather than the barrel.
+- Add explicit entries so "server" and "server/*" resolve correctly
+under any moduleResolution setting, including the legacy "node" mode
+used in CJS builds.
+
 ## 0.4.0-keycardai-oauth (2026-05-01)
 
 
