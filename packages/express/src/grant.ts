@@ -4,6 +4,7 @@ import { AccessContext } from "@keycardai/oauth/server/accessContext";
 import type { ApplicationCredential } from "@keycardai/oauth/credentials";
 import { OAuthError, AuthProviderConfigurationError } from "@keycardai/oauth/errors";
 import type { AuthenticatedRequest } from "./bearerAuth.js";
+import type { AccessToken } from "@keycardai/oauth/server/accessToken";
 import type { TokenResponse } from "@keycardai/oauth/tokenExchange";
 
 export interface GrantedRequest extends AuthenticatedRequest {
@@ -17,13 +18,24 @@ export interface GrantOptions {
    */
   zoneUrl?: string;
   /**
-   * Keycard zone ID. Constructs the zone URL as
-   * `https://{zoneId}.keycard.cloud`.
+   * Keycard zone ID, or a function that resolves it from the verified
+   * access token at request time. Use the function form for multi-zone
+   * deployments where each request may target a different zone.
+   *
+   * ```ts
+   * // Static zone
+   * grant(resources, { zoneId: "zone-abc" });
+   *
+   * // Dynamic zone extracted from the token's clientId
+   * grant(resources, { zoneId: (auth) => auth.clientId });
+   * ```
    */
-  zoneId?: string;
+  zoneId?: string | ((auth: AccessToken) => string);
   /**
    * Application credential provider for authenticated token exchange.
-   * When omitted, the bearer token is exchanged without client auth.
+   * For multi-zone deployments, pass a `ClientSecret` constructed with a
+   * `Record<zoneId, [clientId, clientSecret]>` so the correct credentials
+   * are selected per request.
    */
   applicationCredential?: ApplicationCredential;
 }
@@ -52,8 +64,9 @@ export function grant(
   resources: string | readonly string[],
   options: GrantOptions,
 ): RequestHandler {
-  const zoneUrl = options.zoneUrl ?? buildZoneUrl(options.zoneId);
-  if (!zoneUrl) {
+  // Validate at construction time that a zone is specified.
+  const hasStaticZone = !!(options.zoneUrl || options.zoneId);
+  if (!hasStaticZone) {
     throw new AuthProviderConfigurationError(
       "grant: either `zoneUrl` or `zoneId` is required",
     );
@@ -74,10 +87,28 @@ export function grant(
       return next();
     }
 
+    // Resolve zone at request time — zoneId may be a static string or a
+    // function that extracts the zone from the verified access token.
+    const resolvedZoneId =
+      typeof options.zoneId === "function"
+        ? options.zoneId(authReq.auth)
+        : options.zoneId;
+
+    const resolvedZoneUrl = options.zoneUrl ?? buildZoneUrl(resolvedZoneId);
+    if (!resolvedZoneUrl) {
+      accessCtx.setError({ message: "Could not resolve zone URL for this request." });
+      (req as GrantedRequest).accessContext = accessCtx;
+      return next();
+    }
+
     let client: TokenExchangeClient;
     try {
-      const auth = options.applicationCredential?.getAuth();
-      client = new TokenExchangeClient(zoneUrl, auth ?? undefined);
+      // Pass the credential directly so TokenExchangeClient can call
+      // getAuth(zoneId) at exchange time, enabling multi-zone credential
+      // routing without pre-resolving credentials here.
+      client = new TokenExchangeClient(resolvedZoneUrl, {
+        credential: options.applicationCredential,
+      });
     } catch (e) {
       accessCtx.setError({
         message: "Failed to initialize token exchange client.",
@@ -99,6 +130,7 @@ export function grant(
           exchangeRequest = await options.applicationCredential.prepareTokenExchangeRequest(
             subjectToken,
             resource,
+            { zoneId: resolvedZoneId },
           );
         } else {
           exchangeRequest = {
@@ -107,7 +139,9 @@ export function grant(
             subjectTokenType: "urn:ietf:params:oauth:token-type:access_token" as const,
           };
         }
-        tokens[resource] = await client.exchangeToken(exchangeRequest);
+        tokens[resource] = await client.exchangeToken(exchangeRequest, {
+          zoneId: resolvedZoneId,
+        });
       } catch (e) {
         const detail: { message: string; code?: string; description?: string; rawError?: string } = {
           message: `Token exchange failed for ${resource}`,
