@@ -220,11 +220,15 @@ export async function authenticate(
 }
 
 async function openBrowser(url: string): Promise<void> {
-  const { exec } = await import("node:child_process");
-  const cmd = process.platform === "darwin" ? `open "${url}"`
-            : process.platform === "win32"  ? `start "" "${url}"`
-            : `xdg-open "${url}"`;
-  exec(cmd);
+  const { execFile } = await import("node:child_process");
+  if (process.platform === "darwin") {
+    execFile("open", [url]);
+  } else if (process.platform === "win32") {
+    // `start` is a cmd.exe built-in, not a standalone executable.
+    execFile("cmd", ["/c", "start", "", url]);
+  } else {
+    execFile("xdg-open", [url]);
+  }
 }
 
 async function waitForCode(port: number, redirectUri: string, timeoutMs: number): Promise<string> {
