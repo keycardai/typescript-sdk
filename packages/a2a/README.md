@@ -29,8 +29,9 @@ import {
 
 const executor: AgentExecutor = {
   async execute(requestContext: RequestContext, eventBus: ExecutionEventBus) {
-    const auth = getKeycardAuth(requestContext); // AccessToken | null
-    // auth.token is usable for downstream delegation
+    const auth = getKeycardAuth(requestContext);
+    if (!auth) throw new Error("unauthenticated"); // guard: keycardUserBuilder normally prevents this
+    // auth.token is the raw bearer string for downstream delegation
     const text = (requestContext.userMessage.parts[0] as any).text;
     eventBus.publish({ messageId: crypto.randomUUID(), role: "agent",
       parts: [{ kind: "text", text: `Hello: ${text}` }] } as any);

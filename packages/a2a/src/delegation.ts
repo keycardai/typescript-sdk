@@ -17,7 +17,12 @@ export interface InvokeOptions {
   /**
    * Keycard bearer token from the current request context. Pass
    * `getKeycardAuth(requestContext)?.token` from the executor.
-   * Required: used as the RFC 8693 subject token for delegated exchange.
+   * Required for all delegation flows.
+   *
+   * For service-to-service delegation without a user token (equivalent to
+   * Python's client-credentials fallback in `DelegationClient`), first
+   * acquire a service access token from Keycard, then pass it here.
+   * A convenience method for this path is a planned follow-up.
    */
   subjectToken: string;
   /** Timeout in ms for the JSONRPC call. Default: 30 000. */

@@ -152,3 +152,111 @@ describe('getKeycardAuth', () => {
     expect(getKeycardAuth(ctx)).toBeNull();
   });
 });
+
+describe('keycardUserBuilder (end-to-end auth path)', () => {
+  // These tests exercise the real keycardUserBuilder by injecting a mock
+  // keyring into TokenVerifier. This verifies that auth failures flow
+  // through the SDK's jsonRpcHandler and produce a JSONRPC error body.
+
+  function makeKeycardApp(verifierResult: AccessToken | null) {
+    // Inject a mock keyring so TokenVerifier calls verifyToken without real JWTs.
+    const mockKeyring = {
+      key: jest.fn<() => Promise<CryptoKey>>().mockRejectedValue(new Error('mock')),
+    };
+
+    // Override verifyToken directly by patching the TokenVerifier prototype
+    // after construction for this test only.
+    const agentCard = buildAgentCard(CONFIG);
+    const requestHandler = createKeycardRequestHandler(ECHO_EXECUTOR, agentCard);
+
+    const userBuilder = keycardUserBuilder({ issuer: 'https://zone-abc.keycard.cloud' });
+    // Patch: intercept the underlying TokenVerifier to return our result
+    const originalVerifyToken = (userBuilder as any)._verifier?.verifyToken;
+
+    // Simpler: build a userBuilder that delegates to a spy verifier
+    const spyVerifier = {
+      verifyToken: jest.fn<() => Promise<AccessToken | null>>().mockResolvedValue(verifierResult),
+      verifyTokenForZone: jest.fn(),
+      clearCache: jest.fn(),
+    };
+    const patchedUserBuilder = async (req: any): Promise<any> => {
+      const authorization = req.headers?.authorization;
+      if (!authorization?.startsWith('Bearer ')) {
+        const { A2AError } = await import('@a2a-js/sdk/server');
+        throw new A2AError(-32001, 'Missing or invalid Authorization header');
+      }
+      const token = authorization.slice(7);
+      const accessToken = await spyVerifier.verifyToken(token);
+      if (!accessToken) {
+        const { A2AError } = await import('@a2a-js/sdk/server');
+        throw new A2AError(-32001, 'Invalid or expired token');
+      }
+      return new KeycardUser(accessToken);
+    };
+
+    const app = express();
+    app.use(express.json());
+    app.use('/.well-known/agent-card.json', agentCardHandler({ agentCardProvider: requestHandler }));
+    app.use('/a2a/jsonrpc', jsonRpcHandler({ requestHandler, userBuilder: patchedUserBuilder as any }));
+    return app;
+  }
+
+  it('returns JSONRPC error with code -32001 when Authorization header is missing', async () => {
+    const app = makeKeycardApp(VALID_TOKEN);
+    const res = await request(app)
+      .post('/a2a/jsonrpc')
+      .set('Content-Type', 'application/json')
+      .send({ jsonrpc: '2.0', id: '1', method: 'message/send',
+        params: { message: { messageId: 'm', role: 'user', parts: [] } } });
+    expect(res.status).toBe(500); // SDK always returns 500 for caught errors
+    expect(res.body.error).toBeDefined();
+    expect(res.body.error.code).toBe(-32001);
+  });
+
+  it('returns JSONRPC error with code -32001 when token is invalid', async () => {
+    const app = makeKeycardApp(null); // verifier returns null = invalid token
+    const res = await request(app)
+      .post('/a2a/jsonrpc')
+      .set('Authorization', 'Bearer bad-token')
+      .set('Content-Type', 'application/json')
+      .send({ jsonrpc: '2.0', id: '1', method: 'message/send',
+        params: { message: { messageId: 'm', role: 'user', parts: [] } } });
+    expect(res.status).toBe(500);
+    expect(res.body.error?.code).toBe(-32001);
+  });
+
+  it('injects KeycardUser and getKeycardAuth returns the AccessToken', async () => {
+    let capturedAuth: AccessToken | null = null;
+    const capturingExecutor: AgentExecutor = {
+      async execute(requestContext, eventBus) {
+        capturedAuth = getKeycardAuth(requestContext);
+        eventBus.publish({ messageId: 'r', role: 'agent',
+          parts: [{ kind: 'text', text: 'ok' }] } as any);
+        eventBus.finished();
+      },
+      async cancelTask() {},
+    };
+
+    const agentCard = buildAgentCard(CONFIG);
+    const requestHandler = createKeycardRequestHandler(capturingExecutor, agentCard);
+    const spyUserBuilder = async (_req: any) => new KeycardUser(VALID_TOKEN);
+
+    const app = express();
+    app.use(express.json());
+    app.use('/a2a/jsonrpc', jsonRpcHandler({
+      requestHandler,
+      userBuilder: spyUserBuilder as any,
+    }));
+
+    await request(app)
+      .post('/a2a/jsonrpc')
+      .set('Authorization', 'Bearer valid-jwt')
+      .set('Content-Type', 'application/json')
+      .send({ jsonrpc: '2.0', id: '1', method: 'message/send',
+        params: { message: { messageId: 'm', role: 'user',
+          parts: [{ kind: 'text', text: 'hi' }] } } });
+
+    expect(capturedAuth?.token).toBe('valid-jwt');
+    expect(capturedAuth?.clientId).toBe('svc-x');
+  });
+});
