@@ -233,6 +233,27 @@ def create_signed_commit_on_branch(
     return True
 
 
+def wait_for_pr_stable(pr_number: int, timeout_seconds: int = 120) -> bool:
+    """Poll mergeStateStatus until GitHub has a definite state for the PR.
+
+    A freshly opened PR starts as UNKNOWN or UNSTABLE while required checks
+    register. Auto-merge can only be enabled once the PR leaves that limbo.
+    """
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        exit_code, stdout, _ = run_command(
+            ["gh", "pr", "view", str(pr_number), "--json", "mergeStateStatus"]
+        )
+        if exit_code == 0:
+            state = json.loads(stdout).get("mergeStateStatus", "")
+            print(f"PR #{pr_number} merge state: {state}")
+            if state not in ("UNKNOWN", "UNSTABLE"):
+                return True
+        time.sleep(5)
+    print(f"Timed out waiting for PR #{pr_number} to reach a stable merge state")
+    return False
+
+
 def create_pr_with_automerge(
     branch: str, package_name: str, new_version: str
 ) -> int | None:
@@ -276,23 +297,17 @@ def create_pr_with_automerge(
     pr_number = int(pr_number_match.group(1))
     print(f"Opened PR #{pr_number}: {pr_url}")
 
-    # Retry enabling auto-merge: GitHub returns "unstable status" if required
-    # checks haven't registered yet on a freshly opened PR.
-    for attempt in range(1, 7):
-        print(f"Enabling auto-merge (squash), attempt {attempt}...")
-        exit_code, _, stderr = run_command(
-            ["gh", "pr", "merge", str(pr_number), "--auto", "--squash"]
-        )
-        if exit_code == 0:
-            return pr_number
-        if "unstable status" in stderr.lower() or "not in a mergeable state" in stderr.lower():
-            print(f"PR not stable yet, retrying in 10s... ({stderr})")
-            time.sleep(10)
-        else:
-            print(f"Failed to enable auto-merge: {stderr}")
-            return None
-    print("Failed to enable auto-merge after retries")
-    return None
+    if not wait_for_pr_stable(pr_number):
+        return None
+
+    print("Enabling auto-merge (squash)...")
+    exit_code, _, stderr = run_command(
+        ["gh", "pr", "merge", str(pr_number), "--auto", "--squash"]
+    )
+    if exit_code != 0:
+        print(f"Failed to enable auto-merge: {stderr}")
+        return None
+    return pr_number
 
 
 def wait_for_pr_merge(pr_number: int, timeout_seconds: int = 1800) -> str | None:
