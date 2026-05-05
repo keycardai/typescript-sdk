@@ -143,4 +143,33 @@ describe('registerClient', () => {
     expect(response.raw['kc:zone_id']).toBe('zone-a');
     expect(response.raw['custom_extension']).toBe('vendor-value');
   });
+
+  it('named fields take precedence over additionalMetadata with the same key', async () => {
+    fetchMock.mockImplementationOnce(async () => metadataResponse());
+    fetchMock.mockImplementationOnce(async () => jsonResponse(201, { client_id: 'svc-abc' }));
+
+    await registerClient(ISSUER, {
+      clientName: 'Real Name',
+      additionalMetadata: { client_name: 'Overridden Name' },
+    });
+
+    const [, registrationCall] = fetchMock.mock.calls;
+    const body = JSON.parse((registrationCall![1] as RequestInit).body as string);
+    expect(body.client_name).toBe('Real Name');
+  });
+
+  it('propagates AbortSignal timeout to the fetch call', async () => {
+    fetchMock.mockImplementationOnce(async () => metadataResponse());
+    fetchMock.mockImplementationOnce(async (_url: unknown, init?: RequestInit) => {
+      if (init?.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+      return jsonResponse(201, { client_id: 'svc-abc' });
+    });
+
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      registerClient(ISSUER, { clientName: 'svc' }, { signal: controller.signal }),
+    ).rejects.toThrow();
+  });
 });

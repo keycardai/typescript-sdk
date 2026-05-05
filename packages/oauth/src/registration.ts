@@ -61,6 +61,8 @@ export interface ClientRegistrationResponse {
 
 export interface RegisterClientOptions {
   signal?: AbortSignal;
+  /** Request timeout in milliseconds. Ignored if `signal` is already provided. */
+  timeoutMs?: number;
 }
 
 /**
@@ -80,9 +82,10 @@ export async function registerClient(
   request: ClientRegistrationRequest,
   options?: RegisterClientOptions,
 ): Promise<ClientRegistrationResponse> {
-  const metadata = await fetchAuthorizationServerMetadata(issuerUrl, {
-    signal: options?.signal,
-  });
+  const signal = options?.signal ??
+    (options?.timeoutMs != null ? AbortSignal.timeout(options.timeoutMs) : undefined);
+
+  const metadata = await fetchAuthorizationServerMetadata(issuerUrl, { signal });
   if (!metadata.registration_endpoint) {
     throw new Error(
       `Authorization server "${issuerUrl}" does not advertise a registration_endpoint`,
@@ -96,7 +99,7 @@ export async function registerClient(
       Accept: "application/json",
     },
     body: JSON.stringify(serializeRequest(request)),
-    signal: options?.signal,
+    signal,
   });
 
   if (!response.ok) {
@@ -119,7 +122,12 @@ export async function registerClient(
     throw new Error(`Client registration failed (HTTP ${response.status})`);
   }
 
-  const json = await response.json() as unknown;
+  let json: unknown;
+  try {
+    json = await response.json();
+  } catch {
+    throw new Error("Client registration response is not valid JSON");
+  }
   if (!json || typeof json !== "object" || Array.isArray(json)) {
     throw new Error("Client registration response is not a valid JSON object");
   }
@@ -133,7 +141,14 @@ export async function registerClient(
 }
 
 function serializeRequest(request: ClientRegistrationRequest): Record<string, unknown> {
+  // additionalMetadata goes in first so named fields always take precedence
+  // over vendor extensions — callers cannot accidentally override client_name etc.
   const body: Record<string, unknown> = {};
+  if (request.additionalMetadata) {
+    for (const [key, value] of Object.entries(request.additionalMetadata)) {
+      body[key] = value;
+    }
+  }
   if (request.clientName !== undefined) body.client_name = request.clientName;
   if (request.clientUri !== undefined) body.client_uri = request.clientUri;
   if (request.logoUri !== undefined) body.logo_uri = request.logoUri;
@@ -150,11 +165,6 @@ function serializeRequest(request: ClientRegistrationRequest): Record<string, un
   if (request.grantTypes !== undefined) body.grant_types = [...request.grantTypes];
   if (request.responseTypes !== undefined) body.response_types = [...request.responseTypes];
   if (request.scope !== undefined) body.scope = request.scope;
-  if (request.additionalMetadata) {
-    for (const [key, value] of Object.entries(request.additionalMetadata)) {
-      body[key] = value;
-    }
-  }
   return body;
 }
 
