@@ -85,7 +85,7 @@ export function requireBearerAuth(options: BearerAuthOptions): RequestHandler {
           }
         } catch (e) {
           if (e instanceof InvalidTokenError) throw e;
-          // resource claim is not a URL — opaque audience, skip origin check
+          // resource claim is not a URL; opaque audience, skip origin check
         }
       }
 
