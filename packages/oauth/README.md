@@ -136,6 +136,27 @@ expired token, missing scope, audience mismatch) return `null`; callers map that
 to an HTTP 401. `verifyTokenForZone(token, zoneId)` enables per-zone validation
 when the verifier is constructed with `enableMultiZone: true`.
 
+### Dynamic Client Registration (RFC 7591)
+
+```typescript
+import { registerClient } from "@keycardai/oauth/registration";
+
+const response = await registerClient("https://your-zone.keycard.cloud", {
+  clientName: "My Service",
+  redirectUris: ["https://app.example.com/callback"],
+  grantTypes: ["client_credentials"],
+  scope: "read write",
+});
+
+console.log(response.clientId, response.clientSecret);
+```
+
+`registerClient` discovers the AS's `registration_endpoint` from
+`.well-known/oauth-authorization-server`, posts the request as JSON, and
+returns the issued client credentials. Throws `OAuthError` on RFC 6749 §5.2
+error responses, a plain `Error` on missing `registration_endpoint` or
+non-OAuth HTTP failures.
+
 ## API Overview
 
 ### JWKS Key Management
@@ -162,6 +183,7 @@ when the verifier is constructed with `enableMultiZone: true`.
 | `TokenExchangeClient` | `@keycardai/oauth/tokenExchange` | RFC 8693 token exchange client with auto-discovery, plus `impersonate()` for substitute-user exchange |
 | `TokenType` | `@keycardai/oauth/tokenExchange` | URN constants: `ACCESS_TOKEN`, `SUBSTITUTE_USER` |
 | `buildSubstituteUserToken` | `@keycardai/oauth/jwt/substituteUser` | Builds the unsigned subject JWT for impersonation calls |
+| `registerClient` | `@keycardai/oauth/registration` | RFC 7591 dynamic client registration with auto-discovery |
 
 ### Server-tier Primitives
 

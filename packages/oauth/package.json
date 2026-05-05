@@ -60,6 +60,11 @@
       "require": "./dist/cjs/jwt/substituteUser.js",
       "types": "./dist/esm/jwt/substituteUser.d.ts"
     },
+    "./registration": {
+      "import": "./dist/esm/registration.js",
+      "require": "./dist/cjs/registration.js",
+      "types": "./dist/esm/registration.d.ts"
+    },
     "./server": {
       "import": "./dist/esm/server/index.js",
       "require": "./dist/cjs/server/index.js",
