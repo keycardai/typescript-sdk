@@ -276,14 +276,23 @@ def create_pr_with_automerge(
     pr_number = int(pr_number_match.group(1))
     print(f"Opened PR #{pr_number}: {pr_url}")
 
-    print("Enabling auto-merge (squash)...")
-    exit_code, _, stderr = run_command(
-        ["gh", "pr", "merge", str(pr_number), "--auto", "--squash"]
-    )
-    if exit_code != 0:
-        print(f"Failed to enable auto-merge: {stderr}")
-        return None
-    return pr_number
+    # Retry enabling auto-merge: GitHub returns "unstable status" if required
+    # checks haven't registered yet on a freshly opened PR.
+    for attempt in range(1, 7):
+        print(f"Enabling auto-merge (squash), attempt {attempt}...")
+        exit_code, _, stderr = run_command(
+            ["gh", "pr", "merge", str(pr_number), "--auto", "--squash"]
+        )
+        if exit_code == 0:
+            return pr_number
+        if "unstable status" in stderr.lower() or "not in a mergeable state" in stderr.lower():
+            print(f"PR not stable yet, retrying in 10s... ({stderr})")
+            time.sleep(10)
+        else:
+            print(f"Failed to enable auto-merge: {stderr}")
+            return None
+    print("Failed to enable auto-merge after retries")
+    return None
 
 
 def wait_for_pr_merge(pr_number: int, timeout_seconds: int = 1800) -> str | None:
