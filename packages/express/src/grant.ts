@@ -65,12 +65,18 @@ export function grant(
   options: GrantOptions,
 ): RequestHandler {
   // Validate at construction time that a zone is specified.
-  const hasStaticZone = !!(options.zoneUrl || options.zoneId);
-  if (!hasStaticZone) {
+  const hasZoneOption = !!(options.zoneUrl || options.zoneId);
+  if (!hasZoneOption) {
     throw new AuthProviderConfigurationError(
       "grant: either `zoneUrl` or `zoneId` is required",
     );
   }
+
+  // Cache TokenExchangeClient instances keyed by resolved zone URL.
+  // One client per zone amortizes AS discovery (GET /.well-known/) across
+  // requests — the TokenExchangeClient already caches the token_endpoint
+  // internally after the first discovery call.
+  const clientCache = new Map<string, TokenExchangeClient>();
 
   return async (req: Request, _res: Response, next: NextFunction) => {
     const authReq = req as AuthenticatedRequest;
@@ -89,10 +95,15 @@ export function grant(
 
     // Resolve zone at request time — zoneId may be a static string or a
     // function that extracts the zone from the verified access token.
-    const resolvedZoneId =
-      typeof options.zoneId === "function"
-        ? options.zoneId(authReq.auth)
-        : options.zoneId;
+    let resolvedZoneId: string | undefined;
+    try {
+      resolvedZoneId =
+        typeof options.zoneId === "function"
+          ? options.zoneId(authReq.auth)
+          : options.zoneId;
+    } catch (e) {
+      return next(e);
+    }
 
     const resolvedZoneUrl = options.zoneUrl ?? buildZoneUrl(resolvedZoneId);
     if (!resolvedZoneUrl) {
@@ -101,21 +112,16 @@ export function grant(
       return next();
     }
 
-    let client: TokenExchangeClient;
-    try {
+    // Look up or create a cached client for this zone.
+    let client = clientCache.get(resolvedZoneUrl);
+    if (!client) {
       // Pass the credential directly so TokenExchangeClient can call
       // getAuth(zoneId) at exchange time, enabling multi-zone credential
       // routing without pre-resolving credentials here.
       client = new TokenExchangeClient(resolvedZoneUrl, {
         credential: options.applicationCredential,
       });
-    } catch (e) {
-      accessCtx.setError({
-        message: "Failed to initialize token exchange client.",
-        rawError: String(e),
-      });
-      (req as GrantedRequest).accessContext = accessCtx;
-      return next();
+      clientCache.set(resolvedZoneUrl, client);
     }
 
     const resourceList = Array.isArray(resources)

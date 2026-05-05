@@ -196,4 +196,59 @@ describe('grant', () => {
     const authHeader = ((tokenCall![1] as RequestInit).headers as Record<string, string>)['Authorization'];
     expect(authHeader).toBe(`Basic ${btoa('id-b:sec-b')}`);
   });
+
+  it('calls next(err) when the zoneId resolver function throws', async () => {
+    const boom = new Error('zone resolver exploded');
+    const app = express();
+    app.use((req, _res, next) => { (req as any).auth = VALID_AUTH; next(); });
+    app.use(grant([RESOURCE], { zoneId: () => { throw boom; } }));
+    // Express error handler
+    app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+      res.status(500).json({ error: err.message });
+    });
+
+    const res = await request(app).get('/anything');
+    expect(res.status).toBe(500);
+    expect(res.body.error).toBe('zone resolver exploded');
+  });
+
+  it('records a resource error when zoneId resolves to a zone with no matching credential', async () => {
+    const { ClientSecret } = await import('@keycardai/oauth/server');
+    // Dict has zone-a only; the request auth says zone-x (no entry)
+    const credential = new ClientSecret({ 'zone-a': ['id-a', 'sec-a'] });
+
+    fetchMock.mockImplementation(async (input: FetchInput) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.includes('/.well-known/')) {
+        return new Response(
+          JSON.stringify({ issuer: 'https://zone-x.keycard.cloud', token_endpoint: 'https://zone-x.keycard.cloud/token' }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      // AS responds 401 — no valid credentials were sent
+      return new Response(
+        JSON.stringify({ error: 'invalid_client' }),
+        { status: 401, headers: { 'content-type': 'application/json' } },
+      );
+    });
+
+    const app = express();
+    app.use((req, _res, next) => {
+      (req as any).auth = { ...VALID_AUTH, clientId: 'zone-x' };
+      next();
+    });
+    app.use(grant([RESOURCE], {
+      zoneId: (auth) => auth.clientId,
+      applicationCredential: credential,
+    }));
+    app.get('/data', (req, res) => {
+      const ctx = (req as any).accessContext;
+      res.json({ status: ctx.getStatus() });
+    });
+
+    const res = await request(app).get('/data');
+    expect(res.status).toBe(200);
+    // Exchange fails because the credential has no entry for zone-x
+    expect(res.body.status).toBe('partial_error');
+  });
 });
