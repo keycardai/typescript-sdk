@@ -19,6 +19,11 @@ export interface KeycardRouterOptions {
    * Link to documentation for this resource.
    */
   resourceDocumentation?: string;
+  /**
+   * Timeout in milliseconds for the upstream AS metadata fetch.
+   * Default: 10 000 ms.
+   */
+  asMetadataTimeoutMs?: number;
 }
 
 /**
@@ -52,7 +57,7 @@ export function keycardMetadataRouter(options: KeycardRouterOptions): Router {
 
   router.get(
     "/.well-known/oauth-authorization-server",
-    authorizationServerHandler(options.issuer),
+    authorizationServerHandler(options.issuer, options.asMetadataTimeoutMs ?? 10_000),
   );
 
   return router;
@@ -74,11 +79,12 @@ function protectedResourceHandler(options: KeycardRouterOptions): RequestHandler
   };
 }
 
-function authorizationServerHandler(issuer: string): RequestHandler {
+function authorizationServerHandler(issuer: string, timeoutMs: number): RequestHandler {
   return async (req, res, next) => {
     try {
       const upstream = await fetch(
         `${issuer}/.well-known/oauth-authorization-server`,
+        { signal: AbortSignal.timeout(timeoutMs) },
       );
       if (!upstream.ok) {
         res.status(502).json({ error: "Failed to fetch AS metadata from issuer" });
