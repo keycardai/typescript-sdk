@@ -19,7 +19,7 @@ export interface EKSWorkloadIdentityOptions {
  * variables or the explicit `tokenFilePath` option) and uses it as a
  * client assertion in RFC 8693 token exchange requests.
  *
- * **Requires Node.js** — reads the token file synchronously from the
+ * **Requires Node.js.** Reads the token file synchronously from the
  * filesystem at construction and exchange time.
  */
 export class EKSWorkloadIdentity implements ApplicationCredential {

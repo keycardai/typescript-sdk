@@ -21,7 +21,7 @@ export interface WebIdentityOptions {
  * On each token exchange the private key signs a client assertion JWT
  * that the authorization server verifies instead of a shared secret.
  *
- * **Requires Node.js** — key generation and storage use Node.js crypto
+ * **Requires Node.js.** Key generation and storage use Node.js crypto
  * and filesystem APIs.
  */
 export class WebIdentity implements ApplicationCredential {
