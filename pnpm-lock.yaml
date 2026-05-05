@@ -12,6 +12,40 @@ importers:
         specifier: ^5.8.3
         version: 5.9.3
 
+  packages/a2a:
+    dependencies:
+      '@keycardai/express':
+        specifier: workspace:*
+        version: link:../express
+      '@keycardai/oauth':
+        specifier: workspace:*
+        version: link:../oauth
+    devDependencies:
+      '@jest/globals':
+        specifier: ^30.0.4
+        version: 30.2.0
+      '@types/express':
+        specifier: ^5.0.3
+        version: 5.0.6
+      '@types/supertest':
+        specifier: ^6.0.3
+        version: 6.0.3
+      express:
+        specifier: ^5.0.0
+        version: 5.2.1
+      jest:
+        specifier: ^30.0.4
+        version: 30.2.0(@types/node@25.2.3)
+      supertest:
+        specifier: ^7.1.1
+        version: 7.2.2
+      ts-jest:
+        specifier: ^29.4.0
+        version: 29.4.6(@babel/core@7.29.0)(@jest/transform@30.2.0)(@jest/types@30.2.0)(babel-jest@30.2.0(@babel/core@7.29.0))(jest-util@30.2.0)(jest@30.2.0(@types/node@25.2.3))(typescript@5.9.3)
+      typescript:
+        specifier: ^5.8.3
+        version: 5.9.3
+
   packages/cloudflare:
     dependencies:
       '@keycardai/oauth':
