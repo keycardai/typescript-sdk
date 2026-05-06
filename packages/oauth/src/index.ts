@@ -26,6 +26,12 @@ export type {
   ImpersonateRequest,
 } from "./tokenExchange.js";
 export type { ApplicationCredential } from "./credentials.js";
+export { registerClient } from "./registration.js";
+export type {
+  ClientRegistrationRequest,
+  ClientRegistrationResponse,
+  RegisterClientOptions,
+} from "./registration.js";
 export { AccessContext, TokenVerifier, ClientSecret } from "./server/index.js";
 export type {
   ErrorDetail,

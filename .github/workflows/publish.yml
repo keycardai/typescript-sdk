@@ -19,6 +19,7 @@ on:
       - "*-keycardai-oauth"
       - "*-keycardai-mcp"
       - "*-keycardai-cloudflare"
+      - "*-keycardai-express"
       - "*-keycardai-pi-mono"
       - "*-keycardai-sdk"
 
@@ -61,6 +62,9 @@ jobs:
           elif [[ "$TAG" == *-keycardai-cloudflare ]]; then
             echo "name=@keycardai/cloudflare" >> $GITHUB_OUTPUT
             echo "dir=packages/cloudflare" >> $GITHUB_OUTPUT
+          elif [[ "$TAG" == *-keycardai-express ]]; then
+            echo "name=@keycardai/express" >> $GITHUB_OUTPUT
+            echo "dir=packages/express" >> $GITHUB_OUTPUT
           elif [[ "$TAG" == *-keycardai-pi-mono ]]; then
             echo "name=@keycardai/pi-mono" >> $GITHUB_OUTPUT
             echo "dir=packages/pi-mono" >> $GITHUB_OUTPUT
