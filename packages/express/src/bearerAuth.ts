@@ -10,6 +10,34 @@ import {
   OAuthError,
 } from "@keycardai/oauth/errors";
 
+/**
+ * Extends Express `Request` with the verified Keycard `AccessToken`.
+ *
+ * Cast inside handlers that run after `requireBearerAuth()`:
+ * ```ts
+ * app.get("/data", (req, res) => {
+ *   const { auth } = req as AuthenticatedRequest;
+ * });
+ * ```
+ *
+ * Alternatively, adopt Express module augmentation so `req.auth` is
+ * available without casting across your entire app:
+ * ```ts
+ * import type { AccessToken } from "@keycardai/oauth/server";
+ * declare global {
+ *   namespace Express {
+ *     interface Request {
+ *       auth?: AccessToken;
+ *     }
+ *   }
+ * }
+ * ```
+ * We ship the interface-extension form rather than augmenting the global
+ * namespace by default. Augmentation makes `req.auth` optional on every
+ * request including unauthenticated routes, which weakens the type
+ * contract. Use it when you prefer convenience over strictness.
+ * See: https://github.com/auth0/express-jwt/issues/311
+ */
 export interface AuthenticatedRequest extends Request {
   auth: AccessToken;
 }
