@@ -65,7 +65,7 @@ export function createKeycardMiddleware(options: KeycardMiddlewareOptions): Keyc
   return {
     requireBearerAuth(localOptions?: { requiredScopes?: readonly string[] }) {
       return requireBearerAuth({
-        issuer: zoneUrl,
+        zoneUrl,
         requiredScopes: localOptions?.requiredScopes,
       });
     },

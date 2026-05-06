@@ -44,9 +44,22 @@ export interface AuthenticatedRequest extends Request {
 
 export type BearerAuthOptions =
   | { verifier: TokenVerifier; requiredScopes?: readonly string[] }
-  | (Pick<TokenVerifierOptions, "issuer" | "audience" | "enableMultiZone" | "keyring"> & {
+  | {
+      /**
+       * Keycard zone URL, e.g. "https://zone-id.keycard.cloud".
+       * Either `zoneUrl` or `zoneId` is required (consistent with `grant()`).
+       */
+      zoneUrl?: string;
+      /**
+       * Keycard zone ID. Constructs the URL as `https://{zoneId}.keycard.cloud`.
+       * Either `zoneUrl` or `zoneId` is required (consistent with `grant()`).
+       */
+      zoneId?: string;
+      audience?: string;
+      enableMultiZone?: boolean;
+      keyring?: TokenVerifierOptions["keyring"];
       requiredScopes?: readonly string[];
-    });
+    };
 
 /**
  * Express middleware that validates a Bearer token (RFC 6750) and sets
@@ -55,9 +68,11 @@ export type BearerAuthOptions =
  * On failure: responds with a `WWW-Authenticate` challenge containing the
  * `resource_metadata` URL per RFC 9728 §3.
  *
- * Usage with an issuer URL (verifier constructed automatically):
+ * Usage with a zone URL:
  * ```ts
- * app.use(requireBearerAuth({ issuer: "https://zone.keycard.cloud" }));
+ * app.use(requireBearerAuth({ zoneUrl: "https://zone.keycard.cloud" }));
+ * // or by zone ID
+ * app.use(requireBearerAuth({ zoneId: "zone-id" }));
  * ```
  *
  * Usage with a pre-built verifier (shared across routes):
@@ -70,14 +85,21 @@ export function requireBearerAuth(options: BearerAuthOptions): RequestHandler {
   // Do not pass requiredScopes to TokenVerifier: it returns null on scope
   // failure, which the middleware would interpret as a generic 401. The
   // explicit scope check below produces the correct 403 InsufficientScopeError.
-  const verifier = "verifier" in options
-    ? options.verifier
-    : new TokenVerifier({
-        issuer: options.issuer,
-        audience: options.audience,
-        enableMultiZone: options.enableMultiZone,
-        keyring: options.keyring,
-      });
+  let verifier: TokenVerifier;
+  if ("verifier" in options) {
+    verifier = options.verifier;
+  } else {
+    const issuer = options.zoneUrl ?? buildIssuerFromZoneId(options.zoneId);
+    if (!issuer) {
+      throw new Error("requireBearerAuth: either `zoneUrl` or `zoneId` is required");
+    }
+    verifier = new TokenVerifier({
+      issuer,
+      audience: options.audience,
+      enableMultiZone: options.enableMultiZone,
+      keyring: options.keyring,
+    });
+  }
 
   return async (req: Request, res: Response, next: NextFunction) => {
     const resourceMetadataUrl = getResourceMetadataUrl(req);
@@ -160,4 +182,9 @@ export function requireBearerAuth(options: BearerAuthOptions): RequestHandler {
 function getResourceMetadataUrl(req: Request): string {
   const origin = `${req.protocol}://${req.host}`;
   return `${origin}/.well-known/oauth-protected-resource`;
+}
+
+function buildIssuerFromZoneId(zoneId?: string): string | undefined {
+  if (!zoneId) return undefined;
+  return `https://${zoneId}.keycard.cloud`;
 }
