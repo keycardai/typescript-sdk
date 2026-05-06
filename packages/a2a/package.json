@@ -1,0 +1,55 @@
+{
+  "name": "@keycardai/a2a",
+  "version": "0.1.0",
+  "description": "[Preview] Keycard auth integration for Agent-to-Agent (A2A) protocol servers and clients",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/keycardai/typescript-sdk.git",
+    "directory": "packages/a2a"
+  },
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/esm/index.js",
+      "require": "./dist/cjs/index.js",
+      "types": "./dist/esm/index.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "typesVersions": {
+    "*": {
+      "*": [
+        "./dist/esm/*"
+      ]
+    }
+  },
+  "scripts": {
+    "build": "pnpm run build:esm && pnpm run build:cjs",
+    "build:esm": "tsc -p tsconfig.prod.json && echo '{\"type\": \"module\"}' > dist/esm/package.json",
+    "build:cjs": "tsc -p tsconfig.cjs.json && echo '{\"type\": \"commonjs\"}' > dist/cjs/package.json",
+    "test": "NODE_OPTIONS='--experimental-vm-modules' jest",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@a2a-js/sdk": "^0.3.13",
+    "@keycardai/express": "workspace:*",
+    "@keycardai/oauth": "workspace:*"
+  },
+  "peerDependencies": {
+    "express": ">=4.0.0"
+  },
+  "devDependencies": {
+    "@jest/globals": "^30.0.4",
+    "@types/express": "^5.0.3",
+    "@types/supertest": "^6.0.3",
+    "express": "^5.0.0",
+    "jest": "^30.0.4",
+    "supertest": "^7.1.1",
+    "ts-jest": "^29.4.0",
+    "typescript": "^5.8.3"
+  }
+}
