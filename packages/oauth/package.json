@@ -94,11 +94,6 @@
       "import": "./dist/esm/pkce.js",
       "require": "./dist/cjs/pkce.js",
       "types": "./dist/esm/pkce.d.ts"
-    },
-    "./node": {
-      "import": "./dist/esm/node/index.js",
-      "require": "./dist/cjs/node/index.js",
-      "types": "./dist/esm/node/index.d.ts"
     }
   },
   "files": [
@@ -108,8 +103,6 @@
     "*": {
       "server": ["./dist/esm/server/index.d.ts"],
       "server/*": ["./dist/esm/server/*.d.ts"],
-      "node": ["./dist/esm/node/index.d.ts"],
-      "node/*": ["./dist/esm/node/*.d.ts"],
       "*": ["./dist/esm/*"]
     }
   },
