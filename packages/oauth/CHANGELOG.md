@@ -1,3 +1,55 @@
+## 0.6.0-keycardai-oauth (2026-05-06)
+
+
+- feat(oauth): add PKCE primitives and authenticate() flow (ACC-258) (#22)
+- * feat(oauth): add PKCE primitives and authenticate() flow (ACC-258)
+- Adds RFC 7636 PKCE support under the @keycardai/oauth/pkce subpath,
+closing the TS parity gap with Python keycardai.oauth.pkce. One module,
+one import path, Python-equivalent surface.
+- Primitives (runtime-agnostic, Web Crypto):
+- generateCodeVerifier(): 32 random bytes, base64url-encoded (43 chars)
+- generateCodeChallenge(verifier, method): SHA-256 + base64url for S256;
+  plain returns the verifier unchanged. RFC 7636 Appendix B test vector
+  passes.
+- generatePkcePair(): convenience wrapper returning both.
+- exchangeAuthorizationCode(issuerUrl, code, options): discovers
+  token_endpoint via AS metadata, POSTs authorization_code grant with
+  code_verifier. Same inline error-handling pattern as registration.ts.
+- authenticate() (Node.js only):
+- Full browser-launch + loopback-callback flow. Uses dynamic imports of
+  node:http and node:child_process inside the function body, so the
+  module can be imported safely in any runtime; Workers only fail when
+  authenticate() is actually called.
+- Opens the AS authorization URL in the users default browser via
+  child_process.exec (no new npm deps; platform-aware open/xdg-open/start).
+- Starts a local HTTP server on localhost:port, waits for the auth-code
+  redirect, exchanges the code, returns TokenResponse.
+- Tests: 9 new in pkce.test.ts (86 oauth total). RFC vector, verifier
+format, pair consistency, plain method, exchange happy path/error/missing
+endpoint/Basic auth header, authenticate() happy path and timeout.
+- * fix(oauth): add @types/node dev dep for authenticate() dynamic imports
+- node:http and node:child_process are dynamically imported inside
+authenticate(), but TypeScript still needs type declarations to
+compile the function body. @types/node as a devDependency fixes the
+build without affecting consumers or the runtime-agnostic contract
+of @keycardai/oauth.
+- * refactor(oauth): fix async-executor anti-pattern in waitForCode
+- Pull the await import("node:http") out of the new Promise() constructor
+into the outer async function body. If the dynamic import throws, the
+rejection now propagates through the async function rather than escaping
+an async Promise executor and becoming an unhandled rejection.
+- Also increase the loopback-server startup delay in the authenticate()
+test from 80ms to 250ms to reduce ECONNREFUSED flake risk on loaded CI
+machines.
+- * fix(oauth): replace exec with execFile in openBrowser to prevent shell injection
+- exec() interpolates the URL into a shell string, making it vulnerable
+to command injection if the authorization URL contains shell
+metacharacters. execFile() passes the URL as a distinct argument
+without invoking a shell.
+- On Windows, start is a cmd.exe built-in rather than a standalone
+executable, so execFile("cmd", ["/c", "start", "", url]) is used
+instead of execFile("start", ...).
+
 ## 0.5.0-keycardai-oauth (2026-05-05)
 
 
