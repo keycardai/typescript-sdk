@@ -49,6 +49,28 @@ app.get("/api/email", async (req, res) => {
 });
 ```
 
+For multi-zone deployments, pass a zone-keyed `ClientSecret` and resolve the zone from each request's verified token:
+
+```typescript
+import { requireBearerAuth, grant } from "@keycardai/express";
+import { ClientSecret } from "@keycardai/oauth/server";
+
+const credential = new ClientSecret({
+  "zone-a": ["client-id-a", "client-secret-a"],
+  "zone-b": ["client-id-b", "client-secret-b"],
+});
+
+// requireBearerAuth with enableMultiZone validates tokens from any zone
+// that shares JWKS with the base zone URL.
+app.use(requireBearerAuth({ zoneUrl: "https://base-zone.keycard.cloud", enableMultiZone: true }));
+
+// grant resolves the zone per request from the verified access token.
+app.use(grant(["https://api.example.com"], {
+  zoneId: (auth) => auth.zoneId,
+  applicationCredential: credential,
+}));
+```
+
 ### Add OAuth discovery routes
 
 ```typescript
@@ -65,7 +87,7 @@ app.use(keycardMetadataRouter({ issuer: "https://your-zone.keycard.cloud" }));
 | Export | Description |
 |---|---|
 | `requireBearerAuth(options)` | Middleware factory that validates a Bearer token and sets `req.auth: AccessToken`. Returns 401 with RFC 6750 `WWW-Authenticate` challenge on failure. |
-| `grant(resources, options)` | Middleware factory that exchanges the bearer token for per-resource access tokens and sets `req.accessContext: AccessContext`. Must run after `requireBearerAuth`. |
+| `grant(resources, options)` | Middleware factory that exchanges the bearer token for per-resource access tokens and sets `req.accessContext: AccessContext`. Must run after `requireBearerAuth`. `zoneId` accepts a static string or a function `(auth: AccessToken) => string` for per-request zone resolution. |
 | `keycardMetadataRouter(options)` | Returns an Express Router with `/.well-known/oauth-protected-resource` and `/.well-known/oauth-authorization-server` routes. |
 | `createKeycardMiddleware(options)` | Convenience factory that combines `requireBearerAuth` and `keycardMetadataRouter` into a single middleware stack. |
 | `AuthenticatedRequest` | `Request` extended with `auth: AccessToken`. |
@@ -75,4 +97,5 @@ app.use(keycardMetadataRouter({ issuer: "https://your-zone.keycard.cloud" }));
 
 - [`@keycardai/oauth`](../oauth/) — Framework-free OAuth primitives this package builds on
 - [`@keycardai/mcp`](../mcp/) — MCP-specific OAuth integration
+- [`@keycardai/a2a`](../a2a/) — Agent-to-agent (A2A) protocol integration
 - [Keycard TypeScript SDK](../../README.md) — Root documentation
