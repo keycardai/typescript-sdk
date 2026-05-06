@@ -67,6 +67,9 @@ importers:
 
   packages/mcp:
     dependencies:
+      '@keycardai/express':
+        specifier: workspace:*
+        version: link:../express
       '@keycardai/oauth':
         specifier: workspace:*
         version: link:../oauth

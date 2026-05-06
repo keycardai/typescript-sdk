@@ -1,6 +1,7 @@
 import express from "express";
 import type { InferredOAuthProtectedResourceMetadata } from "../../shared/auth.js";
 import { protectedResourceMetadataHandler, authorizationServerMetadataHandler } from "./handlers/metadata.js";
+export { keycardMetadataRouter } from "@keycardai/express";
 
 export type InferredAuthMetadataOptions = {
   oauthMetadata: { issuer: string };
