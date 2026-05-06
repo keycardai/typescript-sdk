@@ -60,13 +60,12 @@ const credential = new ClientSecret({
   "zone-b": ["client-id-b", "client-secret-b"],
 });
 
-// requireBearerAuth with enableMultiZone validates tokens from any zone
-// that shares JWKS with the base zone URL.
 app.use(requireBearerAuth({ zoneUrl: "https://base-zone.keycard.cloud", enableMultiZone: true }));
 
-// grant resolves the zone per request from the verified access token.
+// zoneId accepts a function that receives the verified AccessToken and
+// returns the zone identifier for this request.
 app.use(grant(["https://api.example.com"], {
-  zoneId: (auth) => auth.zoneId,
+  zoneId: (auth) => auth.clientId,
   applicationCredential: credential,
 }));
 ```
@@ -89,7 +88,7 @@ app.use(keycardMetadataRouter({ issuer: "https://your-zone.keycard.cloud" }));
 | `requireBearerAuth(options)` | Middleware factory that validates a Bearer token and sets `req.auth: AccessToken`. Returns 401 with RFC 6750 `WWW-Authenticate` challenge on failure. |
 | `grant(resources, options)` | Middleware factory that exchanges the bearer token for per-resource access tokens and sets `req.accessContext: AccessContext`. Must run after `requireBearerAuth`. `zoneId` accepts a static string or a function `(auth: AccessToken) => string` for per-request zone resolution. |
 | `keycardMetadataRouter(options)` | Returns an Express Router with `/.well-known/oauth-protected-resource` and `/.well-known/oauth-authorization-server` routes. |
-| `createKeycardMiddleware(options)` | Convenience factory that combines `requireBearerAuth` and `keycardMetadataRouter` into a single middleware stack. |
+| `createKeycardMiddleware(options)` | Factory that returns pre-configured `{ requireBearerAuth(), grant() }` sharing a single zone config. You still need `keycardMetadataRouter` for discovery routes. |
 | `AuthenticatedRequest` | `Request` extended with `auth: AccessToken`. |
 | `GrantedRequest` | `Request` extended with `auth: AccessToken` and `accessContext: AccessContext`. |
 
