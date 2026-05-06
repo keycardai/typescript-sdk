@@ -157,6 +157,40 @@ returns the issued client credentials. Throws `OAuthError` on RFC 6749 §5.2
 error responses, a plain `Error` on missing `registration_endpoint` or
 non-OAuth HTTP failures.
 
+### PKCE (RFC 7636)
+
+```typescript
+import {
+  generateCodeVerifier,
+  generateCodeChallenge,
+  generatePkcePair,
+  exchangeAuthorizationCode,
+  authenticate,
+} from "@keycardai/oauth/pkce";
+
+// Generate primitives for a custom auth-code flow
+const { codeVerifier, codeChallenge } = await generatePkcePair();
+
+// Exchange code received at the redirect URI
+const tokens = await exchangeAuthorizationCode(
+  "https://your-zone.keycard.cloud",
+  authorizationCode,
+  { codeVerifier, redirectUri: "https://app.example.com/callback", clientId: "my-client" },
+);
+
+// Or let authenticate() drive the full flow (Node.js only)
+const tokens2 = await authenticate("https://your-zone.keycard.cloud", {
+  clientId: "my-client",
+  scopes: ["read", "write"],
+});
+```
+
+`generateCodeVerifier` and `generateCodeChallenge` use the global `crypto` API and
+are runtime-agnostic (Node.js, Cloudflare Workers, browser). `authenticate()` drives
+the full browser-launch and loopback-callback flow and **requires Node.js** — it uses
+dynamic imports of `node:http` and `node:child_process` and will throw a runtime error
+if called in a non-Node environment.
+
 ## API Overview
 
 ### JWKS Key Management
@@ -184,6 +218,17 @@ non-OAuth HTTP failures.
 | `TokenType` | `@keycardai/oauth/tokenExchange` | URN constants: `ACCESS_TOKEN`, `SUBSTITUTE_USER` |
 | `buildSubstituteUserToken` | `@keycardai/oauth/jwt/substituteUser` | Builds the unsigned subject JWT for impersonation calls |
 | `registerClient` | `@keycardai/oauth/registration` | RFC 7591 dynamic client registration with auto-discovery |
+
+### PKCE (RFC 7636)
+
+| Export | Import Path | Description |
+|---|---|---|
+| `generateCodeVerifier` | `@keycardai/oauth/pkce` | Generates a 43-char random code verifier (RFC 7636 §4.1) |
+| `generateCodeChallenge` | `@keycardai/oauth/pkce` | Computes S256 or plain code challenge from a verifier (RFC 7636 §4.2) |
+| `generatePkcePair` | `@keycardai/oauth/pkce` | Convenience: generates verifier + challenge in one call |
+| `exchangeAuthorizationCode` | `@keycardai/oauth/pkce` | Exchanges an authorization code with code_verifier at the token endpoint |
+| `authenticate` | `@keycardai/oauth/pkce` | Full browser-launch and loopback-callback flow. **Node.js only** |
+| `Pkce` (type) | `@keycardai/oauth/pkce` | `{ codeVerifier, codeChallenge, codeChallengeMethod }` |
 
 ### Server-tier Primitives
 
