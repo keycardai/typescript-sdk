@@ -1,3 +1,75 @@
+## 0.5.0-keycardai-oauth (2026-05-05)
+
+
+- fix(oauth): address PR #20 review feedback on registerClient
+- - additionalMetadata now serialized first in serializeRequest so named
+  fields (clientName, grantTypes, etc.) always take precedence. Previously
+  additionalMetadata was spread last and could silently override typed
+  fields — kamil flagged this as a blocker.
+- - response.json() on the success path wrapped in try/catch. If the AS
+  returns a non-JSON 2xx body, the previous code let the parse error
+  propagate with no context; now throws "not valid JSON" explicitly.
+- - RegisterClientOptions gains a timeoutMs field. Resolves to
+  AbortSignal.timeout(ms) when no signal is already provided, consistent
+  with JWKSOAuthKeyring and fetchAuthorizationServerMetadata patterns.
+- Tests: named-field precedence over additionalMetadata + AbortSignal
+propagation, 81 oauth passing.
+- refactor(oauth): inline readJsonBody per fresh-eyes review
+- Drop the readJsonBody helper. Inline body-reading at both call sites,
+matching the pattern in tokenExchange.ts.
+- On the error path (non-2xx): inline try/catch returning null on parse
+failure, then check for RFC 6749 error fields. Same shape as the error
+branch in exchangeToken.
+- On the success path: read JSON directly and throw a precise error
+("not a valid JSON object") rather than falling into the "missing
+client_id" branch, which was misleading when the real failure was a
+parse error.
+- Update tests:
+- Happy path: drop wire-body assertions (method, headers, body fields).
+  Those test serializeRequest internals; the contract is what the caller
+  receives. Assert clientName and raw instead.
+- additionalMetadata: drop wire-body assertion; instead assert that
+  vendor fields are surfaced in raw, which is the documented contract
+  for the escape hatch.
+- Add raw assertion to the happy path, since raw is the primary
+  justification for the field and had no test coverage.
+- feat(oauth): add registerClient for RFC 7591 dynamic client registration
+- ACC-257. Closes the matrix-row gap between Python and TypeScript on
+dynamic client registration. Mirrors the Python AsyncClient.register_client
+signature.
+- Public surface in @keycardai/oauth/registration:
+- - registerClient(issuerUrl, request, options?) async function. Discovers
+  registration_endpoint from the AS metadata, POSTs the request as JSON,
+  returns the issued client credentials. Throws OAuthError on RFC 6749
+  error responses, plain Error on missing registration_endpoint or
+  non-OAuth HTTP failures.
+- ClientRegistrationRequest interface: typed RFC 7591 §2 client metadata.
+  additionalMetadata bag for vendor extensions.
+- ClientRegistrationResponse interface: typed RFC 7591 §3.2.1 fields,
+  plus a raw escape hatch holding the full response body for AS-specific
+  extensions.
+- Independent of the package restructure (ACC-194/193/192). Touches only
+@keycardai/oauth.
+- Tests: 6 new in registration.test.ts (happy path, missing
+registration_endpoint, OAuth error, non-OAuth HTTP failure, missing
+client_id, additionalMetadata pass-through). Mocks fetch directly.
+- 41 oauth tests, 61 mcp tests, 31 cloudflare tests passing across the
+workspace.
+
+## 0.4.1-keycardai-oauth (2026-05-05)
+
+
+- fix(oauth): map server barrel in typesVersions for node moduleResolution (ACC-269)
+- The typesVersions glob "*" maps "server" to "./dist/esm/server" —
+TypeScript then looks for "./dist/esm/server.d.ts" (does not exist)
+when the actual types live at "./dist/esm/server/index.d.ts". This
+caused @keycardai/express to work around the issue by importing from
+specific file paths (@keycardai/oauth/server/tokenVerifier etc.)
+rather than the barrel.
+- Add explicit entries so "server" and "server/*" resolve correctly
+under any moduleResolution setting, including the legacy "node" mode
+used in CJS builds.
+
 ## 0.4.0-keycardai-oauth (2026-05-01)
 
 
