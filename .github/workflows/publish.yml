@@ -20,6 +20,7 @@ on:
       - "*-keycardai-mcp"
       - "*-keycardai-cloudflare"
       - "*-keycardai-express"
+      - "*-keycardai-a2a"
       - "*-keycardai-pi-mono"
       - "*-keycardai-sdk"
 
@@ -65,6 +66,9 @@ jobs:
           elif [[ "$TAG" == *-keycardai-express ]]; then
             echo "name=@keycardai/express" >> $GITHUB_OUTPUT
             echo "dir=packages/express" >> $GITHUB_OUTPUT
+          elif [[ "$TAG" == *-keycardai-a2a ]]; then
+            echo "name=@keycardai/a2a" >> $GITHUB_OUTPUT
+            echo "dir=packages/a2a" >> $GITHUB_OUTPUT
           elif [[ "$TAG" == *-keycardai-pi-mono ]]; then
             echo "name=@keycardai/pi-mono" >> $GITHUB_OUTPUT
             echo "dir=packages/pi-mono" >> $GITHUB_OUTPUT
