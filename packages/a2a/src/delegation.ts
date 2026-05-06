@@ -155,6 +155,11 @@ function buildUserMessage(text: string, metadata?: Record<string, unknown>): Mes
 }
 
 function buildJsonrpcUrl(serviceUrl: string, agentCard: AgentCard): string {
-  const base = (agentCard.url ?? serviceUrl).replace(/\/$/, "");
-  return `${base}${A2A_JSONRPC_PATH}`;
+  // agentCard.url IS the JSONRPC endpoint per the A2A spec — use it directly.
+  // Do not append A2A_JSONRPC_PATH: the agent card is built with getJsonrpcUrl()
+  // which already includes /a2a/jsonrpc, so appending would double the path.
+  if (agentCard.url) {
+    return agentCard.url;
+  }
+  return `${serviceUrl.replace(/\/$/, "")}${A2A_JSONRPC_PATH}`;
 }
