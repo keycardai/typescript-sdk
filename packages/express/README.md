@@ -63,7 +63,9 @@ const credential = new ClientSecret({
 app.use(requireBearerAuth({ zoneUrl: "https://base-zone.keycard.cloud", enableMultiZone: true }));
 
 // zoneId accepts a function that receives the verified AccessToken and
-// returns the zone identifier for this request.
+// returns the zone identifier for this request. AccessToken has no
+// dedicated zone field — use whichever field encodes zone context in
+// your deployment (e.g. a zone-prefixed clientId, or a custom claim).
 app.use(grant(["https://api.example.com"], {
   zoneId: (auth) => auth.clientId,
   applicationCredential: credential,
