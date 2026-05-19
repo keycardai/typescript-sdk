@@ -1,3 +1,8 @@
+## 0.7.0-keycardai-oauth (2026-05-19)
+
+
+- feat(oauth): export pkce authenticate and helpers from main index (#50)
+
 ## 0.6.0-keycardai-oauth (2026-05-06)
 
 
