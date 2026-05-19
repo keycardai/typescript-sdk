@@ -65,6 +65,8 @@ export interface ExchangeAuthorizationCodeOptions {
   redirectUri: string;
   clientId?: string;
   clientSecret?: string;
+  /** RFC 8707 resource indicator. When set, restricts the issued token's audience to this resource. */
+  resource?: string;
   signal?: AbortSignal;
 }
 
@@ -93,6 +95,7 @@ export async function exchangeAuthorizationCode(
   params.set("code", code);
   params.set("code_verifier", options.codeVerifier);
   params.set("redirect_uri", options.redirectUri);
+  if (options.resource) params.set("resource", options.resource);
   if (options.clientId) params.set("client_id", options.clientId);
 
   const headers: Record<string, string> = {
@@ -167,6 +170,8 @@ export interface AuthenticateOptions {
   clientSecret?: string;
   /** Default: 60_000 ms */
   timeoutMs?: number;
+  /** RFC 8707 resource indicator. Scopes the issued token's audience to this resource URL, enabling token exchange against it. */
+  resource?: string;
 }
 
 /**
@@ -206,6 +211,9 @@ export async function authenticate(
   if (options.scopes && options.scopes.length > 0) {
     authUrl.searchParams.set("scope", options.scopes.join(" "));
   }
+  if (options.resource) {
+    authUrl.searchParams.set("resource", options.resource);
+  }
 
   await openBrowser(authUrl.toString());
 
@@ -216,6 +224,7 @@ export async function authenticate(
     redirectUri,
     clientId: options.clientId,
     clientSecret: options.clientSecret,
+    resource: options.resource,
   });
 }
 
