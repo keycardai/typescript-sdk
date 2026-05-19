@@ -1,3 +1,11 @@
+## 0.5.0-keycardai-mcp (2026-05-19)
+
+
+- fix(mcp): compare resource URL origin instead of full URL in bearer auth middleware (#54)
+- * feat(oauth): export pkce authenticate and helpers from main index
+- * feat(oauth): add RFC 8707 resource indicator support to authenticate and exchangeAuthorizationCode
+- * fix(mcp): compare resource URL origin instead of full URL in bearer auth middleware
+
 ## 0.4.0-keycardai-mcp (2026-04-22)
 
 
