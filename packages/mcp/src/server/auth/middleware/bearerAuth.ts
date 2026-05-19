@@ -75,7 +75,7 @@ export function requireBearerAuth({
 
       const authInfo = await verifier.verifyAccessToken(token);
 
-      if (!!authInfo.resource && authInfo.resource.toString() !== url) {
+      if (!!authInfo.resource && new URL(url).origin !== authInfo.resource.origin) {
         throw new InvalidTokenError("Token not intended for resource");
       }
 
