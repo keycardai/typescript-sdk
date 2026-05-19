@@ -40,3 +40,15 @@ export type {
   TokenVerifierOptions,
   ClientSecretCredentials,
 } from "./server/index.js";
+export {
+  generateCodeVerifier,
+  generateCodeChallenge,
+  generatePkcePair,
+  exchangeAuthorizationCode,
+  authenticate,
+} from "./pkce.js";
+export type {
+  Pkce,
+  ExchangeAuthorizationCodeOptions,
+  AuthenticateOptions,
+} from "./pkce.js";
