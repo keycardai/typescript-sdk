@@ -1,3 +1,10 @@
+## 0.8.0-keycardai-oauth (2026-05-19)
+
+
+- feat(oauth): add RFC 8707 resource indicator support to authenticate and exchangeAuthorizationCode (#52)
+- * feat(oauth): export pkce authenticate and helpers from main index
+- * feat(oauth): add RFC 8707 resource indicator support to authenticate and exchangeAuthorizationCode
+
 ## 0.7.0-keycardai-oauth (2026-05-19)
 
 
