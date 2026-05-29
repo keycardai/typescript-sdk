@@ -57,8 +57,8 @@ export interface ExchangeOptions {
 
 export interface ImpersonateRequest {
   userIdentifier: string;
-  resource: string;
-  scope?: string;
+  resource?: string;
+  scopes?: string[];
   zoneId?: string;
 }
 
@@ -178,19 +178,63 @@ export class TokenExchangeClient {
     if (!req.userIdentifier) {
       throw new Error("impersonate: userIdentifier is required");
     }
-    if (!req.resource) {
-      throw new Error("impersonate: resource is required");
-    }
-    const subjectToken = buildSubstituteUserToken(req.userIdentifier);
+
+    const actor = await this.#grantClientCredentials(req.zoneId);
+
     return this.exchangeToken(
       {
-        subjectToken,
+        subjectToken: buildSubstituteUserToken(req.userIdentifier),
         subjectTokenType: TokenType.SUBSTITUTE_USER,
+        actorToken: actor.accessToken,
+        actorTokenType: TokenType.ACCESS_TOKEN,
         resource: req.resource,
-        scope: req.scope,
+        scope: req.scopes && req.scopes.length > 0 ? req.scopes.join(" ") : undefined,
       },
       { zoneId: req.zoneId },
     );
+  }
+
+  async #grantClientCredentials(zoneId: string | undefined): Promise<TokenResponse> {
+    const tokenEndpoint = await this.#getTokenEndpoint();
+
+    const headers: Record<string, string> = {
+      "Content-Type": "application/x-www-form-urlencoded",
+    };
+    const basicAuth = this.#resolveBasicAuth(zoneId);
+    if (basicAuth) {
+      const credentials = btoa(`${basicAuth.clientId}:${basicAuth.clientSecret}`);
+      headers["Authorization"] = `Basic ${credentials}`;
+    }
+
+    const body = new URLSearchParams({ grant_type: "client_credentials" });
+
+    const response = await fetch(tokenEndpoint, {
+      method: "POST",
+      headers,
+      body: body.toString(),
+    });
+
+    if (!response.ok) {
+      try {
+        const errorBody = (await response.json()) as Record<string, unknown>;
+        if (typeof errorBody.error === "string") {
+          const errorCode = errorBody.error;
+          const description = typeof errorBody.error_description === "string"
+            ? errorBody.error_description
+            : errorCode;
+          const errorUri = typeof errorBody.error_uri === "string"
+            ? errorBody.error_uri
+            : undefined;
+          throw new OAuthError(errorCode, description, errorUri);
+        }
+      } catch (e) {
+        if (e instanceof OAuthError) throw e;
+      }
+      throw new Error(`client_credentials grant failed (HTTP ${response.status})`);
+    }
+
+    const json = (await response.json()) as Record<string, unknown>;
+    return deserializeResponse(json);
   }
 
   #resolveBasicAuth(
