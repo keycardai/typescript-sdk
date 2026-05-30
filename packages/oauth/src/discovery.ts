@@ -52,7 +52,8 @@ export async function fetchAuthorizationServerMetadata(
     );
   }
 
-  if (metadata.issuer !== issuer) {
+  // Compare ignoring a trailing slash, matching the Python SDK.
+  if (metadata.issuer.replace(/\/$/, "") !== issuer.replace(/\/$/, "")) {
     throw new OAuthError(
       "issuer_mismatch",
       `Issuer mismatch in OAuth authorization server metadata for "${issuer}"`,

@@ -68,6 +68,14 @@ describe('fetchAuthorizationServerMetadata', () => {
     });
   });
 
+  it('accepts an issuer that differs only by a trailing slash', async () => {
+    mockFetch({ issuer: `${ISSUER}/` });
+
+    const metadata = await fetchAuthorizationServerMetadata(ISSUER);
+
+    expect(metadata.issuer).toBe(`${ISSUER}/`);
+  });
+
   it('throws OAuthError("invalid_metadata") when the issuer field is missing', async () => {
     mockFetch({ token_endpoint: `${ISSUER}/token` });
 
