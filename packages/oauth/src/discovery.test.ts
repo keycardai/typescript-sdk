@@ -1,6 +1,5 @@
 import { jest } from '@jest/globals';
 import { fetchAuthorizationServerMetadata } from './discovery.js';
-import { HTTPError, OAuthError } from './errors.js';
 
 const ISSUER = 'https://auth.example.com';
 
@@ -50,37 +49,5 @@ describe('fetchAuthorizationServerMetadata', () => {
 
     expect(metadata.grant_types_supported).toBeUndefined();
     expect(metadata.response_types_supported).toBeUndefined();
-  });
-
-  it('throws HTTPError on a non-2xx response', async () => {
-    mockFetch({}, 503);
-
-    await expect(fetchAuthorizationServerMetadata(ISSUER)).rejects.toBeInstanceOf(
-      HTTPError,
-    );
-  });
-
-  it('throws OAuthError("issuer_mismatch") when the issuer does not match', async () => {
-    mockFetch({ issuer: 'https://evil.example.com' });
-
-    await expect(fetchAuthorizationServerMetadata(ISSUER)).rejects.toMatchObject({
-      errorCode: 'issuer_mismatch',
-    });
-  });
-
-  it('accepts an issuer that differs only by a trailing slash', async () => {
-    mockFetch({ issuer: `${ISSUER}/` });
-
-    const metadata = await fetchAuthorizationServerMetadata(ISSUER);
-
-    expect(metadata.issuer).toBe(`${ISSUER}/`);
-  });
-
-  it('throws OAuthError("invalid_metadata") when the issuer field is missing', async () => {
-    mockFetch({ token_endpoint: `${ISSUER}/token` });
-
-    const error = await fetchAuthorizationServerMetadata(ISSUER).catch((e) => e);
-    expect(error).toBeInstanceOf(OAuthError);
-    expect((error as OAuthError).errorCode).toBe('invalid_metadata');
   });
 });

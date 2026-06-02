@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { HTTPError, OAuthError } from "./errors.js";
 
 const OAuthAuthorizationServerMetadataSchema = z.object({
   issuer: z.string(),
@@ -27,37 +26,15 @@ export async function fetchAuthorizationServerMetadata(
   const url = new URL(`/.well-known/oauth-authorization-server${path}`, issuer);
   const response = await fetch(url, { signal: options?.signal });
   if (!response.ok) {
-    throw new HTTPError(
-      `Failed to fetch OAuth authorization server metadata for "${issuer}" (HTTP ${response.status})`,
+    throw new Error(
+      `Failed to fetch OAuth authorization server metadata for "${issuer}"`,
     );
   }
 
-  let json: unknown;
-  try {
-    json = await response.json();
-  } catch {
-    throw new OAuthError(
-      "invalid_metadata",
-      `Malformed JSON in OAuth authorization server metadata for "${issuer}"`,
-    );
-  }
-
-  let metadata: OAuthAuthorizationServerMetadata;
-  try {
-    metadata = OAuthAuthorizationServerMetadataSchema.parse(json);
-  } catch {
-    throw new OAuthError(
-      "invalid_metadata",
-      `Invalid OAuth authorization server metadata for "${issuer}"`,
-    );
-  }
-
-  // Compare ignoring a trailing slash, matching the Python SDK.
-  if (metadata.issuer.replace(/\/$/, "") !== issuer.replace(/\/$/, "")) {
-    throw new OAuthError(
-      "issuer_mismatch",
-      `Issuer mismatch in OAuth authorization server metadata for "${issuer}"`,
-    );
+  const json = await response.json();
+  const metadata = OAuthAuthorizationServerMetadataSchema.parse(json);
+  if (metadata.issuer !== issuer) {
+    throw new Error(`Issuer mismatch in OAuth authorization server metadata for "${issuer}"`);
   }
 
   return metadata;
