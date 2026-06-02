@@ -1,3 +1,21 @@
+## 0.8.2-keycardai-oauth (2026-06-02)
+
+
+- fix(oauth): throw typed errors from authorization server discovery (#62)
+- * fix(oauth): throw typed errors from authorization server discovery
+- Discovery threw plain Error for non-2xx and issuer mismatch, and let ZodError
+escape on a malformed body, even though the SDK ships a typed error hierarchy.
+Callers could not branch on error type.
+- - non-2xx -> HTTPError
+- malformed JSON / invalid or issuer-less metadata -> OAuthError("invalid_metadata")
+- issuer mismatch -> OAuthError("issuer_mismatch")
+- Aligns TS error semantics with the Python SDK typed taxonomy.
+- Closes ECO-28.
+- * fix(oauth): ignore trailing slash in discovery issuer comparison
+- Matches the Python SDK, which normalizes the trailing slash before comparing.
+Without this the same metadata document could be accepted by one SDK and
+rejected by the other.
+
 ## 0.8.1-keycardai-oauth (2026-06-02)
 
 
