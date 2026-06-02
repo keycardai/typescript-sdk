@@ -6,6 +6,8 @@ const OAuthAuthorizationServerMetadataSchema = z.object({
   token_endpoint: z.string().optional(),
   jwks_uri: z.string().optional(),
   registration_endpoint: z.string().optional(),
+  grant_types_supported: z.array(z.string()).optional(),
+  response_types_supported: z.array(z.string()).optional(),
   token_endpoint_auth_methods_supported: z.array(z.string()).optional(),
 }).passthrough();
 
