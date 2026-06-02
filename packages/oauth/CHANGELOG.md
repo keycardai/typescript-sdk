@@ -1,3 +1,12 @@
+## 0.8.1-keycardai-oauth (2026-06-02)
+
+
+- fix(oauth): type grant_types_supported and response_types_supported in discovery metadata (#58)
+- These two standard RFC 8414 fields were returned via schema passthrough but
+untyped, so callers got no static types for them. The Python SDK types both.
+Adds them as optional string arrays.
+- Closes ECO-29.
+
 ## 0.8.0-keycardai-oauth (2026-05-19)
 
 
