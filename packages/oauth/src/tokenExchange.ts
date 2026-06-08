@@ -111,15 +111,15 @@ function deserializeResponse(json: Record<string, unknown>): TokenResponse {
 // =============================================================================
 
 export class TokenExchangeClient {
-  #issuerUrl: string;
+  #issuer: string;
   #clientId?: string;
   #clientSecret?: string;
   #credential?: ApplicationCredential;
   #tokenEndpoint?: string;
   #discoveryPromise?: Promise<string>;
 
-  constructor(issuerUrl: string, options?: TokenExchangeClientOptions) {
-    this.#issuerUrl = issuerUrl;
+  constructor(issuer: string, options?: TokenExchangeClientOptions) {
+    this.#issuer = issuer;
     this.#clientId = options?.clientId;
     this.#clientSecret = options?.clientSecret;
     this.#credential = options?.credential;
@@ -213,9 +213,9 @@ export class TokenExchangeClient {
     // Promise-based lock: only one concurrent discovery
     if (!this.#discoveryPromise) {
       this.#discoveryPromise = (async () => {
-        const metadata = await fetchAuthorizationServerMetadata(this.#issuerUrl);
+        const metadata = await fetchAuthorizationServerMetadata(this.#issuer);
         if (!metadata.token_endpoint) {
-          throw new Error(`Authorization server "${this.#issuerUrl}" does not advertise a token_endpoint`);
+          throw new Error(`Authorization server "${this.#issuer}" does not advertise a token_endpoint`);
         }
         this.#tokenEndpoint = metadata.token_endpoint;
         return this.#tokenEndpoint;

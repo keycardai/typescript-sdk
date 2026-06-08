@@ -78,17 +78,17 @@ export interface RegisterClientOptions {
  * - `Error` on non-OAuth HTTP failures or malformed responses.
  */
 export async function registerClient(
-  issuerUrl: string,
+  issuer: string,
   request: ClientRegistrationRequest,
   options?: RegisterClientOptions,
 ): Promise<ClientRegistrationResponse> {
   const signal = options?.signal ??
     (options?.timeoutMs != null ? AbortSignal.timeout(options.timeoutMs) : undefined);
 
-  const metadata = await fetchAuthorizationServerMetadata(issuerUrl, { signal });
+  const metadata = await fetchAuthorizationServerMetadata(issuer, { signal });
   if (!metadata.registration_endpoint) {
     throw new Error(
-      `Authorization server "${issuerUrl}" does not advertise a registration_endpoint`,
+      `Authorization server "${issuer}" does not advertise a registration_endpoint`,
     );
   }
 
