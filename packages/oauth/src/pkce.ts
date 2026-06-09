@@ -77,16 +77,16 @@ export interface ExchangeAuthorizationCodeOptions {
  * `grant_type=authorization_code` with the code verifier.
  */
 export async function exchangeAuthorizationCode(
-  issuerUrl: string,
+  issuer: string,
   code: string,
   options: ExchangeAuthorizationCodeOptions,
 ): Promise<TokenResponse> {
-  const metadata = await fetchAuthorizationServerMetadata(issuerUrl, {
+  const metadata = await fetchAuthorizationServerMetadata(issuer, {
     signal: options.signal,
   });
   if (!metadata.token_endpoint) {
     throw new Error(
-      `Authorization server "${issuerUrl}" does not advertise a token_endpoint`,
+      `Authorization server "${issuer}" does not advertise a token_endpoint`,
     );
   }
 
@@ -186,7 +186,7 @@ export interface AuthenticateOptions {
  * *calling* `authenticate()` requires Node.js.
  */
 export async function authenticate(
-  issuerUrl: string,
+  issuer: string,
   options: AuthenticateOptions,
 ): Promise<TokenResponse> {
   const port = options.port ?? 8080;
@@ -195,10 +195,10 @@ export async function authenticate(
 
   const { codeVerifier, codeChallenge } = await generatePkcePair("S256");
 
-  const metadata = await fetchAuthorizationServerMetadata(issuerUrl);
+  const metadata = await fetchAuthorizationServerMetadata(issuer);
   if (!metadata.authorization_endpoint) {
     throw new Error(
-      `Authorization server "${issuerUrl}" does not advertise an authorization_endpoint`,
+      `Authorization server "${issuer}" does not advertise an authorization_endpoint`,
     );
   }
 
@@ -219,7 +219,7 @@ export async function authenticate(
 
   const code = await waitForCode(port, redirectUri, timeoutMs);
 
-  return exchangeAuthorizationCode(issuerUrl, code, {
+  return exchangeAuthorizationCode(issuer, code, {
     codeVerifier,
     redirectUri,
     clientId: options.clientId,
