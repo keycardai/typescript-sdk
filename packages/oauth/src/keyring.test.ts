@@ -297,4 +297,37 @@ describe('JWKSOAuthKeyring', () => {
       );
     });
   });
+
+  describe('key cache bound', () => {
+    it('evicts the oldest key when the cache is full', async () => {
+      const keys = [
+        { ...RSA_PUBLIC_JWK, kid: 'k1' },
+        { ...RSA_PUBLIC_JWK, kid: 'k2' },
+        { ...RSA_PUBLIC_JWK, kid: 'k3' },
+      ];
+      mockFetchMetadata.mockResolvedValue({
+        issuer: TEST_ISSUER,
+        jwks_uri: TEST_JWKS_URI,
+      });
+
+      const keyring = new JWKSOAuthKeyring({ keyCacheMaxEntries: 2 });
+
+      mockFetch.mockResolvedValue(makeJwksResponse(keys));
+      await keyring.key(TEST_ISSUER, 'k1');
+      mockFetch.mockResolvedValue(makeJwksResponse(keys));
+      await keyring.key(TEST_ISSUER, 'k2');
+      mockFetch.mockResolvedValue(makeJwksResponse(keys));
+      await keyring.key(TEST_ISSUER, 'k3'); // cache full at 2: evicts oldest (k1)
+      expect(mockFetch).toHaveBeenCalledTimes(3);
+
+      // k3 is the newest entry and is still cached: no new fetch.
+      await keyring.key(TEST_ISSUER, 'k3');
+      expect(mockFetch).toHaveBeenCalledTimes(3);
+
+      // k1 was evicted: resolving it again triggers a fresh fetch.
+      mockFetch.mockResolvedValue(makeJwksResponse(keys));
+      await keyring.key(TEST_ISSUER, 'k1');
+      expect(mockFetch).toHaveBeenCalledTimes(4);
+    });
+  });
 });
