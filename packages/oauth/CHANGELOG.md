@@ -1,3 +1,11 @@
+## 0.8.4-keycardai-oauth (2026-06-09)
+
+
+- fix(oauth): bound the JWKS key cache (evict oldest on overflow) (#66)
+- JWKSOAuthKeyring's key cache was unbounded, so a long-lived verifier resolving keys across many (issuer, kid) pairs could grow without limit. It now evicts the oldest-inserted entry once the cache exceeds keyCacheMaxEntries (default 256, configurable).
+- Companion to python-sdk #145; matches the ECO-35 contract that the key cache is bounded with partial eviction (exact order implementation-defined).
+- Co-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+
 ## 0.8.3-keycardai-oauth (2026-06-09)
 
 
