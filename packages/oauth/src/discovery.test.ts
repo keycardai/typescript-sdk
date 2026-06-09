@@ -76,11 +76,11 @@ describe('fetchAuthorizationServerMetadata', () => {
     expect(metadata.issuer).toBe(`${ISSUER}/`);
   });
 
-  it('throws OAuthError("invalid_metadata") when the issuer field is missing', async () => {
+  it('throws OAuthError("invalid_response") when the issuer field is missing', async () => {
     mockFetch({ token_endpoint: `${ISSUER}/token` });
 
     const error = await fetchAuthorizationServerMetadata(ISSUER).catch((e) => e);
     expect(error).toBeInstanceOf(OAuthError);
-    expect((error as OAuthError).errorCode).toBe('invalid_metadata');
+    expect((error as OAuthError).errorCode).toBe('invalid_response');
   });
 });

@@ -1,5 +1,11 @@
 import { z } from "zod";
 import { fetchAuthorizationServerMetadata } from "./discovery.js";
+import {
+  JWKSDiscoveryError,
+  JWKSFetchError,
+  JWKSKeyNotFoundError,
+  JWKSUriValidationError,
+} from "./errors.js";
 
 export interface OAuthKeyring {
   key(issuer: string, kid: string): Promise<CryptoKey>
@@ -66,7 +72,7 @@ function assertSameOrigin(issuer: string, jwksUri: string): void {
   const issuerOrigin = new URL(issuer).origin;
   const jwksOrigin = new URL(jwksUri).origin;
   if (issuerOrigin !== jwksOrigin) {
-    throw new Error(
+    throw new JWKSUriValidationError(
       `JWKS URI origin "${jwksOrigin}" does not match issuer origin "${issuerOrigin}" for "${issuer}"`,
     );
   }
@@ -152,7 +158,7 @@ export class JWKSOAuthKeyring implements OAuthKeyring {
           signal: AbortSignal.timeout(this.#fetchTimeoutMs),
         });
         if (!metadata.jwks_uri) {
-          throw new Error(`No JSON Web Key Set available for "${issuer}"`);
+          throw new JWKSDiscoveryError(`No JSON Web Key Set available for "${issuer}"`);
         }
 
         assertSameOrigin(issuer, metadata.jwks_uri);
@@ -193,7 +199,7 @@ export class JWKSOAuthKeyring implements OAuthKeyring {
           signal: AbortSignal.timeout(this.#fetchTimeoutMs),
         });
         if (!response.ok) {
-          throw new Error(
+          throw new JWKSFetchError(
             `Failed to fetch JWKS from "${jwksUri}" for "${issuer}" (HTTP ${response.status})`,
           );
         }
@@ -202,7 +208,7 @@ export class JWKSOAuthKeyring implements OAuthKeyring {
         const jwkSet = JWKSetSchema.parse(json);
         const jwk = jwkSet.keys.find((jwk) => jwk.kid === kid);
         if (!jwk) {
-          throw new Error(`Failed to find key "${kid}" of "${issuer}"`);
+          throw new JWKSKeyNotFoundError(`Failed to find key "${kid}" of "${issuer}"`);
         }
 
         // TODO: make this more robust to uses and algs

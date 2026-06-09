@@ -12,6 +12,11 @@ export {
   InsufficientScopeError,
   ResourceAccessError,
   AuthProviderConfigurationError,
+  JWKSError,
+  JWKSDiscoveryError,
+  JWKSUriValidationError,
+  JWKSFetchError,
+  JWKSKeyNotFoundError,
 } from "./errors.js";
 export { JWTSigner } from "./jwt/signer.js";
 export type { JWTClaims } from "./jwt/signer.js";

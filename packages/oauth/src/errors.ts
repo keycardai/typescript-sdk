@@ -101,3 +101,47 @@ export class AuthProviderConfigurationError extends Error {
     this.name = "AuthProviderConfigurationError";
   }
 }
+
+/**
+ * Base class for JWKS key-resolution failures. Catch this to handle any JWKS
+ * error, or a specific subclass for a single category. Mirrors the Python
+ * `JWKSDiscoveryError` / `JWKSUriValidationError` taxonomy.
+ */
+export class JWKSError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "JWKSError";
+  }
+}
+
+/** Discovery failed, or the metadata advertised no `jwks_uri`. */
+export class JWKSDiscoveryError extends JWKSError {
+  constructor(message: string) {
+    super(message);
+    this.name = "JWKSDiscoveryError";
+  }
+}
+
+/** The discovered `jwks_uri` is cross-origin with the issuer (rejected before fetch). */
+export class JWKSUriValidationError extends JWKSError {
+  constructor(message: string) {
+    super(message);
+    this.name = "JWKSUriValidationError";
+  }
+}
+
+/** The JWKS endpoint returned a non-2xx response. */
+export class JWKSFetchError extends JWKSError {
+  constructor(message: string) {
+    super(message);
+    this.name = "JWKSFetchError";
+  }
+}
+
+/** The requested `kid` was not present in the fetched JWKS. */
+export class JWKSKeyNotFoundError extends JWKSError {
+  constructor(message: string) {
+    super(message);
+    this.name = "JWKSKeyNotFoundError";
+  }
+}
