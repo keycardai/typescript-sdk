@@ -1,3 +1,10 @@
+## 0.8.5-keycardai-oauth (2026-06-09)
+
+
+- fix(oauth): typed JWKS errors + align discovery malformed-doc code to invalid_response (#67)
+- JWKSOAuthKeyring threw plain Error; it now throws a JWKSError subclass (JWKSDiscoveryError / JWKSUriValidationError / JWKSFetchError / JWKSKeyNotFoundError), exported from the package root, mirroring Python's taxonomy. Discovery now raises invalid_response (was invalid_metadata) for a malformed metadata document, matching Python; issuer_mismatch unchanged.
+- Closes the TS side of the jwks-caching error-taxonomy row (ECO-35) and the authorization-server-discovery malformed-doc row (ECO-32). Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+
 ## 0.8.4-keycardai-oauth (2026-06-09)
 
 
