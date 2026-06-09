@@ -22,6 +22,8 @@ export interface JWKSOAuthKeyringOptions {
   discoveryTtlMs?: number;
   /** Timeout for both discovery and JWKS fetch requests. Default: 10 seconds. */
   fetchTimeoutMs?: number;
+  /** Maximum number of cached keys before the oldest is evicted. Default: 256. */
+  keyCacheMaxEntries?: number;
 }
 
 const JWKSchema = z.object({
@@ -58,6 +60,7 @@ interface CacheEntry<T> {
 const DEFAULT_KEY_TTL_MS = 5 * 60 * 1000;        // 5 minutes
 const DEFAULT_DISCOVERY_TTL_MS = 60 * 60 * 1000;  // 1 hour
 const DEFAULT_FETCH_TIMEOUT_MS = 10_000;           // 10 seconds
+const DEFAULT_KEY_CACHE_MAX_ENTRIES = 256;         // bound the key cache
 
 function assertSameOrigin(issuer: string, jwksUri: string): void {
   const issuerOrigin = new URL(issuer).origin;
@@ -84,6 +87,7 @@ export class JWKSOAuthKeyring implements OAuthKeyring {
 
   #discoveryCache = new Map<string, CacheEntry<string>>();
   #keyCache = new Map<string, CacheEntry<CryptoKey>>();
+  #keyCacheMaxEntries: number;
 
   #discoveryInflight = new Map<string, Promise<string>>();
   #keyInflight = new Map<string, Promise<CryptoKey>>();
@@ -92,6 +96,8 @@ export class JWKSOAuthKeyring implements OAuthKeyring {
     this.#keyTtlMs = options?.keyTtlMs ?? DEFAULT_KEY_TTL_MS;
     this.#discoveryTtlMs = options?.discoveryTtlMs ?? DEFAULT_DISCOVERY_TTL_MS;
     this.#fetchTimeoutMs = options?.fetchTimeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS;
+    this.#keyCacheMaxEntries =
+      options?.keyCacheMaxEntries ?? DEFAULT_KEY_CACHE_MAX_ENTRIES;
   }
 
   async key(issuer: string, kid: string): Promise<CryptoKey> {
@@ -215,6 +221,7 @@ export class JWKSOAuthKeyring implements OAuthKeyring {
           value: key,
           expiresAt: Date.now() + this.#keyTtlMs,
         });
+        this.#evictKeysIfNeeded();
 
         return key;
       } finally {
@@ -240,5 +247,18 @@ export class JWKSOAuthKeyring implements OAuthKeyring {
       return undefined;
     }
     return entry.value;
+  }
+
+  // Bound the key cache: evict the oldest-inserted entries (Map preserves
+  // insertion order) so a verifier serving many keys does not grow without
+  // limit. Exact eviction order is an implementation detail.
+  #evictKeysIfNeeded(): void {
+    while (this.#keyCache.size > this.#keyCacheMaxEntries) {
+      const oldest = this.#keyCache.keys().next().value;
+      if (oldest === undefined) {
+        break;
+      }
+      this.#keyCache.delete(oldest);
+    }
   }
 }
