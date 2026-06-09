@@ -1,6 +1,6 @@
 [tool.commitizen]
 name = "cz_customize"
-version = "0.8.4"
+version = "0.8.5"
 version_files = ["package.json:version"]
 tag_format = "${version}-keycardai-oauth"
 ignored_tag_formats = ["${version}-*"]
