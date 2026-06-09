@@ -1,3 +1,12 @@
+## 0.8.3-keycardai-oauth (2026-06-09)
+
+
+- fix(oauth): name the authorization-server URL "issuer" consistently (#64)
+- Rename the positional issuerUrl parameter to issuer across @keycardai/oauth so the authorization-server URL has one name everywhere. fetchAuthorizationServerMetadata already used issuer; the TokenExchangeClient constructor, registerClient, exchangeAuthorizationCode, and authenticate used issuerUrl.
+- The parameters are positional, so this is a source-compatible rename with no call-site changes and no deprecated alias needed.
+- Part of the SDK parity effort (PHILOSOPHY.md #5). Python uses issuer after ECO-30. Tracked by ECO-33.
+- Co-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+
 ## 0.8.2-keycardai-oauth (2026-06-02)
 
 
