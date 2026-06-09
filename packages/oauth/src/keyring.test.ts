@@ -1,4 +1,11 @@
 import { jest } from '@jest/globals';
+import {
+  JWKSDiscoveryError,
+  JWKSError,
+  JWKSFetchError,
+  JWKSKeyNotFoundError,
+  JWKSUriValidationError,
+} from './errors.js';
 
 // Mock discovery module before importing keyring
 const mockFetchMetadata = jest.fn<(issuer: string, options?: { signal?: AbortSignal }) => Promise<{ issuer: string; jwks_uri?: string }>>();
@@ -328,6 +335,59 @@ describe('JWKSOAuthKeyring', () => {
       mockFetch.mockResolvedValue(makeJwksResponse(keys));
       await keyring.key(TEST_ISSUER, 'k1');
       expect(mockFetch).toHaveBeenCalledTimes(4);
+    });
+  });
+
+  describe('typed errors', () => {
+    it('throws JWKSUriValidationError for a cross-origin jwks_uri', async () => {
+      mockFetchMetadata.mockResolvedValue({
+        issuer: TEST_ISSUER,
+        jwks_uri: 'https://evil.example.com/.well-known/jwks.json',
+      });
+      const keyring = new JWKSOAuthKeyring();
+      await expect(keyring.key(TEST_ISSUER, TEST_KID)).rejects.toBeInstanceOf(
+        JWKSUriValidationError,
+      );
+    });
+
+    it('throws JWKSDiscoveryError when discovery advertises no jwks_uri', async () => {
+      mockFetchMetadata.mockResolvedValue({ issuer: TEST_ISSUER });
+      const keyring = new JWKSOAuthKeyring();
+      await expect(keyring.key(TEST_ISSUER, TEST_KID)).rejects.toBeInstanceOf(
+        JWKSDiscoveryError,
+      );
+    });
+
+    it('throws JWKSFetchError when the JWKS endpoint returns non-2xx', async () => {
+      mockFetchMetadata.mockResolvedValue({
+        issuer: TEST_ISSUER,
+        jwks_uri: TEST_JWKS_URI,
+      });
+      mockFetch.mockResolvedValue(new Response('nope', { status: 500 }));
+      const keyring = new JWKSOAuthKeyring();
+      await expect(keyring.key(TEST_ISSUER, TEST_KID)).rejects.toBeInstanceOf(
+        JWKSFetchError,
+      );
+    });
+
+    it('throws JWKSKeyNotFoundError when the kid is absent from the JWKS', async () => {
+      mockFetchMetadata.mockResolvedValue({
+        issuer: TEST_ISSUER,
+        jwks_uri: TEST_JWKS_URI,
+      });
+      mockFetch.mockResolvedValue(makeJwksResponse([]));
+      const keyring = new JWKSOAuthKeyring();
+      await expect(keyring.key(TEST_ISSUER, TEST_KID)).rejects.toBeInstanceOf(
+        JWKSKeyNotFoundError,
+      );
+    });
+
+    it('every JWKS error shares the JWKSError base', async () => {
+      mockFetchMetadata.mockResolvedValue({ issuer: TEST_ISSUER });
+      const keyring = new JWKSOAuthKeyring();
+      await expect(keyring.key(TEST_ISSUER, TEST_KID)).rejects.toBeInstanceOf(
+        JWKSError,
+      );
     });
   });
 });

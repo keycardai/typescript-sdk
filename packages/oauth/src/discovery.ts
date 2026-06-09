@@ -37,7 +37,7 @@ export async function fetchAuthorizationServerMetadata(
     json = await response.json();
   } catch {
     throw new OAuthError(
-      "invalid_metadata",
+      "invalid_response",
       `Malformed JSON in OAuth authorization server metadata for "${issuer}"`,
     );
   }
@@ -47,7 +47,7 @@ export async function fetchAuthorizationServerMetadata(
     metadata = OAuthAuthorizationServerMetadataSchema.parse(json);
   } catch {
     throw new OAuthError(
-      "invalid_metadata",
+      "invalid_response",
       `Invalid OAuth authorization server metadata for "${issuer}"`,
     );
   }
