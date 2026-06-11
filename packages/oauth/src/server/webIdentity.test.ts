@@ -44,3 +44,65 @@ describe("WebIdentity default storage directory", () => {
     expect(existsSync(join(tmp, "server_keys"))).toBe(false);
   });
 });
+
+function decodeJwtPayload(jwt: string): Record<string, unknown> {
+  const payload = jwt.split(".")[1];
+  return JSON.parse(Buffer.from(payload, "base64url").toString("utf-8"));
+}
+
+describe("WebIdentity client assertion (iss/sub/aud)", () => {
+  const TOKEN_ENDPOINT = "https://acme.keycard.cloud/oauth/2/token";
+  let tmp: string;
+
+  beforeEach(() => {
+    tmp = mkdtempSync(join(tmpdir(), "webidentity-assert-"));
+  });
+
+  afterEach(() => {
+    rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it("signs iss=sub=clientId and aud=token endpoint", async () => {
+    const wi = new WebIdentity({ clientId: "cred-abc", storageDir: tmp });
+    const req = await wi.prepareTokenExchangeRequest(
+      "subject-token",
+      "https://api.example.com",
+      { tokenEndpoint: TOKEN_ENDPOINT },
+    );
+
+    expect(req.clientAssertion).toBeDefined();
+    const payload = decodeJwtPayload(req.clientAssertion!);
+    expect(payload.iss).toBe("cred-abc");
+    expect(payload.sub).toBe("cred-abc");
+    expect(payload.aud).toBe(TOKEN_ENDPOINT);
+  });
+
+  it("prefers an explicit resource_client_id over the configured clientId", async () => {
+    const wi = new WebIdentity({ clientId: "cred-abc", storageDir: tmp });
+    const req = await wi.prepareTokenExchangeRequest(
+      "subject-token",
+      "https://api.example.com",
+      { tokenEndpoint: TOKEN_ENDPOINT, authInfo: { resource_client_id: "cred-override" } },
+    );
+
+    const payload = decodeJwtPayload(req.clientAssertion!);
+    expect(payload.iss).toBe("cred-override");
+    expect(payload.sub).toBe("cred-override");
+  });
+
+  it("throws when no clientId is configured", async () => {
+    const wi = new WebIdentity({ storageDir: tmp });
+    await expect(
+      wi.prepareTokenExchangeRequest("subject-token", "https://api.example.com", {
+        tokenEndpoint: TOKEN_ENDPOINT,
+      }),
+    ).rejects.toThrow(/clientId is required/);
+  });
+
+  it("throws when no token endpoint is supplied", async () => {
+    const wi = new WebIdentity({ clientId: "cred-abc", storageDir: tmp });
+    await expect(
+      wi.prepareTokenExchangeRequest("subject-token", "https://api.example.com", {}),
+    ).rejects.toThrow(/token endpoint is required/);
+  });
+});
