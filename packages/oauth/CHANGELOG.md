@@ -1,3 +1,14 @@
+## 0.10.0-keycardai-oauth (2026-06-11)
+
+
+- feat(oauth): add registration-request auth (initial access token) to registerClient (#74)
+- registerClient sent no Authorization header, so it could not register against
+an authorization server whose registration endpoint requires authentication.
+Add an optional initialAccessToken (RFC 7591 section 3.1), sent as a Bearer
+credential on the registration POST. Brings TS to parity with Python, which
+authenticates the registration request via its client auth strategy.
+- Part of the dynamic-client-registration spec (ECO-44).
+
 ## 0.9.1-keycardai-oauth (2026-06-11)
 
 
