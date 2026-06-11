@@ -1,9 +1,29 @@
+import { existsSync } from "node:fs";
 import type { ApplicationCredential } from "../credentials.js";
 import type { TokenExchangeRequest } from "../tokenExchange.js";
 import { PrivateKeyManager, FilePrivateKeyStorage } from "./privateKey.js";
 import type { PrivateKeyStorage } from "./privateKey.js";
 
 export type { PrivateKeyStorage } from "./privateKey.js";
+
+const DEFAULT_STORAGE_DIR = "./server_keys";
+const LEGACY_STORAGE_DIR = "./mcp_keys";
+
+/**
+ * Prefer `./server_keys`. Fall back to the pre-extraction `./mcp_keys` when it
+ * exists and `./server_keys` does not, so a deployment that relied on the
+ * implicit default keeps its keys after upgrade.
+ */
+function resolveDefaultStorageDir(): string {
+  try {
+    if (!existsSync(DEFAULT_STORAGE_DIR) && existsSync(LEGACY_STORAGE_DIR)) {
+      return LEGACY_STORAGE_DIR;
+    }
+  } catch {
+    // ignore filesystem probe errors; use the default
+  }
+  return DEFAULT_STORAGE_DIR;
+}
 
 export interface WebIdentityOptions {
   serverName?: string;
@@ -17,7 +37,8 @@ export interface WebIdentityOptions {
  * RFC 7523 private_key_jwt client assertion credential provider.
  *
  * Generates and persists an RSA key pair using the supplied storage
- * implementation (default: `FilePrivateKeyStorage("./mcp_keys")`).
+ * implementation (default: `FilePrivateKeyStorage("./server_keys")`, falling
+ * back to `./mcp_keys` when that directory already exists).
  * On each token exchange the private key signs a client assertion JWT
  * that the authorization server verifies instead of a shared secret.
  *
@@ -31,7 +52,7 @@ export class WebIdentity implements ApplicationCredential {
   constructor(options: WebIdentityOptions = {}) {
     const storage =
       options.storage ??
-      new FilePrivateKeyStorage(options.storageDir ?? "./mcp_keys");
+      new FilePrivateKeyStorage(options.storageDir ?? resolveDefaultStorageDir());
 
     let keyId = options.keyId;
     if (!keyId && options.serverName) {
