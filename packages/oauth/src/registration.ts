@@ -63,6 +63,12 @@ export interface RegisterClientOptions {
   signal?: AbortSignal;
   /** Request timeout in milliseconds. Ignored if `signal` is already provided. */
   timeoutMs?: number;
+  /**
+   * Initial access token (RFC 7591 §3.1) sent as a `Bearer` credential on the
+   * registration request, for an authorization server whose registration
+   * endpoint requires authentication.
+   */
+  initialAccessToken?: string;
 }
 
 /**
@@ -92,12 +98,17 @@ export async function registerClient(
     );
   }
 
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Accept: "application/json",
+  };
+  if (options?.initialAccessToken) {
+    headers.Authorization = `Bearer ${options.initialAccessToken}`;
+  }
+
   const response = await fetch(metadata.registration_endpoint, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    },
+    headers,
     body: JSON.stringify(serializeRequest(request)),
     signal,
   });

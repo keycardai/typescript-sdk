@@ -158,6 +158,32 @@ describe('registerClient', () => {
     expect(body.client_name).toBe('Real Name');
   });
 
+  it('sends the initial access token as a Bearer credential on the registration request', async () => {
+    fetchMock.mockImplementationOnce(async () => metadataResponse());
+    fetchMock.mockImplementationOnce(async () => jsonResponse(201, { client_id: 'svc-abc' }));
+
+    await registerClient(
+      ISSUER,
+      { clientName: 'svc' },
+      { initialAccessToken: 'iat-secret-123' },
+    );
+
+    const [, registrationCall] = fetchMock.mock.calls;
+    const headers = (registrationCall![1] as RequestInit).headers as Record<string, string>;
+    expect(headers.Authorization).toBe('Bearer iat-secret-123');
+  });
+
+  it('sends no Authorization header when no initial access token is given', async () => {
+    fetchMock.mockImplementationOnce(async () => metadataResponse());
+    fetchMock.mockImplementationOnce(async () => jsonResponse(201, { client_id: 'svc-abc' }));
+
+    await registerClient(ISSUER, { clientName: 'svc' });
+
+    const [, registrationCall] = fetchMock.mock.calls;
+    const headers = (registrationCall![1] as RequestInit).headers as Record<string, string>;
+    expect(headers.Authorization).toBeUndefined();
+  });
+
   it('propagates AbortSignal timeout to the fetch call', async () => {
     fetchMock.mockImplementationOnce(async () => metadataResponse());
     fetchMock.mockImplementationOnce(async (_url: unknown, init?: RequestInit) => {
