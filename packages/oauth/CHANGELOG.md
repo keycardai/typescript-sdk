@@ -1,3 +1,14 @@
+## 0.11.0-keycardai-oauth (2026-06-11)
+
+
+- feat(oauth): default WebIdentity key storage to ./server_keys with ./mcp_keys fallback (#76)
+- WebIdentity defaulted its key-storage directory to ./mcp_keys. Default to
+./server_keys instead (a generic server-identity credential, not MCP-specific),
+matching the Python default. When storageDir is omitted, fall back to ./mcp_keys
+if it exists and ./server_keys does not, so an existing deployment keeps its keys
+after upgrade. An explicit storageDir is unaffected.
+- Part of the web-identity spec default-storage-directory row (ECO-39).
+
 ## 0.10.0-keycardai-oauth (2026-06-11)
 
 
