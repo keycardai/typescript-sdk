@@ -42,6 +42,25 @@ describe('ClientSecret', () => {
     });
   });
 
+  describe('construction validation', () => {
+    it('rejects an empty client_id or client_secret (two-arg)', () => {
+      expect(() => new ClientSecret('', 'shh')).toThrow(/non-empty/);
+      expect(() => new ClientSecret('alice', '')).toThrow(/non-empty/);
+    });
+
+    it('rejects an empty client_id or client_secret (tuple)', () => {
+      expect(() => new ClientSecret(['', 'secret'])).toThrow(/non-empty/);
+      expect(() => new ClientSecret(['bob', ''])).toThrow(/non-empty/);
+    });
+
+    it('rejects empty credentials in a multi-zone dict and names the zone', () => {
+      expect(() => new ClientSecret({ 'zone-a': ['', 'sec-a'] })).toThrow(
+        /non-empty.*zone-a/,
+      );
+      expect(() => new ClientSecret({ 'zone-b': ['id-b', ''] })).toThrow(/zone-b/);
+    });
+  });
+
   describe('prepareTokenExchangeRequest', () => {
     it('emits an access_token subject token type', async () => {
       const cred = new ClientSecret('alice', 'shh');
