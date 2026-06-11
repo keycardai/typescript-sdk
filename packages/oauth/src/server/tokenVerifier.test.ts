@@ -68,8 +68,10 @@ describe('TokenVerifier', () => {
     const [pub, priv] = await Promise.all([importPublicKey(), importPrivateKey()]);
     const claims: JWTClaims = {
       iss: ISSUER,
+      sub: 'user-1',
       client_id: 'service-x',
       scope: 'read write',
+      iat: nowSec(),
       exp: nowSec() + 60,
       aud: 'https://api.example.com',
       resource: 'https://api.example.com',
@@ -108,9 +110,12 @@ describe('TokenVerifier', () => {
     const token = await signWith(
       {
         iss: ISSUER,
+        sub: 'user-1',
         client_id: 'service-x',
         scope: 'read',
+        iat: nowSec(),
         exp: nowSec() + 60,
+        aud: 'https://api.example.com',
       },
       priv,
     );
@@ -128,9 +133,12 @@ describe('TokenVerifier', () => {
     const token = await signWith(
       {
         iss: zoneIssuer,
+        sub: 'user-1',
         client_id: 'service-x',
         scope: 'read',
+        iat: nowSec(),
         exp: nowSec() + 60,
+        aud: 'https://api.example.com',
       },
       priv,
       KID,
@@ -170,7 +178,9 @@ describe('TokenVerifier', () => {
     const token = await signWith(
       {
         iss: zoneIssuer,
+        sub: 'user-1',
         client_id: 'service-x',
+        iat: nowSec(),
         exp: nowSec() + 60,
         aud: 'https://api-a.example.com',
       },
@@ -221,7 +231,14 @@ describe('TokenVerifier', () => {
     keyring.clear = jest.fn();
     const verifier = new TokenVerifier({ issuer: ISSUER, keyring });
     const token = await signWith(
-      { iss: ISSUER, client_id: 'service-x', exp: nowSec() + 60 },
+      {
+        iss: ISSUER,
+        sub: 'user-1',
+        client_id: 'service-x',
+        iat: nowSec(),
+        exp: nowSec() + 60,
+        aud: 'https://api.example.com',
+      },
       priv,
     );
     expect(await verifier.verifyToken(token)).not.toBeNull();

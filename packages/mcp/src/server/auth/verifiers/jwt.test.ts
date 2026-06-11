@@ -55,9 +55,11 @@ describe('JSON Web Token Verifier', () => {
     const now = Date.now();
     const signer = new JSONWebTokenSigner(mockPrivateKeyring);
     const token = await signer.signToken({
+      userId: 'user-1',
       clientId: 's6BhdRkqt3',
       resource: new URL('https://api.example.com'),
       scopes: [ 'profile', 'reademail' ],
+      issuedAt: Math.floor(now / 1000),
       expiresAt: Math.floor(now / 1000) + 3600, // Token expires in an hour
     });
 

@@ -104,15 +104,25 @@ export class JWTVerifier {
       throw new InvalidTokenError("Untrusted issuer");
     }
 
-    // Required claims per RFC 9068 § 2.2. Reject NaN / Infinity explicitly —
+    // Required claims per RFC 9068 § 2.2: iss (above), sub, aud, exp, iat,
+    // client_id. Reject NaN / Infinity on the numeric claims explicitly —
     // `typeof NaN === "number"` passes the type check but would make every
     // comparison below false (and with `exp: NaN` that means effectively no
     // expiration).
     if (!Number.isFinite(jsonPayload.exp)) {
       throw new InvalidTokenError("JWT missing expiration (exp) claim");
     }
+    if (!Number.isFinite(jsonPayload.iat)) {
+      throw new InvalidTokenError("JWT missing issued-at (iat) claim");
+    }
+    if (!jsonPayload.sub) {
+      throw new InvalidTokenError("JWT missing subject (sub) claim");
+    }
     if (!jsonPayload.client_id) {
       throw new InvalidTokenError("JWT missing client_id claim");
+    }
+    if (jsonPayload.aud === undefined) {
+      throw new InvalidTokenError("JWT missing audience (aud) claim");
     }
 
     // Time-based claims.
@@ -129,13 +139,12 @@ export class JWTVerifier {
       }
     }
 
-    // Audience check, if configured. Missing `aud` fails closed when audiences
-    // are required — matches RFC 8707 resource-indicator expectations.
+    // Audience match against the configured allowlist. Presence of `aud` is
+    // already required above; an audience-scoped verifier additionally requires
+    // it to contain one of the configured audiences (RFC 8707 resource
+    // indicators).
     if (this.#audiences) {
-      const aud = jsonPayload.aud;
-      if (aud === undefined) {
-        throw new InvalidTokenError("JWT missing audience (aud) claim");
-      }
+      const aud = jsonPayload.aud!;
       const audValues = Array.isArray(aud) ? aud : [aud];
       const matched = audValues.some((a) => this.#audiences!.has(a));
       if (!matched) {

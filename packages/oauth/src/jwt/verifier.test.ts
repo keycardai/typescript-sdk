@@ -72,6 +72,20 @@ function forgeUnverifiedJWT(header: object, payload: object): string {
 describe('JWTVerifier', () => {
   const nowSec = () => Math.floor(Date.now() / 1000);
 
+  // Base claims for an "otherwise valid" token. Carries every claim the
+  // verifier requires per RFC 9068 § 2.2 (sub, client_id, aud, iat, exp) so a
+  // test can override the single claim it's exercising. `iss` is intentionally
+  // omitted — the signer sets it from the PrivateKeyring. A claim can be
+  // dropped by overriding it to `undefined`; JSON.stringify omits such keys.
+  const validClaims = (overrides: Partial<JWTClaims> = {}): JWTClaims => ({
+    sub: 'user-1',
+    client_id: 'client-42',
+    aud: 'https://api.example.com',
+    iat: nowSec(),
+    exp: nowSec() + 3600,
+    ...overrides,
+  });
+
   it('rejects construction without issuers', () => {
     const keyring: OAuthKeyring = { key: jest.fn() };
     expect(() => new JWTVerifier(keyring, { issuers: [] as string[] })).toThrow(
@@ -95,10 +109,7 @@ describe('JWTVerifier', () => {
   it('accepts a well-formed token with matching issuer and exp', async () => {
     const [privateKey, publicKey] = await Promise.all([importPrivateKey(), importPublicKey()]);
     const { keyring, keyFn } = makeKeyring(publicKey);
-    const token = await signWith(
-      { client_id: 'client-42', exp: nowSec() + 3600 },
-      privateKey,
-    );
+    const token = await signWith(validClaims(), privateKey);
     const verifier = new JWTVerifier(keyring, { issuers: ISSUER });
 
     const claims = await verifier.verify(token);
@@ -112,10 +123,7 @@ describe('JWTVerifier', () => {
     const [privateKey, publicKey] = await Promise.all([importPrivateKey(), importPublicKey()]);
     const { keyring, keyFn } = makeKeyring(publicKey);
     // Signer defaults iss to ISSUER; the verifier is configured to only trust a different one.
-    const token = await signWith(
-      { client_id: 'client-42', exp: nowSec() + 3600 },
-      privateKey,
-    );
+    const token = await signWith(validClaims(), privateKey);
     const verifier = new JWTVerifier(keyring, { issuers: 'https://other-issuer.example.com' });
 
     await expect(verifier.verify(token)).rejects.toThrow(InvalidTokenError);
@@ -148,10 +156,7 @@ describe('JWTVerifier', () => {
   it('rejects expired tokens', async () => {
     const [privateKey, publicKey] = await Promise.all([importPrivateKey(), importPublicKey()]);
     const { keyring } = makeKeyring(publicKey);
-    const token = await signWith(
-      { client_id: 'c', exp: nowSec() - 10 },
-      privateKey,
-    );
+    const token = await signWith(validClaims({ exp: nowSec() - 10 }), privateKey);
     const verifier = new JWTVerifier(keyring, { issuers: ISSUER });
 
     await expect(verifier.verify(token)).rejects.toThrow(/Token expired/);
@@ -160,10 +165,7 @@ describe('JWTVerifier', () => {
   it('rejects tokens whose nbf is in the future', async () => {
     const [privateKey, publicKey] = await Promise.all([importPrivateKey(), importPublicKey()]);
     const { keyring } = makeKeyring(publicKey);
-    const token = await signWith(
-      { client_id: 'c', exp: nowSec() + 3600, nbf: nowSec() + 600 },
-      privateKey,
-    );
+    const token = await signWith(validClaims({ nbf: nowSec() + 600 }), privateKey);
     const verifier = new JWTVerifier(keyring, { issuers: ISSUER });
 
     await expect(verifier.verify(token)).rejects.toThrow(/Token not yet valid/);
@@ -183,7 +185,15 @@ describe('JWTVerifier', () => {
     const { keyring } = makeKeyring(await importPublicKey());
     const forged = forgeUnverifiedJWT(
       { alg: 'RS256', kid: KID },
-      { iss: ISSUER, client_id: 'c', exp: nowSec() + 3600, nbf: NaN },
+      {
+        iss: ISSUER,
+        sub: 'user-1',
+        client_id: 'c',
+        aud: 'https://api.example.com',
+        iat: nowSec(),
+        exp: nowSec() + 3600,
+        nbf: NaN,
+      },
     );
     const verifier = new JWTVerifier(keyring, { issuers: ISSUER });
     await expect(verifier.verify(forged)).rejects.toThrow(/invalid not-before/);
@@ -192,7 +202,7 @@ describe('JWTVerifier', () => {
   it('rejects tokens missing exp', async () => {
     const [privateKey, publicKey] = await Promise.all([importPrivateKey(), importPublicKey()]);
     const { keyring } = makeKeyring(publicKey);
-    const token = await signWith({ client_id: 'c' }, privateKey);
+    const token = await signWith(validClaims({ exp: undefined }), privateKey);
     const verifier = new JWTVerifier(keyring, { issuers: ISSUER });
 
     await expect(verifier.verify(token)).rejects.toThrow(/missing expiration/);
@@ -201,10 +211,37 @@ describe('JWTVerifier', () => {
   it('rejects tokens missing client_id', async () => {
     const [privateKey, publicKey] = await Promise.all([importPrivateKey(), importPublicKey()]);
     const { keyring } = makeKeyring(publicKey);
-    const token = await signWith({ exp: nowSec() + 3600 }, privateKey);
+    const token = await signWith(validClaims({ client_id: undefined }), privateKey);
     const verifier = new JWTVerifier(keyring, { issuers: ISSUER });
 
     await expect(verifier.verify(token)).rejects.toThrow(/missing client_id/);
+  });
+
+  it('rejects tokens missing sub', async () => {
+    const [privateKey, publicKey] = await Promise.all([importPrivateKey(), importPublicKey()]);
+    const { keyring } = makeKeyring(publicKey);
+    const token = await signWith(validClaims({ sub: undefined }), privateKey);
+    const verifier = new JWTVerifier(keyring, { issuers: ISSUER });
+
+    await expect(verifier.verify(token)).rejects.toThrow(/missing subject/);
+  });
+
+  it('rejects tokens missing iat', async () => {
+    const [privateKey, publicKey] = await Promise.all([importPrivateKey(), importPublicKey()]);
+    const { keyring } = makeKeyring(publicKey);
+    const token = await signWith(validClaims({ iat: undefined }), privateKey);
+    const verifier = new JWTVerifier(keyring, { issuers: ISSUER });
+
+    await expect(verifier.verify(token)).rejects.toThrow(/missing issued-at/);
+  });
+
+  it('rejects tokens missing aud (even with no audiences configured)', async () => {
+    const [privateKey, publicKey] = await Promise.all([importPrivateKey(), importPublicKey()]);
+    const { keyring } = makeKeyring(publicKey);
+    const token = await signWith(validClaims({ aud: undefined }), privateKey);
+    const verifier = new JWTVerifier(keyring, { issuers: ISSUER });
+
+    await expect(verifier.verify(token)).rejects.toThrow(/missing audience/);
   });
 
   it('enforces audience when configured', async () => {
@@ -217,19 +254,16 @@ describe('JWTVerifier', () => {
     });
 
     const wrongAud = await signWith(
-      { client_id: 'c', exp: nowSec() + 3600, aud: 'https://other-api.example.com' },
+      validClaims({ aud: 'https://other-api.example.com' }),
       privateKey,
     );
     await expect(verifier.verify(wrongAud)).rejects.toThrow(/Audience mismatch/);
 
-    const missingAud = await signWith(
-      { client_id: 'c', exp: nowSec() + 3600 },
-      privateKey,
-    );
+    const missingAud = await signWith(validClaims({ aud: undefined }), privateKey);
     await expect(verifier.verify(missingAud)).rejects.toThrow(/missing audience/);
 
     const matchingAud = await signWith(
-      { client_id: 'c', exp: nowSec() + 3600, aud: 'https://api.example.com' },
+      validClaims({ aud: 'https://api.example.com' }),
       privateKey,
     );
     await expect(verifier.verify(matchingAud)).resolves.toMatchObject({
@@ -237,7 +271,7 @@ describe('JWTVerifier', () => {
     });
 
     const arrayAud = await signWith(
-      { client_id: 'c', exp: nowSec() + 3600, aud: ['https://api.example.com', 'other'] },
+      validClaims({ aud: ['https://api.example.com', 'other'] }),
       privateKey,
     );
     await expect(verifier.verify(arrayAud)).resolves.toMatchObject({
@@ -254,16 +288,13 @@ describe('JWTVerifier', () => {
       audiences: [],
     });
 
-    // Missing aud is fine when audiences is unconfigured.
-    const missingAud = await signWith(
-      { client_id: 'c', exp: nowSec() + 3600 },
-      privateKey,
-    );
-    await expect(verifier.verify(missingAud)).resolves.toBeDefined();
+    // aud is always required (RFC 9068), even when no audiences are configured.
+    const missingAud = await signWith(validClaims({ aud: undefined }), privateKey);
+    await expect(verifier.verify(missingAud)).rejects.toThrow(/missing audience/);
 
-    // Any aud is accepted when audiences is unconfigured.
+    // With audiences unconfigured, any aud value is accepted (no value match).
     const arbitraryAud = await signWith(
-      { client_id: 'c', exp: nowSec() + 3600, aud: 'whatever-you-want' },
+      validClaims({ aud: 'whatever-you-want' }),
       privateKey,
     );
     await expect(verifier.verify(arbitraryAud)).resolves.toBeDefined();
@@ -278,7 +309,7 @@ describe('JWTVerifier', () => {
     });
 
     const token = await signWith(
-      { client_id: 'c', exp: nowSec() + 3600, aud: 'https://admin.example.com' },
+      validClaims({ aud: 'https://admin.example.com' }),
       privateKey,
     );
     await expect(verifier.verify(token)).resolves.toBeDefined();
@@ -294,10 +325,7 @@ describe('JWTVerifier', () => {
     });
 
     // Token from the first issuer.
-    const t1 = await signWith(
-      { client_id: 'c', exp: nowSec() + 3600 },
-      privateKey,
-    );
+    const t1 = await signWith(validClaims(), privateKey);
     await expect(verifier.verify(t1)).resolves.toMatchObject({ iss: ISSUER });
     expect(keyFn).toHaveBeenCalledWith(ISSUER, KID);
 
@@ -308,7 +336,7 @@ describe('JWTVerifier', () => {
         .mockResolvedValue({ key: privateKey, kid: KID, issuer: OTHER_ISSUER }),
     };
     const otherSigner = new JWTSigner(otherPrivateKeyring);
-    const t2 = await otherSigner.sign({ client_id: 'c', exp: nowSec() + 3600 });
+    const t2 = await otherSigner.sign(validClaims());
     await expect(verifier.verify(t2)).resolves.toMatchObject({ iss: OTHER_ISSUER });
     expect(keyFn).toHaveBeenLastCalledWith(OTHER_ISSUER, KID);
   });
@@ -320,10 +348,7 @@ describe('JWTVerifier', () => {
       issuers: 'https://auth.example.com/', // trailing slash
     });
     // Signer issues with no trailing slash (ISSUER === 'https://auth.example.com').
-    const token = await signWith(
-      { client_id: 'c', exp: nowSec() + 3600 },
-      privateKey,
-    );
+    const token = await signWith(validClaims(), privateKey);
     await expect(verifier.verify(token)).rejects.toThrow(/Untrusted issuer/);
     expect(keyFn).not.toHaveBeenCalled();
   });
@@ -348,10 +373,7 @@ describe('JWTVerifier', () => {
     void otherPriv;
 
     const { keyring } = makeKeyring(otherPub);
-    const token = await signWith(
-      { client_id: 'c', exp: nowSec() + 3600 },
-      privateKey,
-    );
+    const token = await signWith(validClaims(), privateKey);
     const verifier = new JWTVerifier(keyring, { issuers: ISSUER });
 
     await expect(verifier.verify(token)).rejects.toThrow(/Invalid signature/);
