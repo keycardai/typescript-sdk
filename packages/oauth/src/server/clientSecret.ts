@@ -4,6 +4,18 @@ import type { TokenExchangeRequest } from "../tokenExchange.js";
 const ACCESS_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:access_token";
 const DEFAULT_ZONE = "__default__";
 
+function requireNonEmptyCredential(
+  clientId: string,
+  clientSecret: string,
+  zoneContext = "",
+): void {
+  if (clientId.length === 0 || clientSecret.length === 0) {
+    throw new TypeError(
+      `ClientSecret: client_id and client_secret must be non-empty strings${zoneContext}`,
+    );
+  }
+}
+
 export type ClientSecretCredentials =
   | [clientId: string, clientSecret: string]
   | Record<string, [clientId: string, clientSecret: string]>;
@@ -24,6 +36,7 @@ export class ClientSecret implements ApplicationCredential {
       if (typeof arg2 !== "string") {
         throw new TypeError("ClientSecret: client_secret is required when client_id is provided as a string");
       }
+      requireNonEmptyCredential(arg1, arg2);
       this.#zoneCredentials.set(DEFAULT_ZONE, [arg1, arg2]);
       this.#isMultiZone = false;
       return;
@@ -34,6 +47,7 @@ export class ClientSecret implements ApplicationCredential {
       if (typeof clientId !== "string" || typeof clientSecret !== "string") {
         throw new TypeError("ClientSecret: tuple must be [clientId, clientSecret]");
       }
+      requireNonEmptyCredential(clientId, clientSecret);
       this.#zoneCredentials.set(DEFAULT_ZONE, [clientId, clientSecret]);
       this.#isMultiZone = false;
       return;
@@ -44,6 +58,7 @@ export class ClientSecret implements ApplicationCredential {
         if (!Array.isArray(tuple) || typeof tuple[0] !== "string" || typeof tuple[1] !== "string") {
           throw new TypeError(`ClientSecret: zone "${zoneId}" must map to [clientId, clientSecret]`);
         }
+        requireNonEmptyCredential(tuple[0], tuple[1], ` for zone "${zoneId}"`);
         this.#zoneCredentials.set(zoneId, [tuple[0], tuple[1]]);
       }
       if (this.#zoneCredentials.size === 0) {
