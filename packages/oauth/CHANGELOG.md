@@ -1,3 +1,14 @@
+## 0.9.0-keycardai-oauth (2026-06-11)
+
+
+- feat(oauth)!: enforce the full RFC 9068 required-claim set in the JWT verifier (#70)
+- The verifier now requires iss, sub, aud, exp, iat, and client_id on every
+access token, per RFC 9068 section 2.2. Previously only iss, exp, and
+client_id were required, and aud was validated only when audiences were
+configured. aud is now always required to be present; the audiences option
+continues to control which aud values are accepted.
+- Aligns the required-claim set with the Python verifier (jwt-signing-and-verification spec, ECO-36).
+
 ## 0.8.5-keycardai-oauth (2026-06-09)
 
 
