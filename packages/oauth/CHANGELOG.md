@@ -1,3 +1,14 @@
+## 0.9.1-keycardai-oauth (2026-06-11)
+
+
+- fix(oauth): reject empty client_id/client_secret at ClientSecret construction (#72)
+- ClientSecret validated the type of client_id/client_secret but accepted empty
+strings on all three construction shapes (two-arg, tuple, multi-zone dict).
+Python rejects empty credentials at construction; this brings TypeScript to
+parity so a misconfigured credential fails fast rather than producing a token
+request the authorization server will reject.
+- Part of the client-secret spec construction-validation row (ECO-38).
+
 ## 0.9.0-keycardai-oauth (2026-06-11)
 
 
