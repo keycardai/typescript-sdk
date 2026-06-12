@@ -305,3 +305,42 @@ describe('authenticate', () => {
     ).rejects.toThrow(/timed out/);
   }, 3000);
 });
+
+describe('buildAuthorizeUrl', () => {
+  it('builds a complete authorization URL with all parameters', async () => {
+    const { buildAuthorizeUrl } = await import('./pkce.js');
+    const url = new URL(
+      buildAuthorizeUrl('https://auth.example.com/authorize', {
+        clientId: 'cli-tool',
+        redirectUri: 'http://localhost:8765/callback',
+        codeChallenge: 'challenge-abc',
+        state: 'state-xyz',
+        scope: 'read write',
+        resource: 'https://api.example.com',
+      }),
+    );
+    expect(url.origin + url.pathname).toBe('https://auth.example.com/authorize');
+    expect(url.searchParams.get('response_type')).toBe('code');
+    expect(url.searchParams.get('client_id')).toBe('cli-tool');
+    expect(url.searchParams.get('redirect_uri')).toBe('http://localhost:8765/callback');
+    expect(url.searchParams.get('code_challenge')).toBe('challenge-abc');
+    expect(url.searchParams.get('code_challenge_method')).toBe('S256');
+    expect(url.searchParams.get('state')).toBe('state-xyz');
+    expect(url.searchParams.get('scope')).toBe('read write');
+    expect(url.searchParams.get('resource')).toBe('https://api.example.com');
+  });
+
+  it('omits optional parameters that are not set', async () => {
+    const { buildAuthorizeUrl } = await import('./pkce.js');
+    const url = new URL(
+      buildAuthorizeUrl('https://auth.example.com/authorize', {
+        clientId: 'cli-tool',
+        redirectUri: 'http://localhost:8765/callback',
+        codeChallenge: 'challenge-abc',
+      }),
+    );
+    expect(url.searchParams.has('state')).toBe(false);
+    expect(url.searchParams.has('scope')).toBe(false);
+    expect(url.searchParams.has('resource')).toBe(false);
+  });
+});

@@ -1,7 +1,7 @@
 import base64url from "./base64url.js";
 import { fetchAuthorizationServerMetadata } from "./discovery.js";
 import { OAuthError } from "./errors.js";
-import type { TokenResponse } from "./tokenExchange.js";
+import { deserializeTokenResponse, type TokenResponse } from "./tokenExchange.js";
 
 // =============================================================================
 // PKCE primitives (RFC 7636)
@@ -145,23 +145,46 @@ export async function exchangeAuthorizationCode(
   if (!json || typeof json !== "object" || Array.isArray(json)) {
     throw new Error("Token endpoint response is not a valid JSON object");
   }
-  const body = json as Record<string, unknown>;
+  return deserializeTokenResponse(json as Record<string, unknown>);
+}
 
-  const accessToken = body.access_token;
-  if (typeof accessToken !== "string" || !accessToken) {
-    throw new Error("Token endpoint response missing access_token");
-  }
+// =============================================================================
+// Authorization URL builder
+// =============================================================================
 
-  const tokenResponse: TokenResponse = {
-    accessToken,
-    tokenType: typeof body.token_type === "string" ? body.token_type : "bearer",
-  };
-  if (typeof body.expires_in === "number") tokenResponse.expiresIn = body.expires_in;
-  if (typeof body.refresh_token === "string") tokenResponse.refreshToken = body.refresh_token;
-  if (typeof body.scope === "string") {
-    tokenResponse.scope = body.scope.split(" ").filter(Boolean);
-  }
-  return tokenResponse;
+export interface AuthorizeUrlParams {
+  clientId: string;
+  redirectUri: string;
+  codeChallenge: string;
+  /** Default: "S256" */
+  codeChallengeMethod?: "S256" | "plain";
+  /** CSRF binding value, echoed back on the redirect (RFC 6749 §10.12). */
+  state?: string;
+  /** Space-separated scopes. */
+  scope?: string;
+  /** RFC 8707 resource indicator. */
+  resource?: string;
+}
+
+/**
+ * Build an authorization-endpoint URL for the authorization-code grant with
+ * PKCE (RFC 6749 §4.1.1 + RFC 7636 §4.3). For callers that manage the
+ * redirect themselves instead of using `authenticate()`.
+ */
+export function buildAuthorizeUrl(
+  authorizationEndpoint: string,
+  params: AuthorizeUrlParams,
+): string {
+  const url = new URL(authorizationEndpoint);
+  url.searchParams.set("response_type", "code");
+  url.searchParams.set("client_id", params.clientId);
+  url.searchParams.set("redirect_uri", params.redirectUri);
+  url.searchParams.set("code_challenge", params.codeChallenge);
+  url.searchParams.set("code_challenge_method", params.codeChallengeMethod ?? "S256");
+  if (params.state) url.searchParams.set("state", params.state);
+  if (params.scope) url.searchParams.set("scope", params.scope);
+  if (params.resource) url.searchParams.set("resource", params.resource);
+  return url.toString();
 }
 
 // =============================================================================
@@ -218,21 +241,16 @@ export async function authenticate(
     );
   }
 
-  const authUrl = new URL(metadata.authorization_endpoint);
-  authUrl.searchParams.set("response_type", "code");
-  authUrl.searchParams.set("client_id", options.clientId);
-  authUrl.searchParams.set("redirect_uri", redirectUri);
-  authUrl.searchParams.set("code_challenge", codeChallenge);
-  authUrl.searchParams.set("code_challenge_method", "S256");
-  authUrl.searchParams.set("state", state);
-  if (options.scopes && options.scopes.length > 0) {
-    authUrl.searchParams.set("scope", options.scopes.join(" "));
-  }
-  if (options.resource) {
-    authUrl.searchParams.set("resource", options.resource);
-  }
+  const authUrl = buildAuthorizeUrl(metadata.authorization_endpoint, {
+    clientId: options.clientId,
+    redirectUri,
+    codeChallenge,
+    state,
+    scope: options.scopes && options.scopes.length > 0 ? options.scopes.join(" ") : undefined,
+    resource: options.resource,
+  });
 
-  await (options.openBrowser ?? openBrowser)(authUrl.toString());
+  await (options.openBrowser ?? openBrowser)(authUrl);
 
   const code = await waitForCode(port, redirectUri, timeoutMs, state);
 

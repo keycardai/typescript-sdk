@@ -56,10 +56,12 @@ export {
   generateCodeChallenge,
   generatePkcePair,
   exchangeAuthorizationCode,
+  buildAuthorizeUrl,
   authenticate,
 } from "./pkce.js";
 export type {
   Pkce,
   ExchangeAuthorizationCodeOptions,
+  AuthorizeUrlParams,
   AuthenticateOptions,
 } from "./pkce.js";

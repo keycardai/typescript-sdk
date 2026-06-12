@@ -38,6 +38,8 @@ export interface TokenResponse {
   refreshToken?: string;
   scope?: string[];
   issuedTokenType?: string;
+  /** OIDC ID token, present when the request includes the appropriate scopes. */
+  idToken?: string;
 }
 
 export interface TokenExchangeClientOptions {
@@ -93,12 +95,14 @@ export function deserializeTokenResponse(json: Record<string, unknown>): TokenRe
 
   const response: TokenResponse = {
     accessToken,
-    tokenType: typeof json.token_type === "string" ? json.token_type : "bearer",
+    // RFC 6750 names the scheme "Bearer"; used when the server omits token_type.
+    tokenType: typeof json.token_type === "string" ? json.token_type : "Bearer",
   };
 
   if (typeof json.expires_in === "number") response.expiresIn = json.expires_in;
   if (typeof json.refresh_token === "string") response.refreshToken = json.refresh_token;
   if (typeof json.issued_token_type === "string") response.issuedTokenType = json.issued_token_type;
+  if (typeof json.id_token === "string") response.idToken = json.id_token;
   if (typeof json.scope === "string") {
     response.scope = json.scope.split(" ").filter(Boolean);
   }
