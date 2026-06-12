@@ -68,23 +68,56 @@ describe('TokenExchangeClient.impersonate', () => {
     expect(params.get('grant_type')).toBe('urn:ietf:params:oauth:grant-type:token-exchange');
   });
 
-  it('routes the Basic auth header by zoneId when a multi-zone credential is provided', async () => {
+  it('routes the Basic auth header by issuer when a multi-zone credential is provided', async () => {
     const credential = new ClientSecret({
-      'zone-a': ['id-a', 'sec-a'],
-      'zone-b': ['id-b', 'sec-b'],
+      'https://zone-a.keycard.cloud': ['id-a', 'sec-a'],
+      'https://zone-b.keycard.cloud': ['id-b', 'sec-b'],
     });
     const client = new TokenExchangeClient(ISSUER, { credential });
 
     await client.impersonate({
       userIdentifier: 'user@example.com',
       resource: 'https://api.example.com',
-      zoneId: 'zone-b',
+      issuer: 'https://zone-b.keycard.cloud',
     });
 
     const tokenCall = fetchMock.mock.calls.find(([url]) => url === TOKEN_ENDPOINT);
     const headers = (tokenCall![1] as RequestInit).headers as Record<string, string>;
     const expected = `Basic ${btoa('id-b:sec-b')}`;
     expect(headers['Authorization']).toBe(expected);
+  });
+
+  it('routes exchangeToken Basic auth by per-call issuer, including a trailing slash', async () => {
+    const credential = new ClientSecret({
+      'https://zone-a.keycard.cloud': ['id-a', 'sec-a'],
+      'https://zone-b.keycard.cloud': ['id-b', 'sec-b'],
+    });
+    const client = new TokenExchangeClient(ISSUER, { credential });
+
+    await client.exchangeToken(
+      { subjectToken: 'subject', resource: 'https://api.example.com' },
+      { issuer: 'https://zone-a.keycard.cloud/' },
+    );
+
+    const tokenCall = fetchMock.mock.calls.find(([url]) => url === TOKEN_ENDPOINT);
+    const headers = (tokenCall![1] as RequestInit).headers as Record<string, string>;
+    expect(headers['Authorization']).toBe(`Basic ${btoa('id-a:sec-a')}`);
+  });
+
+  it('sends no Authorization header when the per-call issuer has no credential entry', async () => {
+    const credential = new ClientSecret({
+      'https://zone-a.keycard.cloud': ['id-a', 'sec-a'],
+    });
+    const client = new TokenExchangeClient(ISSUER, { credential });
+
+    await client.exchangeToken(
+      { subjectToken: 'subject', resource: 'https://api.example.com' },
+      { issuer: 'https://zone-x.keycard.cloud' },
+    );
+
+    const tokenCall = fetchMock.mock.calls.find(([url]) => url === TOKEN_ENDPOINT);
+    const headers = (tokenCall![1] as RequestInit).headers as Record<string, string>;
+    expect(headers['Authorization']).toBeUndefined();
   });
 
   it('preserves the legacy clientId/clientSecret authorization shape', async () => {

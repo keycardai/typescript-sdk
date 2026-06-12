@@ -20,13 +20,14 @@ export interface ClientCredentialsClientOptions {
   /**
    * Application credential provider. When set, takes precedence over
    * static `clientId`/`clientSecret` and resolves the per-request
-   * Authorization header from the credential's `getAuth(zoneId)`.
+   * Authorization header from the credential's `getAuth(issuer)`.
    */
   credential?: ApplicationCredential;
 }
 
 export interface RequestTokenOptions {
-  zoneId?: string;
+  /** Zone issuer URL used to select per-zone credentials. */
+  issuer?: string;
 }
 
 // =============================================================================
@@ -76,7 +77,7 @@ export class ClientCredentialsClient {
       "Content-Type": "application/x-www-form-urlencoded",
     };
 
-    const basicAuth = this.#resolveBasicAuth(options?.zoneId);
+    const basicAuth = this.#resolveBasicAuth(options?.issuer);
     if (basicAuth) {
       const credentials = btoa(`${basicAuth.clientId}:${basicAuth.clientSecret}`);
       headers["Authorization"] = `Basic ${credentials}`;
@@ -115,10 +116,10 @@ export class ClientCredentialsClient {
   }
 
   #resolveBasicAuth(
-    zoneId: string | undefined,
+    issuer: string | undefined,
   ): { clientId: string; clientSecret: string } | null {
     if (this.#credential) {
-      return this.#credential.getAuth(zoneId);
+      return this.#credential.getAuth(issuer);
     }
     if (this.#clientId && this.#clientSecret) {
       return { clientId: this.#clientId, clientSecret: this.#clientSecret };
