@@ -26,6 +26,12 @@ function resolveDefaultStorageDir(): string {
 }
 
 export interface WebIdentityOptions {
+  /**
+   * The registered OAuth client identifier (the Keycard application-credential
+   * `identifier`) signed as the `iss` and `sub` of the client assertion.
+   * Required to perform a token exchange.
+   */
+  clientId?: string;
   serverName?: string;
   storage?: PrivateKeyStorage;
   storageDir?: string;
@@ -47,9 +53,11 @@ export interface WebIdentityOptions {
  */
 export class WebIdentity implements ApplicationCredential {
   #keyManager: PrivateKeyManager;
+  #clientId?: string;
   #bootstrapPromise?: Promise<void>;
 
   constructor(options: WebIdentityOptions = {}) {
+    this.#clientId = options.clientId;
     const storage =
       options.storage ??
       new FilePrivateKeyStorage(options.storageDir ?? resolveDefaultStorageDir());
@@ -83,8 +91,18 @@ export class WebIdentity implements ApplicationCredential {
     options?: { tokenEndpoint?: string; authInfo?: Record<string, string> },
   ): Promise<TokenExchangeRequest> {
     await this.bootstrap();
-    const issuer = options?.authInfo?.resource_client_id ?? this.#keyManager.getClientId();
-    const audience = options?.tokenEndpoint ?? issuer;
+    const issuer = options?.authInfo?.resource_client_id ?? this.#clientId;
+    if (!issuer) {
+      throw new Error(
+        "WebIdentity: clientId is required (the registered credential identifier used as the assertion iss and sub)",
+      );
+    }
+    const audience = options?.tokenEndpoint;
+    if (!audience) {
+      throw new Error(
+        "WebIdentity: token endpoint is required for the client assertion audience (aud)",
+      );
+    }
     const clientAssertion = await this.#keyManager.createClientAssertion(issuer, audience);
     return {
       subjectToken,

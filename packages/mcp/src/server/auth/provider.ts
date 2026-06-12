@@ -90,7 +90,7 @@ export class AuthProvider {
       try {
         let request;
         if (this.#applicationCredential) {
-          const tokenEndpoint = undefined; // Let the client handle discovery
+          const tokenEndpoint = await client.getTokenEndpoint();
           request = await this.#applicationCredential.prepareTokenExchangeRequest(
             subjectToken,
             resource,

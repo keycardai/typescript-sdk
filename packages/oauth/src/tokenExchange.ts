@@ -205,6 +205,15 @@ export class TokenExchangeClient {
     return null;
   }
 
+  /**
+   * Resolve the authorization server's token endpoint (discovered from metadata
+   * and cached). Exposed so a caller can build a credential assertion whose
+   * `aud` is the token endpoint before invoking {@link exchangeToken}.
+   */
+  async getTokenEndpoint(): Promise<string> {
+    return this.#getTokenEndpoint();
+  }
+
   async #getTokenEndpoint(): Promise<string> {
     if (this.#tokenEndpoint) {
       return this.#tokenEndpoint;
