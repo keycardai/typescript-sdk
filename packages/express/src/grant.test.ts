@@ -69,11 +69,98 @@ describe('grant', () => {
     expect(res.body.status).toBe('success');
   });
 
-  it('sets a global error on accessContext when req.auth is absent', async () => {
-    const app = makeApp([RESOURCE], null);
+  it('responds 401 with a Bearer challenge and skips the handler when req.auth is absent', async () => {
+    const handler = jest.fn();
+    const app = express();
+    app.use(grant([RESOURCE], { zoneUrl: ZONE_URL }));
+    app.get('/data', (_req, res) => {
+      handler();
+      res.json({ ok: true });
+    });
+
+    const res = await request(app).get('/data');
+    expect(res.status).toBe(401);
+    expect(res.headers['www-authenticate']).toMatch(/^Bearer resource_metadata="/);
+    expect(res.body.error).toBe('invalid_request');
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('merges tokens from stacked grant middlewares into one accessContext', async () => {
+    const RESOURCE_B = 'https://api-b.example.com';
+    const app = express();
+    app.use((req, _res, next) => { (req as any).auth = VALID_AUTH; next(); });
+    app.use(grant([RESOURCE], { zoneUrl: ZONE_URL }));
+    app.use(grant([RESOURCE_B], { zoneUrl: ZONE_URL }));
+    app.get('/data', (req, res) => {
+      const ctx = (req as any).accessContext;
+      res.json({
+        a: ctx.access(RESOURCE).accessToken,
+        b: ctx.access(RESOURCE_B).accessToken,
+        status: ctx.getStatus(),
+      });
+    });
+
+    const res = await request(app).get('/data');
+    expect(res.status).toBe(200);
+    expect(res.body.a).toBe('resource-tok');
+    expect(res.body.b).toBe('resource-tok');
+    expect(res.body.status).toBe('success');
+  });
+
+  it('uses the substitute-user impersonation exchange when userIdentifier is set', async () => {
+    const app = express();
+    app.use((req, _res, next) => { (req as any).auth = VALID_AUTH; next(); });
+    app.use(grant([RESOURCE], {
+      zoneUrl: ZONE_URL,
+      userIdentifier: () => 'alice@example.com',
+    }));
+    app.get('/data', (req, res) => {
+      const ctx = (req as any).accessContext;
+      res.json({ status: ctx.getStatus() });
+    });
+
+    const res = await request(app).get('/data');
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('success');
+
+    const tokenCall = fetchMock.mock.calls.find(([url]) =>
+      typeof url === 'string' && url.endsWith('/token'),
+    );
+    expect(tokenCall).toBeDefined();
+    const body = ((tokenCall![1] as RequestInit).body ?? '') as string;
+    const params = new URLSearchParams(body);
+    expect(params.get('subject_token_type')).toBe(
+      'urn:keycard:params:oauth:token-type:substitute-user',
+    );
+    const subjectToken = params.get('subject_token')!;
+    const payloadSegment = subjectToken.split('.')[1];
+    const payload = JSON.parse(
+      Buffer.from(payloadSegment, 'base64url').toString('utf8'),
+    );
+    expect(payload.sub).toBe('alice@example.com');
+  });
+
+  it('records a global error when the userIdentifier resolver throws', async () => {
+    const app = express();
+    app.use((req, _res, next) => { (req as any).auth = VALID_AUTH; next(); });
+    app.use(grant([RESOURCE], {
+      zoneUrl: ZONE_URL,
+      userIdentifier: () => { throw new Error('resolver exploded'); },
+    }));
+    app.get('/data', (req, res) => {
+      const ctx = (req as any).accessContext;
+      res.json({ status: ctx.getStatus(), error: ctx.getError() });
+    });
+
     const res = await request(app).get('/data');
     expect(res.status).toBe(200);
     expect(res.body.status).toBe('error');
+    expect(res.body.error.message).toContain('userIdentifier');
+    // No exchange attempted
+    const tokenCall = fetchMock.mock.calls.find(([url]) =>
+      typeof url === 'string' && url.endsWith('/token'),
+    );
+    expect(tokenCall).toBeUndefined();
   });
 
   it('sets a resource error when the token endpoint returns an OAuth error', async () => {
