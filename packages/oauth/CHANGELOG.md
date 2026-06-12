@@ -1,3 +1,218 @@
+## 0.16.0-keycardai-oauth (2026-06-12)
+
+
+- feat(oauth): default token_type to Bearer, parse id_token, add buildAuthorizeUrl
+- Token responses now default token_type to Bearer when the server omits
+the field (the RFC 6750 scheme name) and parse an optional id_token into
+TokenResponse.idToken. The authorization-code exchange reuses the shared
+token-response deserializer.
+- New buildAuthorizeUrl(authorizationEndpoint, params) builds an
+RFC 6749 section 4.1.1 + RFC 7636 authorize URL for callers that manage
+the redirect themselves; authenticate now uses it internally.
+
+## 0.14.0-keycardai-oauth (2026-06-12)
+
+
+- feat(oauth): add ClientCredentialsClient
+- Adds an RFC 6749 section 4.4 client credentials grant client.
+ClientCredentialsClient takes the issuer and a static client id/secret
+or an ApplicationCredential (with per-call zoneId resolution), lazily
+discovers the token endpoint, and parses RFC 6749 error responses into
+OAuthError. The token-response deserializer is now exported from the
+token-exchange module and shared. ECO-43.
+
+## 0.13.0-keycardai-oauth (2026-06-12)
+
+
+- feat(oauth)!: add CSRF state to authenticate and align PKCE defaults
+- The high-level authenticate flow now generates a random state value,
+sends it on the authorization URL, and rejects redirects whose state
+does not match (RFC 6749 section 10.12). An openBrowser option allows
+supplying a custom launcher for the authorization URL.
+- Defaults aligned with the Python SDK: loopback port 8765 (was 8080),
+callback timeout 300s (was 60s), and code verifier length 128 (was 43).
+generateCodeVerifier and generatePkcePair accept an explicit verifier
+length within the RFC 7636 43-128 range.
+- BREAKING CHANGE: the default loopback port is now 8765; clients whose
+registered redirect URI pins http://localhost:8080/callback must pass
+port: 8080 explicitly. Redirects without a matching state are rejected.
+
+## 0.12.0-keycardai-oauth (2026-06-12)
+
+
+- feat(oauth)!: WebIdentity signs the registered clientId as iss/sub and requires the token endpoint for aud
+- Keycard svc-sts validates a private_key_jwt assertion by looking up the client
+by `sub` (the registered application-credential identifier) and requires `aud`
+to be the token endpoint URL (RFC 7523). WebIdentity now:
+- takes a `clientId` (the registered credential identifier) and signs it as the
+  assertion `iss`/`sub`; an explicit `resource_client_id` in the exchange
+  authInfo still overrides. The prior fallback to the local serverName/key id
+  is removed (it is not the registered client id).
+- requires the token endpoint for `aud`, with no fallback to `iss` (a
+  self-referential `aud` is rejected by the authorization server).
+- TokenExchangeClient exposes `getTokenEndpoint()` so a caller can resolve the
+discovered token endpoint to build the assertion before exchanging.
+- Resolves the issuer/audience-resolution row of the web-identity spec (ECO-39).
+
+## 0.11.0-keycardai-oauth (2026-06-11)
+
+
+- feat(oauth): default WebIdentity key storage to ./server_keys with ./mcp_keys fallback (#76)
+- WebIdentity defaulted its key-storage directory to ./mcp_keys. Default to
+./server_keys instead (a generic server-identity credential, not MCP-specific),
+matching the Python default. When storageDir is omitted, fall back to ./mcp_keys
+if it exists and ./server_keys does not, so an existing deployment keeps its keys
+after upgrade. An explicit storageDir is unaffected.
+- Part of the web-identity spec default-storage-directory row (ECO-39).
+
+## 0.10.0-keycardai-oauth (2026-06-11)
+
+
+- feat(oauth): add registration-request auth (initial access token) to registerClient (#74)
+- registerClient sent no Authorization header, so it could not register against
+an authorization server whose registration endpoint requires authentication.
+Add an optional initialAccessToken (RFC 7591 section 3.1), sent as a Bearer
+credential on the registration POST. Brings TS to parity with Python, which
+authenticates the registration request via its client auth strategy.
+- Part of the dynamic-client-registration spec (ECO-44).
+
+## 0.9.1-keycardai-oauth (2026-06-11)
+
+
+- fix(oauth): reject empty client_id/client_secret at ClientSecret construction (#72)
+- ClientSecret validated the type of client_id/client_secret but accepted empty
+strings on all three construction shapes (two-arg, tuple, multi-zone dict).
+Python rejects empty credentials at construction; this brings TypeScript to
+parity so a misconfigured credential fails fast rather than producing a token
+request the authorization server will reject.
+- Part of the client-secret spec construction-validation row (ECO-38).
+
+## 0.9.0-keycardai-oauth (2026-06-11)
+
+
+- feat(oauth)!: enforce the full RFC 9068 required-claim set in the JWT verifier (#70)
+- The verifier now requires iss, sub, aud, exp, iat, and client_id on every
+access token, per RFC 9068 section 2.2. Previously only iss, exp, and
+client_id were required, and aud was validated only when audiences were
+configured. aud is now always required to be present; the audiences option
+continues to control which aud values are accepted.
+- Aligns the required-claim set with the Python verifier (jwt-signing-and-verification spec, ECO-36).
+
+## 0.8.5-keycardai-oauth (2026-06-09)
+
+
+- fix(oauth): typed JWKS errors + align discovery malformed-doc code to invalid_response (#67)
+- JWKSOAuthKeyring threw plain Error; it now throws a JWKSError subclass (JWKSDiscoveryError / JWKSUriValidationError / JWKSFetchError / JWKSKeyNotFoundError), exported from the package root, mirroring Python's taxonomy. Discovery now raises invalid_response (was invalid_metadata) for a malformed metadata document, matching Python; issuer_mismatch unchanged.
+- Closes the TS side of the jwks-caching error-taxonomy row (ECO-35) and the authorization-server-discovery malformed-doc row (ECO-32). Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+
+## 0.8.4-keycardai-oauth (2026-06-09)
+
+
+- fix(oauth): bound the JWKS key cache (evict oldest on overflow) (#66)
+- JWKSOAuthKeyring's key cache was unbounded, so a long-lived verifier resolving keys across many (issuer, kid) pairs could grow without limit. It now evicts the oldest-inserted entry once the cache exceeds keyCacheMaxEntries (default 256, configurable).
+- Companion to python-sdk #145; matches the ECO-35 contract that the key cache is bounded with partial eviction (exact order implementation-defined).
+- Co-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+
+## 0.8.3-keycardai-oauth (2026-06-09)
+
+
+- fix(oauth): name the authorization-server URL "issuer" consistently (#64)
+- Rename the positional issuerUrl parameter to issuer across @keycardai/oauth so the authorization-server URL has one name everywhere. fetchAuthorizationServerMetadata already used issuer; the TokenExchangeClient constructor, registerClient, exchangeAuthorizationCode, and authenticate used issuerUrl.
+- The parameters are positional, so this is a source-compatible rename with no call-site changes and no deprecated alias needed.
+- Part of the SDK parity effort (PHILOSOPHY.md #5). Python uses issuer after ECO-30. Tracked by ECO-33.
+- Co-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+
+## 0.8.2-keycardai-oauth (2026-06-02)
+
+
+- fix(oauth): throw typed errors from authorization server discovery (#62)
+- * fix(oauth): throw typed errors from authorization server discovery
+- Discovery threw plain Error for non-2xx and issuer mismatch, and let ZodError
+escape on a malformed body, even though the SDK ships a typed error hierarchy.
+Callers could not branch on error type.
+- - non-2xx -> HTTPError
+- malformed JSON / invalid or issuer-less metadata -> OAuthError("invalid_metadata")
+- issuer mismatch -> OAuthError("issuer_mismatch")
+- Aligns TS error semantics with the Python SDK typed taxonomy.
+- Closes ECO-28.
+- * fix(oauth): ignore trailing slash in discovery issuer comparison
+- Matches the Python SDK, which normalizes the trailing slash before comparing.
+Without this the same metadata document could be accepted by one SDK and
+rejected by the other.
+
+## 0.8.1-keycardai-oauth (2026-06-02)
+
+
+- fix(oauth): type grant_types_supported and response_types_supported in discovery metadata (#58)
+- These two standard RFC 8414 fields were returned via schema passthrough but
+untyped, so callers got no static types for them. The Python SDK types both.
+Adds them as optional string arrays.
+- Closes ECO-29.
+
+## 0.8.0-keycardai-oauth (2026-05-19)
+
+
+- feat(oauth): add RFC 8707 resource indicator support to authenticate and exchangeAuthorizationCode (#52)
+- * feat(oauth): export pkce authenticate and helpers from main index
+- * feat(oauth): add RFC 8707 resource indicator support to authenticate and exchangeAuthorizationCode
+
+## 0.7.0-keycardai-oauth (2026-05-19)
+
+
+- feat(oauth): export pkce authenticate and helpers from main index (#50)
+
+## 0.6.0-keycardai-oauth (2026-05-06)
+
+
+- feat(oauth): add PKCE primitives and authenticate() flow (ACC-258) (#22)
+- * feat(oauth): add PKCE primitives and authenticate() flow (ACC-258)
+- Adds RFC 7636 PKCE support under the @keycardai/oauth/pkce subpath,
+closing the TS parity gap with Python keycardai.oauth.pkce. One module,
+one import path, Python-equivalent surface.
+- Primitives (runtime-agnostic, Web Crypto):
+- generateCodeVerifier(): 32 random bytes, base64url-encoded (43 chars)
+- generateCodeChallenge(verifier, method): SHA-256 + base64url for S256;
+  plain returns the verifier unchanged. RFC 7636 Appendix B test vector
+  passes.
+- generatePkcePair(): convenience wrapper returning both.
+- exchangeAuthorizationCode(issuerUrl, code, options): discovers
+  token_endpoint via AS metadata, POSTs authorization_code grant with
+  code_verifier. Same inline error-handling pattern as registration.ts.
+- authenticate() (Node.js only):
+- Full browser-launch + loopback-callback flow. Uses dynamic imports of
+  node:http and node:child_process inside the function body, so the
+  module can be imported safely in any runtime; Workers only fail when
+  authenticate() is actually called.
+- Opens the AS authorization URL in the users default browser via
+  child_process.exec (no new npm deps; platform-aware open/xdg-open/start).
+- Starts a local HTTP server on localhost:port, waits for the auth-code
+  redirect, exchanges the code, returns TokenResponse.
+- Tests: 9 new in pkce.test.ts (86 oauth total). RFC vector, verifier
+format, pair consistency, plain method, exchange happy path/error/missing
+endpoint/Basic auth header, authenticate() happy path and timeout.
+- * fix(oauth): add @types/node dev dep for authenticate() dynamic imports
+- node:http and node:child_process are dynamically imported inside
+authenticate(), but TypeScript still needs type declarations to
+compile the function body. @types/node as a devDependency fixes the
+build without affecting consumers or the runtime-agnostic contract
+of @keycardai/oauth.
+- * refactor(oauth): fix async-executor anti-pattern in waitForCode
+- Pull the await import("node:http") out of the new Promise() constructor
+into the outer async function body. If the dynamic import throws, the
+rejection now propagates through the async function rather than escaping
+an async Promise executor and becoming an unhandled rejection.
+- Also increase the loopback-server startup delay in the authenticate()
+test from 80ms to 250ms to reduce ECONNREFUSED flake risk on loaded CI
+machines.
+- * fix(oauth): replace exec with execFile in openBrowser to prevent shell injection
+- exec() interpolates the URL into a shell string, making it vulnerable
+to command injection if the authorization URL contains shell
+metacharacters. execFile() passes the URL as a distinct argument
+without invoking a shell.
+- On Windows, start is a cmd.exe built-in rather than a standalone
+executable, so execFile("cmd", ["/c", "start", "", url]) is used
+instead of execFile("start", ...).
+
 ## 0.15.0-keycardai-oauth (2026-06-12)
 
 
