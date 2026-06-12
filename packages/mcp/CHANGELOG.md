@@ -1,3 +1,11 @@
+## 0.7.0-keycardai-mcp (2026-06-12)
+
+
+- fix(mcp): return 502 when upstream AS metadata fetch fails
+- The authorization-server metadata handler now checks the upstream
+response and catches fetch errors, responding 502 with a JSON error body
+instead of letting the failure surface as a framework 500.
+
 ## 0.6.0-keycardai-mcp (2026-06-12)
 
 
