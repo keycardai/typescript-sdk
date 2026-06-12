@@ -36,16 +36,28 @@ export function authorizationServerMetadataHandler(issuer: string): RequestHandl
   router.use(cors());
 
   router.get("/", async (req, res) => {
-    const resp = await fetch(issuer + '/.well-known/oauth-authorization-server');
+    let resp: Response;
+    try {
+      resp = await fetch(issuer + '/.well-known/oauth-authorization-server');
+    } catch {
+      res.status(502).json({ error: "Failed to fetch AS metadata from issuer" });
+      return;
+    }
 
-    const json = await resp.json();
+    if (!resp.ok) {
+      res.status(502).json({ error: "Failed to fetch AS metadata from issuer" });
+      return;
+    }
+
+    const json = await resp.json() as Record<string, unknown>;
 
     const baseUrl = `${req.protocol}://${req.host}`
 
-    const authorizationUrl = new URL(json.authorization_endpoint);
-    authorizationUrl.searchParams.set('resource', baseUrl);
-
-    json.authorization_endpoint = authorizationUrl.toString();
+    if (typeof json.authorization_endpoint === 'string') {
+      const authorizationUrl = new URL(json.authorization_endpoint);
+      authorizationUrl.searchParams.set('resource', baseUrl);
+      json.authorization_endpoint = authorizationUrl.toString();
+    }
 
     res.status(200).json(json);
   });
