@@ -1,3 +1,16 @@
+## 0.8.0-keycardai-mcp (2026-06-12)
+
+
+- feat(mcp)!: grant fail-fast 401, stacking merge, and impersonation
+- AuthProvider.grant now rejects requests without a bearer token with 401
+and an RFC 6750 WWW-Authenticate challenge, merges results into a
+pre-existing req.accessContext when grants are stacked, and accepts a
+userIdentifier resolver that routes resource exchanges through the
+substitute-user impersonation path. exchangeTokens gains an optional
+options parameter carrying the resolved identifier.
+- BREAKING CHANGE: requests without a bearer token are rejected with 401
+before the handler runs.
+
 ## 0.7.0-keycardai-mcp (2026-06-12)
 
 
