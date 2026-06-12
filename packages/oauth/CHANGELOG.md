@@ -1,3 +1,14 @@
+## 0.14.0-keycardai-oauth (2026-06-12)
+
+
+- feat(oauth): add ClientCredentialsClient
+- Adds an RFC 6749 section 4.4 client credentials grant client.
+ClientCredentialsClient takes the issuer and a static client id/secret
+or an ApplicationCredential (with per-call zoneId resolution), lazily
+discovers the token endpoint, and parses RFC 6749 error responses into
+OAuthError. The token-response deserializer is now exported from the
+token-exchange module and shared. ECO-43.
+
 ## 0.13.0-keycardai-oauth (2026-06-12)
 
 
