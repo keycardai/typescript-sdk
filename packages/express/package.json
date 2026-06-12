@@ -1,6 +1,6 @@
 {
   "name": "@keycardai/express",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "[Preview] Keycard auth middleware for Express: bearer token validation, RFC 6750 challenges, delegated token exchange, and OAuth discovery routes",
   "license": "MIT",
   "repository": {
