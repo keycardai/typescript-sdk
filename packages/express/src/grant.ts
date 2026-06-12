@@ -34,8 +34,8 @@ export interface GrantOptions {
   /**
    * Application credential provider for authenticated token exchange.
    * For multi-zone deployments, pass a `ClientSecret` constructed with a
-   * `Record<zoneId, [clientId, clientSecret]>` so the correct credentials
-   * are selected per request.
+   * `Record<issuerUrl, [clientId, clientSecret]>` so the correct
+   * credentials are selected per request by the zone's issuer URL.
    */
   applicationCredential?: ApplicationCredential;
   /**
@@ -124,8 +124,10 @@ export function grant(
         ? (req as GrantedRequest).accessContext
         : new AccessContext();
 
-    // Resolve zone at request time — zoneId may be a static string or a
-    // function that extracts the zone from the verified access token.
+    // Resolve the zone at request time: zoneId may be a static string or a
+    // function that extracts the zone from the verified access token. The
+    // resolved zone composes the issuer URL used for token exchange and
+    // per-zone credential selection.
     let resolvedZoneId: string | undefined;
     try {
       resolvedZoneId =
@@ -136,23 +138,23 @@ export function grant(
       return next(e);
     }
 
-    const resolvedZoneUrl = options.zoneUrl ?? buildZoneUrl(resolvedZoneId);
-    if (!resolvedZoneUrl) {
+    const resolvedIssuer = options.zoneUrl ?? buildZoneUrl(resolvedZoneId);
+    if (!resolvedIssuer) {
       accessCtx.setError({ message: "Could not resolve zone URL for this request." });
       (req as GrantedRequest).accessContext = accessCtx;
       return next();
     }
 
     // Look up or create a cached client for this zone.
-    let client = clientCache.get(resolvedZoneUrl);
+    let client = clientCache.get(resolvedIssuer);
     if (!client) {
       // Pass the credential directly so TokenExchangeClient can call
-      // getAuth(zoneId) at exchange time, enabling multi-zone credential
+      // getAuth(issuer) at exchange time, enabling multi-zone credential
       // routing without pre-resolving credentials here.
-      client = new TokenExchangeClient(resolvedZoneUrl, {
+      client = new TokenExchangeClient(resolvedIssuer, {
         credential: options.applicationCredential,
       });
-      clientCache.set(resolvedZoneUrl, client);
+      clientCache.set(resolvedIssuer, client);
     }
 
     const resourceList = Array.isArray(resources)
@@ -183,7 +185,7 @@ export function grant(
           tokens[resource] = await client.impersonate({
             userIdentifier: resolvedUserIdentifier,
             resource,
-            zoneId: resolvedZoneId,
+            issuer: resolvedIssuer,
           });
           continue;
         }
@@ -192,7 +194,7 @@ export function grant(
           exchangeRequest = await options.applicationCredential.prepareTokenExchangeRequest(
             subjectToken,
             resource,
-            { zoneId: resolvedZoneId },
+            { issuer: resolvedIssuer },
           );
         } else {
           exchangeRequest = {
@@ -202,7 +204,7 @@ export function grant(
           };
         }
         tokens[resource] = await client.exchangeToken(exchangeRequest, {
-          zoneId: resolvedZoneId,
+          issuer: resolvedIssuer,
         });
       } catch (e) {
         const detail: { message: string; code?: string; description?: string; rawError?: string } = {

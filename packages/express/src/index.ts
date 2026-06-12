@@ -1,4 +1,4 @@
-export { requireBearerAuth } from "./bearerAuth.js";
+export { requireBearerAuth, subdomainZoneResolver } from "./bearerAuth.js";
 export type { AuthenticatedRequest, BearerAuthOptions } from "./bearerAuth.js";
 export { grant } from "./grant.js";
 export type { GrantedRequest, GrantOptions } from "./grant.js";
