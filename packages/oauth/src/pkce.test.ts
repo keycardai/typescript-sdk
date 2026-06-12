@@ -30,11 +30,21 @@ function jsonResponse(status: number, body: unknown): Response {
 // =============================================================================
 
 describe('generateCodeVerifier', () => {
-  it('returns a 43-character base64url string with no padding', () => {
+  it('returns a 128-character base64url string with no padding by default', () => {
     const verifier = generateCodeVerifier();
-    expect(verifier).toHaveLength(43);
+    expect(verifier).toHaveLength(128);
     expect(verifier).toMatch(/^[A-Za-z0-9\-_]+$/);
     expect(verifier).not.toContain('=');
+  });
+
+  it('honors an explicit length within the RFC 7636 range', () => {
+    expect(generateCodeVerifier(43)).toHaveLength(43);
+    expect(generateCodeVerifier(64)).toHaveLength(64);
+  });
+
+  it('rejects lengths outside the RFC 7636 43-128 range', () => {
+    expect(() => generateCodeVerifier(42)).toThrow(RangeError);
+    expect(() => generateCodeVerifier(129)).toThrow(RangeError);
   });
 
   it('returns a different value on each call', () => {
@@ -215,10 +225,14 @@ describe('authenticate', () => {
       return jsonResponse(200, { access_token: 'pkce-tok', token_type: 'bearer' });
     });
 
+    let authorizeUrl: string | undefined;
     const authPromise = authenticate(ISSUER, {
       clientId: 'my-client',
       port: testPort,
       timeoutMs: 5000,
+      openBrowser: (url) => {
+        authorizeUrl = url;
+      },
     });
 
     // Give the loopback server time to start. 250ms is conservative but
@@ -226,12 +240,50 @@ describe('authenticate', () => {
     // TCP-probe helper.
     await new Promise((r) => setTimeout(r, 250));
 
+    expect(authorizeUrl).toBeDefined();
+    const state = new URL(authorizeUrl!).searchParams.get('state');
+    expect(state).toBeTruthy();
+
     // Simulate the browser being redirected back with an authorization code.
     // Use the real fetch (saved before mocking) so it actually hits the loopback server.
-    await originalFetch(`http://localhost:${testPort}/callback?code=auth-code-xyz`);
+    await originalFetch(
+      `http://localhost:${testPort}/callback?code=auth-code-xyz&state=${encodeURIComponent(state!)}`,
+    );
 
     const result = await authPromise;
     expect(result.accessToken).toBe('pkce-tok');
+  }, 8000);
+
+  it('rejects when the redirect carries a wrong or missing state', async () => {
+    const testPort = 19872;
+
+    fetchMock.mockImplementation(async () =>
+      new Response(
+        JSON.stringify({
+          issuer: ISSUER,
+          token_endpoint: TOKEN_ENDPOINT,
+          authorization_endpoint: 'https://auth.example.com/authorize',
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+
+    const authPromise = authenticate(ISSUER, {
+      clientId: 'my-client',
+      port: testPort,
+      timeoutMs: 5000,
+      openBrowser: () => {},
+    });
+
+    await new Promise((r) => setTimeout(r, 250));
+
+    // Attach the rejection handler before triggering the redirect so the
+    // rejection is never unhandled.
+    const assertion = expect(authPromise).rejects.toThrow(/State mismatch/);
+    await originalFetch(
+      `http://localhost:${testPort}/callback?code=auth-code-xyz&state=forged-state`,
+    );
+    await assertion;
   }, 8000);
 
   it('rejects with a timeout error when no redirect arrives', async () => {
