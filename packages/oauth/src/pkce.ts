@@ -16,14 +16,19 @@ export interface Pkce {
 /**
  * Generate a cryptographically random PKCE code verifier (RFC 7636 §4.1).
  *
- * Returns a 43-character base64url string (32 random bytes). Runtime-agnostic:
- * uses the global `crypto.getRandomValues` which is available in Node 19+,
- * Cloudflare Workers, and browsers.
+ * Returns a base64url string of the requested length (43-128 characters,
+ * default 128). Runtime-agnostic: uses the global `crypto.getRandomValues`
+ * which is available in Node 19+, Cloudflare Workers, and browsers.
  */
-export function generateCodeVerifier(): string {
-  const bytes = new Uint8Array(32);
+export function generateCodeVerifier(length = 128): string {
+  if (length < 43 || length > 128) {
+    throw new RangeError("Code verifier length must be between 43 and 128 characters");
+  }
+  // base64url yields 4 characters per 3 bytes; generate enough bytes to
+  // cover the requested length, then trim.
+  const bytes = new Uint8Array(Math.ceil((length * 3) / 4));
   crypto.getRandomValues(bytes);
-  return base64url.encode(bytes.buffer as ArrayBuffer);
+  return base64url.encode(bytes.buffer as ArrayBuffer).slice(0, length);
 }
 
 /**
@@ -50,8 +55,11 @@ export async function generateCodeChallenge(
 /**
  * Generate a PKCE pair (verifier + challenge) in one call.
  */
-export async function generatePkcePair(method: "S256" | "plain" = "S256"): Promise<Pkce> {
-  const codeVerifier = generateCodeVerifier();
+export async function generatePkcePair(
+  method: "S256" | "plain" = "S256",
+  verifierLength = 128,
+): Promise<Pkce> {
+  const codeVerifier = generateCodeVerifier(verifierLength);
   const codeChallenge = await generateCodeChallenge(codeVerifier, method);
   return { codeVerifier, codeChallenge, codeChallengeMethod: method };
 }
@@ -164,14 +172,16 @@ export interface AuthenticateOptions {
   clientId: string;
   /** Default: "http://localhost:{port}/callback" */
   redirectUri?: string;
-  /** Default: 8080 */
+  /** Default: 8765 */
   port?: number;
   scopes?: readonly string[];
   clientSecret?: string;
-  /** Default: 60_000 ms */
+  /** Default: 300_000 ms */
   timeoutMs?: number;
   /** RFC 8707 resource indicator. Scopes the issued token's audience to this resource URL, enabling token exchange against it. */
   resource?: string;
+  /** Opens the authorization URL. Default: the platform browser launcher. */
+  openBrowser?: (url: string) => void | Promise<void>;
 }
 
 /**
@@ -189,11 +199,17 @@ export async function authenticate(
   issuer: string,
   options: AuthenticateOptions,
 ): Promise<TokenResponse> {
-  const port = options.port ?? 8080;
+  const port = options.port ?? 8765;
   const redirectUri = options.redirectUri ?? `http://localhost:${port}/callback`;
-  const timeoutMs = options.timeoutMs ?? 60_000;
+  const timeoutMs = options.timeoutMs ?? 300_000;
 
   const { codeVerifier, codeChallenge } = await generatePkcePair("S256");
+
+  // CSRF protection (RFC 6749 §10.12): bind the loopback callback to this
+  // authorization request.
+  const stateBytes = new Uint8Array(32);
+  crypto.getRandomValues(stateBytes);
+  const state = base64url.encode(stateBytes.buffer as ArrayBuffer);
 
   const metadata = await fetchAuthorizationServerMetadata(issuer);
   if (!metadata.authorization_endpoint) {
@@ -208,6 +224,7 @@ export async function authenticate(
   authUrl.searchParams.set("redirect_uri", redirectUri);
   authUrl.searchParams.set("code_challenge", codeChallenge);
   authUrl.searchParams.set("code_challenge_method", "S256");
+  authUrl.searchParams.set("state", state);
   if (options.scopes && options.scopes.length > 0) {
     authUrl.searchParams.set("scope", options.scopes.join(" "));
   }
@@ -215,9 +232,9 @@ export async function authenticate(
     authUrl.searchParams.set("resource", options.resource);
   }
 
-  await openBrowser(authUrl.toString());
+  await (options.openBrowser ?? openBrowser)(authUrl.toString());
 
-  const code = await waitForCode(port, redirectUri, timeoutMs);
+  const code = await waitForCode(port, redirectUri, timeoutMs, state);
 
   return exchangeAuthorizationCode(issuer, code, {
     codeVerifier,
@@ -240,7 +257,12 @@ async function openBrowser(url: string): Promise<void> {
   }
 }
 
-async function waitForCode(port: number, redirectUri: string, timeoutMs: number): Promise<string> {
+async function waitForCode(
+  port: number,
+  redirectUri: string,
+  timeoutMs: number,
+  expectedState: string,
+): Promise<string> {
   // Import before entering the Promise constructor to avoid the async-executor
   // anti-pattern: if the dynamic import throws, the rejection propagates through
   // this async function rather than escaping an async Promise constructor.
@@ -266,6 +288,8 @@ async function waitForCode(port: number, redirectUri: string, timeoutMs: number)
 
         if (error) {
           reject(new OAuthError(error, reqUrl.searchParams.get("error_description") ?? error));
+        } else if (reqUrl.searchParams.get("state") !== expectedState) {
+          reject(new Error("State mismatch in redirect: possible CSRF attack"));
         } else if (code) {
           resolve(code);
         } else {
