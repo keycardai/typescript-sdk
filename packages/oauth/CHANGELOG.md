@@ -1,3 +1,15 @@
+## 0.15.0-keycardai-oauth (2026-06-12)
+
+
+- feat(oauth): default token_type to Bearer, parse id_token, add buildAuthorizeUrl
+- Token responses now default token_type to Bearer when the server omits
+the field (the RFC 6750 scheme name) and parse an optional id_token into
+TokenResponse.idToken. The authorization-code exchange reuses the shared
+token-response deserializer.
+- New buildAuthorizeUrl(authorizationEndpoint, params) builds an
+RFC 6749 section 4.1.1 + RFC 7636 authorize URL for callers that manage
+the redirect themselves; authenticate now uses it internally.
+
 ## 0.14.0-keycardai-oauth (2026-06-12)
 
 
