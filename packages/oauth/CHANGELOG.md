@@ -1,3 +1,20 @@
+## 0.12.0-keycardai-oauth (2026-06-12)
+
+
+- feat(oauth)!: WebIdentity signs the registered clientId as iss/sub and requires the token endpoint for aud
+- Keycard svc-sts validates a private_key_jwt assertion by looking up the client
+by `sub` (the registered application-credential identifier) and requires `aud`
+to be the token endpoint URL (RFC 7523). WebIdentity now:
+- takes a `clientId` (the registered credential identifier) and signs it as the
+  assertion `iss`/`sub`; an explicit `resource_client_id` in the exchange
+  authInfo still overrides. The prior fallback to the local serverName/key id
+  is removed (it is not the registered client id).
+- requires the token endpoint for `aud`, with no fallback to `iss` (a
+  self-referential `aud` is rejected by the authorization server).
+- TokenExchangeClient exposes `getTokenEndpoint()` so a caller can resolve the
+discovered token endpoint to build the assertion before exchanging.
+- Resolves the issuer/audience-resolution row of the web-identity spec (ECO-39).
+
 ## 0.11.0-keycardai-oauth (2026-06-11)
 
 
