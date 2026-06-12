@@ -24,7 +24,15 @@ export interface KeycardRouterOptions {
    * Default: 10 000 ms.
    */
   asMetadataTimeoutMs?: number;
+  /**
+   * Public JWKS to serve at `GET /.well-known/jwks.json`.
+   * When omitted, no JWKS route is registered.
+   */
+  publicJwks?: { keys: Record<string, unknown>[] };
 }
+
+const CORS_ALLOW_METHODS = "GET, OPTIONS";
+const CORS_ALLOW_HEADERS = "Content-Type, MCP-Protocol-Version";
 
 /**
  * Returns an Express Router that serves the two OAuth discovery endpoints
@@ -50,6 +58,11 @@ export interface KeycardRouterOptions {
 export function keycardMetadataRouter(options: KeycardRouterOptions): Router {
   const router = Router();
 
+  const metadataPaths = [
+    "/.well-known/oauth-protected-resource",
+    "/.well-known/oauth-authorization-server",
+  ];
+
   router.get(
     "/.well-known/oauth-protected-resource",
     protectedResourceHandler(options),
@@ -60,7 +73,30 @@ export function keycardMetadataRouter(options: KeycardRouterOptions): Router {
     authorizationServerHandler(options.issuer, options.asMetadataTimeoutMs ?? 10_000),
   );
 
+  if (options.publicJwks) {
+    metadataPaths.push("/.well-known/jwks.json");
+    router.get("/.well-known/jwks.json", jwksHandler(options.publicJwks));
+  }
+
+  // CORS preflight for the metadata endpoints. Browsers send OPTIONS before
+  // cross-origin GETs that include headers such as MCP-Protocol-Version.
+  router.options(metadataPaths, preflightHandler);
+
   return router;
+}
+
+const preflightHandler: RequestHandler = (_req, res) => {
+  res.set("Access-Control-Allow-Origin", "*");
+  res.set("Access-Control-Allow-Methods", CORS_ALLOW_METHODS);
+  res.set("Access-Control-Allow-Headers", CORS_ALLOW_HEADERS);
+  res.status(204).end();
+};
+
+function jwksHandler(publicJwks: { keys: Record<string, unknown>[] }): RequestHandler {
+  return (_req, res) => {
+    res.set("Access-Control-Allow-Origin", "*");
+    res.status(200).json(publicJwks);
+  };
 }
 
 function protectedResourceHandler(options: KeycardRouterOptions): RequestHandler {
