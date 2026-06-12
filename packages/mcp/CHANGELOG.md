@@ -1,3 +1,12 @@
+## 0.6.0-keycardai-mcp (2026-06-12)
+
+
+- fix(mcp): pass the discovered token endpoint into the WebIdentity assertion
+- The provider passed tokenEndpoint=undefined to prepareTokenExchangeRequest, so
+a WebIdentity assertion was built with aud=iss, which the authorization server
+rejects. Resolve the token endpoint via the exchange client getTokenEndpoint()
+and pass it through so the assertion aud is the token endpoint.
+
 ## 0.5.0-keycardai-mcp (2026-05-19)
 
 
