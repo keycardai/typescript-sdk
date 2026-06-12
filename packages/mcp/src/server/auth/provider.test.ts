@@ -159,34 +159,139 @@ describe("AuthProvider", () => {
     expect(provider).toBeDefined();
   });
 
+  function mockResponse() {
+    const res: any = {
+      headers: {} as Record<string, string>,
+      statusCode: undefined as number | undefined,
+      body: undefined as unknown,
+    };
+    res.set = jest.fn((name: string, value: string) => {
+      res.headers[name] = value;
+      return res;
+    });
+    res.status = jest.fn((code: number) => {
+      res.statusCode = code;
+      return res;
+    });
+    res.json = jest.fn((body: unknown) => {
+      res.body = body;
+      return res;
+    });
+    return res;
+  }
+
   describe("grant() middleware", () => {
-    it("should set error on accessContext when no auth info present", async () => {
+    it("should respond 401 with a Bearer challenge and not call next() when no auth info present", async () => {
       const provider = new AuthProvider({ zoneUrl: "https://test.keycard.cloud" });
       const middleware = provider.grant("https://api.example.com");
 
-      const req: any = { headers: {} };
-      const res: any = {};
+      const req: any = { headers: {}, protocol: "https", host: "rs.example.com" };
+      const res = mockResponse();
       const next = jest.fn();
 
       await middleware(req, res, next);
 
-      expect(next).toHaveBeenCalled();
-      expect(req.accessContext).toBeDefined();
-      expect(req.accessContext.hasError()).toBe(true);
-      expect(req.accessContext.getError()!.message).toContain("No authentication token");
+      expect(next).not.toHaveBeenCalled();
+      expect(req.accessContext).toBeUndefined();
+      expect(res.statusCode).toBe(401);
+      expect(res.headers["WWW-Authenticate"]).toMatch(/^Bearer resource_metadata="/);
+      expect((res.body as { error: string }).error).toBe("invalid_request");
     });
 
-    it("should always call next() even on error", async () => {
+    it("should record a global error and call next() when the userIdentifier resolver throws", async () => {
       const provider = new AuthProvider({ zoneUrl: "https://test.keycard.cloud" });
-      const middleware = provider.grant("https://api.example.com");
+      const middleware = provider.grant("https://api.example.com", {
+        userIdentifier: () => {
+          throw new Error("resolver exploded");
+        },
+      });
 
-      const req: any = { headers: {} };
-      const res: any = {};
+      const req: any = { headers: {}, auth: { token: "subject-tok" } };
+      const res = mockResponse();
       const next = jest.fn();
 
       await middleware(req, res, next);
 
       expect(next).toHaveBeenCalledTimes(1);
+      expect(req.accessContext.hasError()).toBe(true);
+      expect(req.accessContext.getError()!.message).toContain("userIdentifier");
+    });
+
+    describe("with a mocked token endpoint", () => {
+      const ZONE = "https://test-zone.keycard.cloud";
+      let originalFetch: typeof fetch;
+      let fetchMock: jest.Mock;
+
+      beforeEach(() => {
+        originalFetch = globalThis.fetch;
+        fetchMock = jest.fn(async (input: Parameters<typeof fetch>[0]) => {
+          const url = typeof input === "string" ? input : input.toString();
+          if (url.includes("/.well-known/")) {
+            return new Response(
+              JSON.stringify({ issuer: ZONE, token_endpoint: `${ZONE}/token` }),
+              { status: 200, headers: { "content-type": "application/json" } },
+            );
+          }
+          return new Response(
+            JSON.stringify({ access_token: "resource-tok", token_type: "bearer" }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        });
+        globalThis.fetch = fetchMock as unknown as typeof fetch;
+      });
+
+      afterEach(() => {
+        globalThis.fetch = originalFetch;
+      });
+
+      it("should merge tokens from stacked grant middlewares into one accessContext", async () => {
+        const provider = new AuthProvider({ zoneUrl: ZONE });
+        const first = provider.grant("https://api-a.example.com");
+        const second = provider.grant("https://api-b.example.com");
+
+        const req: any = { headers: {}, auth: { token: "subject-tok" } };
+        const res = mockResponse();
+        const next = jest.fn();
+
+        await first(req, res, next);
+        await second(req, res, next);
+
+        expect(next).toHaveBeenCalledTimes(2);
+        expect(req.accessContext.access("https://api-a.example.com").accessToken).toBe("resource-tok");
+        expect(req.accessContext.access("https://api-b.example.com").accessToken).toBe("resource-tok");
+        expect(req.accessContext.getStatus()).toBe("success");
+      });
+
+      it("should use the substitute-user impersonation exchange when userIdentifier is set", async () => {
+        const provider = new AuthProvider({ zoneUrl: ZONE });
+        const middleware = provider.grant("https://api.example.com", {
+          userIdentifier: () => "alice@example.com",
+        });
+
+        const req: any = { headers: {}, auth: { token: "subject-tok" } };
+        const res = mockResponse();
+        const next = jest.fn();
+
+        await middleware(req, res, next);
+
+        expect(next).toHaveBeenCalledTimes(1);
+        expect(req.accessContext.getStatus()).toBe("success");
+
+        const tokenCall = fetchMock.mock.calls.find(
+          ([url]) => typeof url === "string" && (url as string).endsWith("/token"),
+        );
+        expect(tokenCall).toBeDefined();
+        const body = ((tokenCall![1] as RequestInit).body ?? "") as string;
+        const params = new URLSearchParams(body);
+        expect(params.get("subject_token_type")).toBe(
+          "urn:keycard:params:oauth:token-type:substitute-user",
+        );
+        const subjectToken = params.get("subject_token")!;
+        const payload = JSON.parse(
+          Buffer.from(subjectToken.split(".")[1], "base64url").toString("utf8"),
+        );
+        expect(payload.sub).toBe("alice@example.com");
+      });
     });
   });
 

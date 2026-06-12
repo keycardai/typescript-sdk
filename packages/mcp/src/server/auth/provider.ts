@@ -28,6 +28,26 @@ export interface DelegatedRequest extends Request {
   accessContext: AccessContext;
 }
 
+export interface GrantMiddlewareOptions {
+  /**
+   * Resolver for the user identity to impersonate. When set, each
+   * per-resource exchange uses the substitute-user impersonation flow
+   * (`TokenExchangeClient.impersonate`) with the resolved identifier
+   * instead of exchanging the caller's bearer token. The resolver runs
+   * once per request and may be async.
+   */
+  userIdentifier?: (req: Request) => string | Promise<string>;
+}
+
+export interface ExchangeTokensOptions {
+  /**
+   * User identity to impersonate. When set, each per-resource exchange
+   * uses the substitute-user impersonation flow instead of exchanging
+   * the subject token.
+   */
+  userIdentifier?: string;
+}
+
 // =============================================================================
 // AuthProvider
 // =============================================================================
@@ -49,27 +69,64 @@ export class AuthProvider {
     this.#applicationCredential = options.applicationCredential;
   }
 
-  grant(resources: string | string[]): RequestHandler {
-    return async (req: Request, _res: Response, next: NextFunction) => {
+  grant(resources: string | string[], options?: GrantMiddlewareOptions): RequestHandler {
+    return async (req: Request, res: Response, next: NextFunction) => {
       const authReq = req as Request & { auth?: AuthInfo; accessContext?: AccessContext };
       const subjectToken = authReq.auth?.token;
 
       if (!subjectToken) {
-        const accessCtx = new AccessContext();
-        accessCtx.setError({
-          message: "No authentication token available. Ensure requireBearerAuth() middleware runs before grant().",
+        // Unauthenticated request: respond 401 with an RFC 6750 challenge
+        // (same shape as requireBearerAuth) without invoking the handler.
+        const resourceMetadataUrl = `${req.protocol}://${req.host}/.well-known/oauth-protected-resource`;
+        res.set("WWW-Authenticate", `Bearer resource_metadata="${resourceMetadataUrl}"`);
+        res.status(401).json({
+          error: "invalid_request",
+          error_description:
+            "Missing bearer token. Ensure requireBearerAuth() middleware runs before grant().",
         });
-        authReq.accessContext = accessCtx;
-        return next();
+        return;
       }
 
-      const accessCtx = await this.exchangeTokens(subjectToken, resources);
-      authReq.accessContext = accessCtx;
+      // Reuse an existing context so stacked grant() middlewares accumulate
+      // per-resource tokens and errors instead of replacing earlier results.
+      const existingCtx =
+        authReq.accessContext instanceof AccessContext ? authReq.accessContext : undefined;
+
+      // A resolver failure is recorded as a global error; the handler still
+      // runs and access() surfaces the failure.
+      let resolvedUserIdentifier: string | undefined;
+      if (options?.userIdentifier) {
+        try {
+          resolvedUserIdentifier = await options.userIdentifier(req);
+        } catch (e) {
+          const accessCtx = existingCtx ?? new AccessContext();
+          accessCtx.setError({
+            message: "Failed to resolve userIdentifier.",
+            rawError: String(e),
+          });
+          authReq.accessContext = accessCtx;
+          return next();
+        }
+      }
+
+      const accessCtx = await this.exchangeTokens(subjectToken, resources, {
+        userIdentifier: resolvedUserIdentifier,
+      });
+      if (existingCtx) {
+        existingCtx.merge(accessCtx);
+        authReq.accessContext = existingCtx;
+      } else {
+        authReq.accessContext = accessCtx;
+      }
       next();
     };
   }
 
-  async exchangeTokens(subjectToken: string, resources: string | string[]): Promise<AccessContext> {
+  async exchangeTokens(
+    subjectToken: string,
+    resources: string | string[],
+    options?: ExchangeTokensOptions,
+  ): Promise<AccessContext> {
     const accessCtx = new AccessContext();
     const resourceList = Array.isArray(resources) ? resources : [resources];
 
@@ -88,6 +145,13 @@ export class AuthProvider {
 
     for (const resource of resourceList) {
       try {
+        if (options?.userIdentifier !== undefined) {
+          tokens[resource] = await client.impersonate({
+            userIdentifier: options.userIdentifier,
+            resource,
+          });
+          continue;
+        }
         let request;
         if (this.#applicationCredential) {
           const tokenEndpoint = await client.getTokenEndpoint();

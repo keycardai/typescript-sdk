@@ -135,4 +135,47 @@ describe('AccessContext', () => {
     expect(ctx.access('https://api.example.com')).toBe(TOKEN);
     expect(ctx.getStatus()).toBe('success');
   });
+
+  describe('merge', () => {
+    it('accumulates tokens and resource errors from another context', () => {
+      const ctx = new AccessContext({ 'https://a.example.com': TOKEN });
+      ctx.setResourceError('https://c.example.com', { message: 'still failing' });
+
+      const other = new AccessContext({ 'https://b.example.com': TOKEN });
+      other.setResourceError('https://d.example.com', { message: 'new failure' });
+
+      ctx.merge(other);
+
+      expect(ctx.access('https://a.example.com')).toBe(TOKEN);
+      expect(ctx.access('https://b.example.com')).toBe(TOKEN);
+      expect(ctx.hasResourceError('https://c.example.com')).toBe(true);
+      expect(ctx.hasResourceError('https://d.example.com')).toBe(true);
+      expect(ctx.getStatus()).toBe('partial_error');
+    });
+
+    it('later results win per resource: a merged token clears a prior error and vice versa', () => {
+      const ctx = new AccessContext({ 'https://a.example.com': TOKEN });
+      ctx.setResourceError('https://b.example.com', { message: 'old failure' });
+
+      const other = new AccessContext({ 'https://b.example.com': TOKEN });
+      other.setResourceError('https://a.example.com', { message: 'new failure' });
+
+      ctx.merge(other);
+
+      expect(ctx.access('https://b.example.com')).toBe(TOKEN);
+      expect(ctx.hasResourceError('https://a.example.com')).toBe(true);
+    });
+
+    it('a global error on the merged context overwrites, but absence preserves', () => {
+      const ctx = new AccessContext();
+      ctx.setError({ message: 'existing' });
+      ctx.merge(new AccessContext());
+      expect(ctx.getError()).toEqual({ message: 'existing' });
+
+      const other = new AccessContext();
+      other.setError({ message: 'incoming' });
+      ctx.merge(other);
+      expect(ctx.getError()).toEqual({ message: 'incoming' });
+    });
+  });
 });

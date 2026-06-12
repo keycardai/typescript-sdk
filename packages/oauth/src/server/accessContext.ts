@@ -36,6 +36,25 @@ export class AccessContext {
     this.#error = error;
   }
 
+  /**
+   * Merge another context's tokens and errors into this one. Used when
+   * multiple grants stack on the same request: later results accumulate
+   * alongside earlier ones instead of replacing them. Per-resource entries
+   * from `other` win on conflict; a global error on `other` overwrites
+   * this context's global error.
+   */
+  merge(other: AccessContext): void {
+    for (const [resource, token] of other.#accessTokens) {
+      this.setToken(resource, token);
+    }
+    for (const [resource, error] of other.#resourceErrors) {
+      this.setResourceError(resource, error);
+    }
+    if (other.#error) {
+      this.#error = other.#error;
+    }
+  }
+
   access(resource: string): TokenResponse {
     if (this.#error) {
       throw new ResourceAccessError(undefined, {

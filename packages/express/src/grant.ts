@@ -38,6 +38,22 @@ export interface GrantOptions {
    * are selected per request.
    */
   applicationCredential?: ApplicationCredential;
+  /**
+   * Resolver for the user identity to impersonate. When set, each
+   * per-resource exchange uses the substitute-user impersonation flow
+   * (`TokenExchangeClient.impersonate`) with the resolved identifier
+   * instead of exchanging the caller's bearer token. The resolver runs
+   * once per request and may be async.
+   *
+   * ```ts
+   * grant(resources, {
+   *   zoneUrl,
+   *   applicationCredential,
+   *   userIdentifier: (req) => req.auth.subject,
+   * });
+   * ```
+   */
+  userIdentifier?: (req: Request) => string | Promise<string>;
 }
 
 /**
@@ -50,6 +66,12 @@ export interface GrantOptions {
  * On success, `req.accessContext.access(resourceUrl)` returns the
  * `TokenResponse` for that resource. On partial failure, some resources
  * may have errors while others succeed.
+ *
+ * If the request carries no verified bearer token, responds 401 with an
+ * RFC 6750 `WWW-Authenticate` challenge; the handler does not run.
+ *
+ * Multiple `grant()` middlewares may be stacked: each merges its
+ * per-resource tokens and errors into the existing `req.accessContext`.
  *
  * ```ts
  * app.use(requireBearerAuth({ issuer: "https://zone.keycard.cloud" }));
@@ -78,20 +100,29 @@ export function grant(
   // internally after the first discovery call.
   const clientCache = new Map<string, TokenExchangeClient>();
 
-  return async (req: Request, _res: Response, next: NextFunction) => {
+  return async (req: Request, res: Response, next: NextFunction) => {
     const authReq = req as AuthenticatedRequest;
     const subjectToken = authReq.auth?.token;
 
-    const accessCtx = new AccessContext();
-
     if (!subjectToken) {
-      accessCtx.setError({
-        message:
-          "No authentication token. Ensure requireBearerAuth() runs before grant().",
+      // Unauthenticated request: respond 401 with an RFC 6750 challenge
+      // (same shape as requireBearerAuth) without invoking the handler.
+      const resourceMetadataUrl = `${req.protocol}://${req.host}/.well-known/oauth-protected-resource`;
+      res.set("WWW-Authenticate", `Bearer resource_metadata="${resourceMetadataUrl}"`);
+      res.status(401).json({
+        error: "invalid_request",
+        error_description:
+          "Missing bearer token. Ensure requireBearerAuth() runs before grant().",
       });
-      (req as GrantedRequest).accessContext = accessCtx;
-      return next();
+      return;
     }
+
+    // Reuse an existing context so stacked grant() middlewares accumulate
+    // per-resource tokens and errors instead of replacing earlier results.
+    const accessCtx =
+      (req as GrantedRequest).accessContext instanceof AccessContext
+        ? (req as GrantedRequest).accessContext
+        : new AccessContext();
 
     // Resolve zone at request time — zoneId may be a static string or a
     // function that extracts the zone from the verified access token.
@@ -129,8 +160,33 @@ export function grant(
       : [resources as string];
     const tokens: Record<string, TokenResponse> = {};
 
+    // Resolve the impersonation target once per request. A resolver failure
+    // is recorded as a global error; the handler still runs and access()
+    // surfaces the failure.
+    let resolvedUserIdentifier: string | undefined;
+    if (options.userIdentifier) {
+      try {
+        resolvedUserIdentifier = await options.userIdentifier(req);
+      } catch (e) {
+        accessCtx.setError({
+          message: "Failed to resolve userIdentifier.",
+          rawError: String(e),
+        });
+        (req as GrantedRequest).accessContext = accessCtx;
+        return next();
+      }
+    }
+
     for (const resource of resourceList) {
       try {
+        if (resolvedUserIdentifier !== undefined) {
+          tokens[resource] = await client.impersonate({
+            userIdentifier: resolvedUserIdentifier,
+            resource,
+            zoneId: resolvedZoneId,
+          });
+          continue;
+        }
         let exchangeRequest;
         if (options.applicationCredential) {
           exchangeRequest = await options.applicationCredential.prepareTokenExchangeRequest(
