@@ -1,3 +1,19 @@
+## 0.13.0-keycardai-oauth (2026-06-12)
+
+
+- feat(oauth)!: add CSRF state to authenticate and align PKCE defaults
+- The high-level authenticate flow now generates a random state value,
+sends it on the authorization URL, and rejects redirects whose state
+does not match (RFC 6749 section 10.12). An openBrowser option allows
+supplying a custom launcher for the authorization URL.
+- Defaults aligned with the Python SDK: loopback port 8765 (was 8080),
+callback timeout 300s (was 60s), and code verifier length 128 (was 43).
+generateCodeVerifier and generatePkcePair accept an explicit verifier
+length within the RFC 7636 43-128 range.
+- BREAKING CHANGE: the default loopback port is now 8765; clients whose
+registered redirect URI pins http://localhost:8080/callback must pass
+port: 8080 explicitly. Redirects without a matching state are rejected.
+
 ## 0.12.0-keycardai-oauth (2026-06-12)
 
 
