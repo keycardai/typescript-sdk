@@ -1,3 +1,14 @@
+## 0.18.0-keycardai-oauth (2026-06-12)
+
+
+- feat(oauth): add challenge-driven entry to the PKCE authenticate flow
+- New resolveIssuerFromChallenge parses the RFC 9728 resource_metadata
+parameter from a WWW-Authenticate header, fetches the protected-resource
+metadata document, and returns authorization_servers[0] plus the
+document resource. authenticateFromChallenge composes it with
+authenticate, defaulting the resource to the resolved document value
+when the caller does not set one.
+
 ## 0.17.0-keycardai-oauth (2026-06-12)
 
 
