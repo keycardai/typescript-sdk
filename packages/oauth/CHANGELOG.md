@@ -1,3 +1,12 @@
+## 0.17.0-keycardai-oauth (2026-06-12)
+
+
+- feat(oauth): add AccessContext.merge for accumulating grant results
+- merge(other) folds another context into this one: tokens and
+per-resource errors accumulate (later wins per resource), an incoming
+global error overwrites, and absence preserves the existing value. The
+accessor surface is unchanged.
+
 ## 0.16.0-keycardai-oauth (2026-06-12)
 
 
