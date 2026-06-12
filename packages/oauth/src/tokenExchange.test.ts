@@ -107,3 +107,27 @@ describe('TokenExchangeClient.impersonate', () => {
     ).rejects.toThrow(/userIdentifier is required/);
   });
 });
+
+describe('deserializeTokenResponse', () => {
+  it('defaults token_type to Bearer when the server omits it', async () => {
+    const { deserializeTokenResponse } = await import('./tokenExchange.js');
+    const response = deserializeTokenResponse({ access_token: 'tok' });
+    expect(response.tokenType).toBe('Bearer');
+  });
+
+  it('parses id_token when present', async () => {
+    const { deserializeTokenResponse } = await import('./tokenExchange.js');
+    const response = deserializeTokenResponse({
+      access_token: 'tok',
+      token_type: 'Bearer',
+      id_token: 'oidc-id-token',
+    });
+    expect(response.idToken).toBe('oidc-id-token');
+  });
+
+  it('omits idToken when the server does not return one', async () => {
+    const { deserializeTokenResponse } = await import('./tokenExchange.js');
+    const response = deserializeTokenResponse({ access_token: 'tok', token_type: 'Bearer' });
+    expect(response.idToken).toBeUndefined();
+  });
+});
