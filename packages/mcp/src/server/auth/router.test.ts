@@ -205,6 +205,36 @@ describe('MCP Auth Metadata Router', () => {
         token_endpoint_auth_methods_supported: ['client_secret_post']
       });
     });
+
+    it('returns 502 when the upstream AS metadata response is not OK', async () => {
+      jest.spyOn(global, 'fetch').mockResolvedValue({
+        ok: false,
+        status: 500,
+        json: () => Promise.resolve({})
+      } as Response);
+
+      const response = await supertest(app)
+        .get('/.well-known/oauth-authorization-server')
+        .set('Host', 'api.example.com');
+
+      expect(response.status).toBe(502);
+      expect(response.body).toStrictEqual({
+        error: 'Failed to fetch AS metadata from issuer'
+      });
+    });
+
+    it('returns 502 when the upstream AS metadata fetch rejects', async () => {
+      jest.spyOn(global, 'fetch').mockRejectedValue(new Error('network down'));
+
+      const response = await supertest(app)
+        .get('/.well-known/oauth-authorization-server')
+        .set('Host', 'api.example.com');
+
+      expect(response.status).toBe(502);
+      expect(response.body).toStrictEqual({
+        error: 'Failed to fetch AS metadata from issuer'
+      });
+    });
   });
 });
 

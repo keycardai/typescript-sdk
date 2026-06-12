@@ -58,4 +58,43 @@ describe('keycardMetadataRouter', () => {
     const authUrl = new URL(res.body.authorization_endpoint);
     expect(authUrl.searchParams.get('resource')).toBeTruthy();
   });
+
+  it.each([
+    '/.well-known/oauth-protected-resource',
+    '/.well-known/oauth-authorization-server',
+  ])('answers OPTIONS preflight on %s with 204 and CORS headers', async (path) => {
+    const app = makeApp();
+    const res = await request(app).options(path);
+    expect(res.status).toBe(204);
+    expect(res.headers['access-control-allow-origin']).toBe('*');
+    expect(res.headers['access-control-allow-methods']).toBe('GET, OPTIONS');
+    expect(res.headers['access-control-allow-headers']).toBe('Content-Type, MCP-Protocol-Version');
+  });
+
+  describe('jwks.json', () => {
+    const publicJwks = {
+      keys: [{ kty: 'OKP', crv: 'Ed25519', x: 'abc', kid: 'key-1' }],
+    };
+
+    it('serves /.well-known/jwks.json when publicJwks is supplied', async () => {
+      const app = express();
+      app.use(keycardMetadataRouter({ issuer: ISSUER, publicJwks }));
+
+      const res = await request(app).get('/.well-known/jwks.json');
+      expect(res.status).toBe(200);
+      expect(res.headers['content-type']).toContain('application/json');
+      expect(res.headers['access-control-allow-origin']).toBe('*');
+      expect(res.body).toEqual(publicJwks);
+
+      const preflight = await request(app).options('/.well-known/jwks.json');
+      expect(preflight.status).toBe(204);
+      expect(preflight.headers['access-control-allow-origin']).toBe('*');
+    });
+
+    it('returns 404 for /.well-known/jwks.json when publicJwks is not supplied', async () => {
+      const app = makeApp();
+      const res = await request(app).get('/.well-known/jwks.json');
+      expect(res.status).toBe(404);
+    });
+  });
 });
