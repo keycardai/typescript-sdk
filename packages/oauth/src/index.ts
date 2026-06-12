@@ -65,3 +65,8 @@ export type {
   AuthorizeUrlParams,
   AuthenticateOptions,
 } from "./pkce.js";
+export { resolveIssuerFromChallenge, authenticateFromChallenge } from "./challenge.js";
+export type {
+  ResolveIssuerFromChallengeOptions,
+  ResolvedChallenge,
+} from "./challenge.js";
