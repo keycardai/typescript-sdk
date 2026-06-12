@@ -30,6 +30,12 @@ export type {
   ExchangeOptions,
   ImpersonateRequest,
 } from "./tokenExchange.js";
+export { ClientCredentialsClient } from "./clientCredentials.js";
+export type {
+  ClientCredentialsRequest,
+  ClientCredentialsClientOptions,
+  RequestTokenOptions,
+} from "./clientCredentials.js";
 export type { ApplicationCredential } from "./credentials.js";
 export { registerClient } from "./registration.js";
 export type {
