@@ -130,22 +130,22 @@ export async function registerClient(
       const errorUri = typeof errorBody.error_uri === "string" ? errorBody.error_uri : undefined;
       throw new OAuthError(errorBody.error, description, errorUri);
     }
-    throw new Error(`Client registration failed (HTTP ${response.status})`);
+    throw new OAuthError("invalid_response", `Client registration failed (HTTP ${response.status})`);
   }
 
   let json: unknown;
   try {
     json = await response.json();
   } catch {
-    throw new Error("Client registration response is not valid JSON");
+    throw new OAuthError("invalid_response", "Client registration response is not valid JSON");
   }
   if (!json || typeof json !== "object" || Array.isArray(json)) {
-    throw new Error("Client registration response is not a valid JSON object");
+    throw new OAuthError("invalid_response", "Client registration response is not a valid JSON object");
   }
   const body = json as Record<string, unknown>;
 
   if (typeof body.client_id !== "string") {
-    throw new Error("Client registration response missing client_id");
+    throw new OAuthError("invalid_response", "Client registration response missing client_id");
   }
 
   return deserializeResponse(body);

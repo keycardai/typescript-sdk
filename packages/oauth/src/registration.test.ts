@@ -106,22 +106,34 @@ describe('registerClient', () => {
     expect(err.errorUri).toBe('https://docs.example.com/errors');
   });
 
-  it('throws a generic Error on non-OAuth HTTP failures', async () => {
+  it('throws OAuthError("invalid_response") on non-OAuth HTTP failures', async () => {
     fetchMock.mockImplementationOnce(async () => metadataResponse());
     fetchMock.mockImplementationOnce(async () => new Response('upstream blew up', { status: 502 }));
 
-    await expect(registerClient(ISSUER, { clientName: 'svc' })).rejects.toThrow(
-      /Client registration failed \(HTTP 502\)/,
-    );
+    let thrown: unknown;
+    try {
+      await registerClient(ISSUER, { clientName: 'svc' });
+    } catch (e) {
+      thrown = e;
+    }
+    expect(thrown).toBeInstanceOf(OAuthError);
+    expect((thrown as OAuthError).errorCode).toBe('invalid_response');
+    expect((thrown as OAuthError).message).toContain('HTTP 502');
   });
 
-  it('throws when the response is missing client_id', async () => {
+  it('throws OAuthError("invalid_response") when the response is missing client_id', async () => {
     fetchMock.mockImplementationOnce(async () => metadataResponse());
     fetchMock.mockImplementationOnce(async () => jsonResponse(200, { client_secret: 'orphan' }));
 
-    await expect(registerClient(ISSUER, { clientName: 'svc' })).rejects.toThrow(
-      /missing client_id/,
-    );
+    let thrown: unknown;
+    try {
+      await registerClient(ISSUER, { clientName: 'svc' });
+    } catch (e) {
+      thrown = e;
+    }
+    expect(thrown).toBeInstanceOf(OAuthError);
+    expect((thrown as OAuthError).errorCode).toBe('invalid_response');
+    expect((thrown as OAuthError).message).toContain('missing client_id');
   });
 
   it('passes additionalMetadata fields through and surfaces them in raw', async () => {
