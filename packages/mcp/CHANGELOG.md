@@ -1,3 +1,10 @@
+## 0.9.0-keycardai-mcp (2026-06-15)
+
+
+- feat(mcp): resolve provider credentials by zone issuer URL
+- AuthProvider passes its zone URL to credential resolution so
+issuer-keyed multi-zone credentials resolve for the provider zone.
+
 ## 0.8.0-keycardai-mcp (2026-06-12)
 
 
