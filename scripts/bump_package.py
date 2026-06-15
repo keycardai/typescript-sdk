@@ -134,7 +134,14 @@ def get_modified_files() -> list[str]:
     return [line for line in stdout.splitlines() if line]
 
 
-def create_remote_branch(repo: str, branch: str, sha: str) -> bool:
+def create_remote_branch(repo: str, branch: str, sha: str) -> str:
+    """Create the bump branch on the remote at ``sha``.
+
+    Returns ``"created"`` on success, ``"exists"`` if the ref already exists
+    (a prior run created it), or ``"error"`` on any other failure. The
+    ``"exists"`` case is recoverable: a previous run got partway through and
+    the caller resumes from the existing branch/PR rather than failing.
+    """
     print(f"Creating remote branch {branch} at {sha[:8]}...")
     exit_code, _, stderr = run_command(
         [
@@ -150,7 +157,63 @@ def create_remote_branch(repo: str, branch: str, sha: str) -> bool:
         ]
     )
     if exit_code != 0:
+        if "Reference already exists" in stderr or "HTTP 422" in stderr:
+            print(f"Branch {branch} already exists; resuming from it.")
+            return "exists"
         print(f"Failed to create remote branch: {stderr}")
+        return "error"
+    return "created"
+
+
+def get_branch_head_sha(repo: str, branch: str) -> str | None:
+    """Return the head commit SHA of a remote branch, or ``None`` if unknown."""
+    exit_code, stdout, _ = run_command(
+        ["gh", "api", f"repos/{repo}/git/ref/heads/{branch}", "-q", ".object.sha"]
+    )
+    if exit_code != 0 or not stdout:
+        return None
+    return stdout
+
+
+def find_pr_for_branch(branch: str) -> dict | None:
+    """Return the most recent PR whose head is ``branch``, or ``None``.
+
+    Includes merged/closed PRs so a resumed run can detect an already-merged
+    bump and skip straight to tagging.
+    """
+    exit_code, stdout, _ = run_command(
+        [
+            "gh",
+            "pr",
+            "list",
+            "--head",
+            branch,
+            "--state",
+            "all",
+            "--json",
+            "number,state,mergeCommit",
+            "--limit",
+            "1",
+        ]
+    )
+    if exit_code != 0 or not stdout:
+        return None
+    try:
+        prs = json.loads(stdout)
+    except json.JSONDecodeError:
+        return None
+    return prs[0] if prs else None
+
+
+def enable_automerge(pr_number: int) -> bool:
+    """Enable squash auto-merge on a PR. Idempotent: a PR that already has
+    auto-merge enabled reports success."""
+    print(f"Enabling auto-merge (squash) on PR #{pr_number}...")
+    exit_code, _, stderr = run_command(
+        ["gh", "pr", "merge", str(pr_number), "--auto", "--squash"]
+    )
+    if exit_code != 0 and "already" not in stderr.lower():
+        print(f"Failed to enable auto-merge: {stderr}")
         return False
     return True
 
@@ -233,7 +296,7 @@ def create_signed_commit_on_branch(
     return True
 
 
-def wait_for_pr_stable(pr_number: int, timeout_seconds: int = 120) -> bool:
+def wait_for_pr_stable(pr_number: int, timeout_seconds: int = 300) -> bool:
     """Poll mergeStateStatus until GitHub has a definite state for the PR.
 
     A freshly opened PR starts as UNKNOWN or UNSTABLE while required checks
@@ -297,15 +360,11 @@ def create_pr_with_automerge(
     pr_number = int(pr_number_match.group(1))
     print(f"Opened PR #{pr_number}: {pr_url}")
 
-    if not wait_for_pr_stable(pr_number):
-        return None
+    # A timeout here is non-fatal: enabling auto-merge is retried below and
+    # the merge poll tolerates a PR that is still settling.
+    wait_for_pr_stable(pr_number)
 
-    print("Enabling auto-merge (squash)...")
-    exit_code, _, stderr = run_command(
-        ["gh", "pr", "merge", str(pr_number), "--auto", "--squash"]
-    )
-    if exit_code != 0:
-        print(f"Failed to enable auto-merge: {stderr}")
+    if not enable_automerge(pr_number):
         return None
     return pr_number
 
@@ -389,6 +448,9 @@ def create_and_push_tag(repo: str, tag: str, sha: str) -> bool:
         ]
     )
     if exit_code != 0:
+        if "Reference already exists" in stderr or "HTTP 422" in stderr:
+            print(f"Tag {tag} already exists; publish already triggered.")
+            return True
         print(f"Failed to create tag: {stderr}")
         return False
     print(f"Created tag {tag}")
@@ -422,22 +484,56 @@ def bump_package(package_name: str, package_dir: str) -> bool:
         return False
     print(f"Modified files: {modified}")
 
-    if not create_remote_branch(repo, branch, parent_sha):
+    branch_status = create_remote_branch(repo, branch, parent_sha)
+    if branch_status == "error":
         return False
 
-    if not create_signed_commit_on_branch(
-        repo,
-        branch,
-        parent_sha,
-        modified,
-        headline=f"bump: {package_name} → {new_version}",
-        body=f"Auto-bump for {package_name}.",
-    ):
-        return False
-
-    pr_number = create_pr_with_automerge(branch, package_name, new_version)
-    if pr_number is None:
-        return False
+    pr_number: int | None
+    if branch_status == "created":
+        if not create_signed_commit_on_branch(
+            repo,
+            branch,
+            parent_sha,
+            modified,
+            headline=f"bump: {package_name} → {new_version}",
+            body=f"Auto-bump for {package_name}.",
+        ):
+            return False
+        pr_number = create_pr_with_automerge(branch, package_name, new_version)
+        if pr_number is None:
+            return False
+    else:
+        # The branch already exists from a prior run. Resume rather than fail.
+        existing = find_pr_for_branch(branch)
+        if existing and existing.get("state") == "MERGED":
+            sha = (existing.get("mergeCommit") or {}).get("oid")
+            if sha:
+                print(f"Bump PR #{existing['number']} already merged at {sha[:8]}.")
+                return create_and_push_tag(repo, tag, sha)
+            print("Bump PR is merged but no merge SHA was returned.")
+            return False
+        if existing and existing.get("state") == "OPEN":
+            pr_number = existing["number"]
+            print(f"Reusing open bump PR #{pr_number}.")
+            if not enable_automerge(pr_number):
+                return False
+        else:
+            # Branch exists with no usable PR (commit and/or PR step failed
+            # earlier). Ensure the bump commit is present, then open the PR.
+            if get_branch_head_sha(repo, branch) == parent_sha and not (
+                create_signed_commit_on_branch(
+                    repo,
+                    branch,
+                    parent_sha,
+                    modified,
+                    headline=f"bump: {package_name} → {new_version}",
+                    body=f"Auto-bump for {package_name}.",
+                )
+            ):
+                return False
+            pr_number = create_pr_with_automerge(branch, package_name, new_version)
+            if pr_number is None:
+                return False
 
     merge_sha = wait_for_pr_merge(pr_number)
     if merge_sha is None:
