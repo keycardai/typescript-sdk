@@ -1,7 +1,7 @@
 import { jest } from '@jest/globals';
 import express from 'express';
 import request from 'supertest';
-import { requireBearerAuth } from './bearerAuth.js';
+import { requireBearerAuth, subdomainZoneResolver } from './bearerAuth.js';
 import { TokenVerifier } from '@keycardai/oauth/server';
 import type { AccessToken } from '@keycardai/oauth/server';
 
@@ -103,5 +103,85 @@ describe('requireBearerAuth', () => {
       .get('/resource')
       .set('Authorization', 'Bearer valid-jwt');
     expect(res.status).toBe(200);
+  });
+});
+
+describe('requireBearerAuth zoneResolver', () => {
+  function makeZoneVerifier(result: AccessToken | null) {
+    return {
+      verifyToken: jest.fn<() => Promise<AccessToken | null>>().mockResolvedValue(result),
+      verifyTokenForZone: jest.fn<() => Promise<AccessToken | null>>().mockResolvedValue(result),
+      clearCache: jest.fn(),
+    } as unknown as TokenVerifier;
+  }
+
+  it('verifies via verifyTokenForZone with the resolved zone ID', async () => {
+    const verifier = makeZoneVerifier(VALID_TOKEN);
+    const app = express();
+    app.use(requireBearerAuth({ verifier, zoneResolver: () => 'zone-a' }));
+    app.get('/resource', (_req, res) => res.json({ ok: true }));
+
+    const res = await request(app)
+      .get('/resource')
+      .set('Authorization', 'Bearer valid-jwt');
+    expect(res.status).toBe(200);
+    expect(verifier.verifyTokenForZone).toHaveBeenCalledWith('valid-jwt', 'zone-a');
+    expect(verifier.verifyToken).not.toHaveBeenCalled();
+  });
+
+  it('falls back to verifyToken when the resolver returns undefined', async () => {
+    const verifier = makeZoneVerifier(VALID_TOKEN);
+    const app = express();
+    app.use(requireBearerAuth({ verifier, zoneResolver: () => undefined }));
+    app.get('/resource', (_req, res) => res.json({ ok: true }));
+
+    const res = await request(app)
+      .get('/resource')
+      .set('Authorization', 'Bearer valid-jwt');
+    expect(res.status).toBe(200);
+    expect(verifier.verifyToken).toHaveBeenCalledWith('valid-jwt');
+    expect(verifier.verifyTokenForZone).not.toHaveBeenCalled();
+  });
+
+  it('uses verifyToken when no resolver is configured', async () => {
+    const verifier = makeZoneVerifier(VALID_TOKEN);
+    const app = makeApp(verifier);
+    const res = await request(app)
+      .get('/resource')
+      .set('Authorization', 'Bearer valid-jwt');
+    expect(res.status).toBe(200);
+    expect(verifier.verifyToken).toHaveBeenCalledWith('valid-jwt');
+    expect(verifier.verifyTokenForZone).not.toHaveBeenCalled();
+  });
+});
+
+describe('subdomainZoneResolver', () => {
+  function reqWithHost(host: string) {
+    return { host } as unknown as express.Request;
+  }
+
+  it('extracts the leftmost label of a subdomain host', () => {
+    expect(subdomainZoneResolver(reqWithHost('zone-a.api.example.com'))).toBe('zone-a');
+    expect(subdomainZoneResolver(reqWithHost('zone-b.keycard.cloud'))).toBe('zone-b');
+  });
+
+  it('strips a port before extracting the zone', () => {
+    expect(subdomainZoneResolver(reqWithHost('zone-a.api.example.com:8443'))).toBe('zone-a');
+  });
+
+  it('returns undefined when the host has fewer than three labels', () => {
+    expect(subdomainZoneResolver(reqWithHost('example.com'))).toBeUndefined();
+    expect(subdomainZoneResolver(reqWithHost('localhost'))).toBeUndefined();
+    expect(subdomainZoneResolver(reqWithHost('localhost:3000'))).toBeUndefined();
+  });
+
+  it('returns undefined for IP literals', () => {
+    expect(subdomainZoneResolver(reqWithHost('127.0.0.1'))).toBeUndefined();
+    expect(subdomainZoneResolver(reqWithHost('10.0.0.1:8080'))).toBeUndefined();
+    expect(subdomainZoneResolver(reqWithHost('[::1]'))).toBeUndefined();
+  });
+
+  it('returns undefined when the host is empty', () => {
+    expect(subdomainZoneResolver(reqWithHost(''))).toBeUndefined();
   });
 });

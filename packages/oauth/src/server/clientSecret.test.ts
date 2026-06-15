@@ -3,37 +3,42 @@ import type { ApplicationCredential } from '../credentials.js';
 
 describe('ClientSecret', () => {
   describe('two-arg constructor (legacy)', () => {
-    it('returns the configured credentials regardless of zoneId', () => {
+    it('returns the configured credentials regardless of issuer', () => {
       const cred = new ClientSecret('alice', 'shh');
       expect(cred.getAuth()).toEqual({ clientId: 'alice', clientSecret: 'shh' });
-      expect(cred.getAuth('any-zone')).toEqual({ clientId: 'alice', clientSecret: 'shh' });
+      expect(cred.getAuth('https://any.keycard.cloud')).toEqual({ clientId: 'alice', clientSecret: 'shh' });
     });
   });
 
   describe('tuple constructor', () => {
-    it('returns the configured credentials regardless of zoneId', () => {
+    it('returns the configured credentials regardless of issuer', () => {
       const cred = new ClientSecret(['bob', 'secret']);
       expect(cred.getAuth()).toEqual({ clientId: 'bob', clientSecret: 'secret' });
-      expect(cred.getAuth('zone-x')).toEqual({ clientId: 'bob', clientSecret: 'secret' });
+      expect(cred.getAuth('https://zone-x.keycard.cloud')).toEqual({ clientId: 'bob', clientSecret: 'secret' });
     });
   });
 
-  describe('multi-zone dict constructor', () => {
+  describe('multi-zone dict constructor (issuer-keyed)', () => {
     const cred = new ClientSecret({
-      'zone-a': ['id-a', 'sec-a'],
-      'zone-b': ['id-b', 'sec-b'],
+      'https://zone-a.keycard.cloud': ['id-a', 'sec-a'],
+      'https://zone-b.keycard.cloud/': ['id-b', 'sec-b'],
     });
 
-    it('routes by zoneId', () => {
-      expect(cred.getAuth('zone-a')).toEqual({ clientId: 'id-a', clientSecret: 'sec-a' });
-      expect(cred.getAuth('zone-b')).toEqual({ clientId: 'id-b', clientSecret: 'sec-b' });
+    it('routes by issuer URL', () => {
+      expect(cred.getAuth('https://zone-a.keycard.cloud')).toEqual({ clientId: 'id-a', clientSecret: 'sec-a' });
+      expect(cred.getAuth('https://zone-b.keycard.cloud')).toEqual({ clientId: 'id-b', clientSecret: 'sec-b' });
     });
 
-    it('returns null for an unknown zone', () => {
-      expect(cred.getAuth('zone-c')).toBeNull();
+    it('normalizes trailing slashes on both stored keys and lookups', () => {
+      expect(cred.getAuth('https://zone-a.keycard.cloud/')).toEqual({ clientId: 'id-a', clientSecret: 'sec-a' });
+      expect(cred.getAuth('https://zone-b.keycard.cloud/')).toEqual({ clientId: 'id-b', clientSecret: 'sec-b' });
     });
 
-    it('returns null when zoneId is missing', () => {
+    it('fails closed for an unknown issuer', () => {
+      expect(cred.getAuth('https://zone-c.keycard.cloud')).toBeNull();
+    });
+
+    it('fails closed when issuer is missing', () => {
       expect(cred.getAuth()).toBeNull();
     });
 
@@ -53,11 +58,11 @@ describe('ClientSecret', () => {
       expect(() => new ClientSecret(['bob', ''])).toThrow(/non-empty/);
     });
 
-    it('rejects empty credentials in a multi-zone dict and names the zone', () => {
-      expect(() => new ClientSecret({ 'zone-a': ['', 'sec-a'] })).toThrow(
+    it('rejects empty credentials in a multi-zone dict and names the issuer', () => {
+      expect(() => new ClientSecret({ 'https://zone-a.keycard.cloud': ['', 'sec-a'] })).toThrow(
         /non-empty.*zone-a/,
       );
-      expect(() => new ClientSecret({ 'zone-b': ['id-b', ''] })).toThrow(/zone-b/);
+      expect(() => new ClientSecret({ 'https://zone-b.keycard.cloud': ['id-b', ''] })).toThrow(/zone-b/);
     });
   });
 

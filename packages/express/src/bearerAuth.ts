@@ -43,7 +43,11 @@ export interface AuthenticatedRequest extends Request {
 }
 
 export type BearerAuthOptions =
-  | { verifier: TokenVerifier; requiredScopes?: readonly string[] }
+  | {
+      verifier: TokenVerifier;
+      requiredScopes?: readonly string[];
+      zoneResolver?: (req: Request) => string | undefined;
+    }
   | {
       /**
        * Keycard zone URL, e.g. "https://zone-id.keycard.cloud".
@@ -59,6 +63,17 @@ export type BearerAuthOptions =
       enableMultiZone?: boolean;
       keyring?: TokenVerifierOptions["keyring"];
       requiredScopes?: readonly string[];
+      /**
+       * Resolves the zone ID for the incoming request. When it returns a
+       * zone ID, the token is verified against that zone's issuer via
+       * `TokenVerifier.verifyTokenForZone`; when it returns `undefined`
+       * (or no resolver is set), the verifier's configured issuer is used.
+       * Requires a multi-zone verifier (`enableMultiZone: true`).
+       *
+       * Multi-zone deployments where each zone is served on its own
+       * subdomain can pass `subdomainZoneResolver` directly.
+       */
+      zoneResolver?: (req: Request) => string | undefined;
     };
 
 /**
@@ -118,7 +133,10 @@ export function requireBearerAuth(options: BearerAuthOptions): RequestHandler {
         throw new InvalidTokenError("Unsupported authentication scheme");
       }
 
-      const accessToken = await verifier.verifyToken(token);
+      const zoneId = options.zoneResolver?.(req);
+      const accessToken = zoneId
+        ? await verifier.verifyTokenForZone(token, zoneId)
+        : await verifier.verifyToken(token);
       if (!accessToken) {
         throw new InvalidTokenError("Token validation failed");
       }
@@ -187,4 +205,37 @@ function getResourceMetadataUrl(req: Request): string {
 function buildIssuerFromZoneId(zoneId?: string): string | undefined {
   if (!zoneId) return undefined;
   return `https://${zoneId}.keycard.cloud`;
+}
+
+/**
+ * Zone resolver that reads the zone ID from the leftmost label of the
+ * request's Host header. Suited to multi-zone deployments where each zone
+ * is served on its own subdomain, e.g. `zone-a.api.example.com` resolves
+ * to zone `zone-a`:
+ *
+ * ```ts
+ * app.use(requireBearerAuth({
+ *   zoneUrl: baseZoneUrl,
+ *   enableMultiZone: true,
+ *   zoneResolver: subdomainZoneResolver,
+ * }));
+ * ```
+ *
+ * Returns `undefined` when the host has fewer than three labels (no
+ * subdomain to extract) or is an IP address or localhost.
+ */
+export function subdomainZoneResolver(req: Request): string | undefined {
+  const host = req.host;
+  if (!host) return undefined;
+  // Bracketed IPv6 literals carry no subdomain.
+  if (host.startsWith("[")) return undefined;
+  // req.host may still include a port on some Express versions; strip it.
+  const hostname = host.split(":")[0];
+  if (!hostname || hostname === "localhost") return undefined;
+  // IPv4 literals carry no subdomain.
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(hostname)) return undefined;
+  const labels = hostname.split(".");
+  if (labels.length < 3) return undefined;
+  const zoneId = labels[0];
+  return zoneId.length > 0 ? zoneId : undefined;
 }

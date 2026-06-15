@@ -2,18 +2,26 @@ import type { ApplicationCredential } from "../credentials.js";
 import type { TokenExchangeRequest } from "../tokenExchange.js";
 
 const ACCESS_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:access_token";
-const DEFAULT_ZONE = "__default__";
+const SINGLE_CREDENTIAL_KEY = "__default__";
 
 function requireNonEmptyCredential(
   clientId: string,
   clientSecret: string,
-  zoneContext = "",
+  issuerContext = "",
 ): void {
   if (clientId.length === 0 || clientSecret.length === 0) {
     throw new TypeError(
-      `ClientSecret: client_id and client_secret must be non-empty strings${zoneContext}`,
+      `ClientSecret: client_id and client_secret must be non-empty strings${issuerContext}`,
     );
   }
+}
+
+/**
+ * Strips trailing slashes so "https://zone.keycard.cloud/" and
+ * "https://zone.keycard.cloud" select the same credential entry.
+ */
+function normalizeIssuer(issuer: string): string {
+  return issuer.replace(/\/+$/, "");
 }
 
 export type ClientSecretCredentials =
@@ -21,7 +29,7 @@ export type ClientSecretCredentials =
   | Record<string, [clientId: string, clientSecret: string]>;
 
 export class ClientSecret implements ApplicationCredential {
-  #zoneCredentials: Map<string, [string, string]>;
+  #credentialsByIssuer: Map<string, [string, string]>;
   #isMultiZone: boolean;
 
   constructor(clientId: string, clientSecret: string);
@@ -30,14 +38,14 @@ export class ClientSecret implements ApplicationCredential {
     arg1: string | ClientSecretCredentials,
     arg2?: string,
   ) {
-    this.#zoneCredentials = new Map();
+    this.#credentialsByIssuer = new Map();
 
     if (typeof arg1 === "string") {
       if (typeof arg2 !== "string") {
         throw new TypeError("ClientSecret: client_secret is required when client_id is provided as a string");
       }
       requireNonEmptyCredential(arg1, arg2);
-      this.#zoneCredentials.set(DEFAULT_ZONE, [arg1, arg2]);
+      this.#credentialsByIssuer.set(SINGLE_CREDENTIAL_KEY, [arg1, arg2]);
       this.#isMultiZone = false;
       return;
     }
@@ -48,21 +56,23 @@ export class ClientSecret implements ApplicationCredential {
         throw new TypeError("ClientSecret: tuple must be [clientId, clientSecret]");
       }
       requireNonEmptyCredential(clientId, clientSecret);
-      this.#zoneCredentials.set(DEFAULT_ZONE, [clientId, clientSecret]);
+      this.#credentialsByIssuer.set(SINGLE_CREDENTIAL_KEY, [clientId, clientSecret]);
       this.#isMultiZone = false;
       return;
     }
 
     if (arg1 && typeof arg1 === "object") {
-      for (const [zoneId, tuple] of Object.entries(arg1)) {
+      // Multi-zone shape: keys are zone issuer URLs, e.g.
+      // "https://zone-a.keycard.cloud" -> ["client-id", "client-secret"].
+      for (const [issuer, tuple] of Object.entries(arg1)) {
         if (!Array.isArray(tuple) || typeof tuple[0] !== "string" || typeof tuple[1] !== "string") {
-          throw new TypeError(`ClientSecret: zone "${zoneId}" must map to [clientId, clientSecret]`);
+          throw new TypeError(`ClientSecret: issuer "${issuer}" must map to [clientId, clientSecret]`);
         }
-        requireNonEmptyCredential(tuple[0], tuple[1], ` for zone "${zoneId}"`);
-        this.#zoneCredentials.set(zoneId, [tuple[0], tuple[1]]);
+        requireNonEmptyCredential(tuple[0], tuple[1], ` for issuer "${issuer}"`);
+        this.#credentialsByIssuer.set(normalizeIssuer(issuer), [tuple[0], tuple[1]]);
       }
-      if (this.#zoneCredentials.size === 0) {
-        throw new TypeError("ClientSecret: zone-keyed credentials must contain at least one zone");
+      if (this.#credentialsByIssuer.size === 0) {
+        throw new TypeError("ClientSecret: issuer-keyed credentials must contain at least one issuer");
       }
       this.#isMultiZone = true;
       return;
@@ -71,15 +81,15 @@ export class ClientSecret implements ApplicationCredential {
     throw new TypeError("ClientSecret: unsupported credentials shape");
   }
 
-  getAuth(zoneId?: string): { clientId: string; clientSecret: string } | null {
+  getAuth(issuer?: string): { clientId: string; clientSecret: string } | null {
     if (!this.#isMultiZone) {
-      const tuple = this.#zoneCredentials.get(DEFAULT_ZONE);
+      const tuple = this.#credentialsByIssuer.get(SINGLE_CREDENTIAL_KEY);
       return tuple ? { clientId: tuple[0], clientSecret: tuple[1] } : null;
     }
-    if (!zoneId) {
+    if (!issuer) {
       return null;
     }
-    const tuple = this.#zoneCredentials.get(zoneId);
+    const tuple = this.#credentialsByIssuer.get(normalizeIssuer(issuer));
     return tuple ? { clientId: tuple[0], clientSecret: tuple[1] } : null;
   }
 

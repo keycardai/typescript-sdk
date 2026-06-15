@@ -195,7 +195,9 @@ export class AuthProvider {
 
     if (!this.#clientPromise) {
       this.#clientPromise = (async () => {
-        const auth = this.#applicationCredential?.getAuth();
+        // The zone URL is the issuer, so issuer-keyed multi-zone
+        // credentials resolve correctly for this provider's zone.
+        const auth = this.#applicationCredential?.getAuth(this.#zoneUrl);
         const client = new TokenExchangeClient(this.#zoneUrl, auth ?? undefined);
         this.#client = client;
         return client;

@@ -123,14 +123,14 @@ describe('ClientCredentialsClient.requestToken', () => {
     expect(headers['Authorization']).toBe(`Basic ${btoa('alice:shh')}`);
   });
 
-  it('resolves Basic auth from the credential by zoneId when a credential is provided', async () => {
+  it('resolves Basic auth from the credential by issuer when a credential is provided', async () => {
     const credential = new ClientSecret({
-      'zone-a': ['id-a', 'sec-a'],
-      'zone-b': ['id-b', 'sec-b'],
+      'https://zone-a.keycard.cloud': ['id-a', 'sec-a'],
+      'https://zone-b.keycard.cloud': ['id-b', 'sec-b'],
     });
     const client = new ClientCredentialsClient(ISSUER, { credential });
 
-    await client.requestToken({}, { zoneId: 'zone-b' });
+    await client.requestToken({}, { issuer: 'https://zone-b.keycard.cloud' });
 
     const headers = tokenCallHeaders();
     expect(headers['Authorization']).toBe(`Basic ${btoa('id-b:sec-b')}`);

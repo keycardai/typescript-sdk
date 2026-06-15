@@ -233,11 +233,11 @@ describe('grant', () => {
     expect(tokenCall).toBeDefined();
   });
 
-  it('routes multi-zone ClientSecret credentials by resolved zoneId', async () => {
+  it('routes issuer-keyed multi-zone ClientSecret credentials by the resolved zone issuer', async () => {
     const { ClientSecret } = await import('@keycardai/oauth/server');
     const credential = new ClientSecret({
-      'zone-a': ['id-a', 'sec-a'],
-      'zone-b': ['id-b', 'sec-b'],
+      'https://zone-a.keycard.cloud': ['id-a', 'sec-a'],
+      'https://zone-b.keycard.cloud': ['id-b', 'sec-b'],
     });
 
     // Return zone-specific metadata so the token endpoint URL reflects the zone
@@ -301,8 +301,8 @@ describe('grant', () => {
 
   it('records a resource error when zoneId resolves to a zone with no matching credential', async () => {
     const { ClientSecret } = await import('@keycardai/oauth/server');
-    // Dict has zone-a only; the request auth says zone-x (no entry)
-    const credential = new ClientSecret({ 'zone-a': ['id-a', 'sec-a'] });
+    // Dict has zone-a's issuer only; the request auth says zone-x (no entry)
+    const credential = new ClientSecret({ 'https://zone-a.keycard.cloud': ['id-a', 'sec-a'] });
 
     fetchMock.mockImplementation(async (input: FetchInput) => {
       const url = typeof input === 'string' ? input : input.toString();
