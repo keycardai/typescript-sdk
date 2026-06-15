@@ -1,3 +1,23 @@
+## 0.19.0-keycardai-oauth (2026-06-15)
+
+
+- fix(oauth): raise typed OAuthError("invalid_response") on malformed token responses
+- Token exchange, client credentials, authorization-code exchange, and
+dynamic client registration now raise OAuthError with the
+invalid_response code on a malformed or unparseable success/error body
+(missing access_token, non-OK response with no parseable OAuth error,
+non-JSON body, missing client_id), instead of a plain Error. This
+matches the discovery path and Python, so a caller can switch on the
+same discriminator across operations and SDKs.
+- feat(oauth)!: key multi-zone credentials by issuer and rename the per-call selector
+- ApplicationCredential.getAuth takes the zone issuer URL; multi-zone
+ClientSecret maps are keyed by issuer URL with trailing-slash
+normalization, fail-closed on unknown issuers. ExchangeOptions,
+ImpersonateRequest, RequestTokenOptions, and
+prepareTokenExchangeRequest name the per-call selector issuer.
+- BREAKING CHANGE: multi-zone ClientSecret maps are keyed by issuer URL
+instead of zone id, and the per-call zoneId selector is renamed issuer.
+
 ## 0.18.0-keycardai-oauth (2026-06-12)
 
 
