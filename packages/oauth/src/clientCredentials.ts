@@ -106,7 +106,8 @@ export class ClientCredentialsClient {
         if (e instanceof OAuthError) throw e;
         // non-JSON or no "error" key: fall through
       }
-      throw new Error(
+      throw new OAuthError(
+        "invalid_response",
         `Client credentials request failed (HTTP ${response.status})`,
       );
     }

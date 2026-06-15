@@ -150,13 +150,19 @@ describe('ClientCredentialsClient.requestToken', () => {
     await expect(client.requestToken()).rejects.toThrow(OAuthError);
   });
 
-  it('throws a generic Error with the HTTP status on a non-JSON error response', async () => {
+  it('throws OAuthError("invalid_response") with the HTTP status on a non-JSON error response', async () => {
     tokenResponseFactory = () => new Response('upstream failure', { status: 502 });
 
     const client = new ClientCredentialsClient(ISSUER);
-    await expect(client.requestToken()).rejects.toThrow(
-      'Client credentials request failed (HTTP 502)',
-    );
+    let thrown: unknown;
+    try {
+      await client.requestToken();
+    } catch (e) {
+      thrown = e;
+    }
+    expect(thrown).toBeInstanceOf(OAuthError);
+    expect((thrown as OAuthError).errorCode).toBe('invalid_response');
+    expect((thrown as OAuthError).message).toContain('HTTP 502');
   });
 
   it('discovers the token endpoint once across multiple requests', async () => {

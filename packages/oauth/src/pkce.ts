@@ -138,12 +138,15 @@ export async function exchangeAuthorizationCode(
       const errorUri = typeof errorBody.error_uri === "string" ? errorBody.error_uri : undefined;
       throw new OAuthError(errorBody.error, description, errorUri);
     }
-    throw new Error(`Authorization code exchange failed (HTTP ${response.status})`);
+    throw new OAuthError(
+      "invalid_response",
+      `Authorization code exchange failed (HTTP ${response.status})`,
+    );
   }
 
   const json = await response.json() as unknown;
   if (!json || typeof json !== "object" || Array.isArray(json)) {
-    throw new Error("Token endpoint response is not a valid JSON object");
+    throw new OAuthError("invalid_response", "Token endpoint response is not a valid JSON object");
   }
   return deserializeTokenResponse(json as Record<string, unknown>);
 }

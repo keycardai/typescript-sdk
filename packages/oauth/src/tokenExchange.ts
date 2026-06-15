@@ -92,7 +92,7 @@ function serializeRequest(request: TokenExchangeRequest): URLSearchParams {
 export function deserializeTokenResponse(json: Record<string, unknown>): TokenResponse {
   const accessToken = json.access_token;
   if (typeof accessToken !== "string" || !accessToken) {
-    throw new Error("Token exchange response missing access_token");
+    throw new OAuthError("invalid_response", "Token response missing access_token");
   }
 
   const response: TokenResponse = {
@@ -171,7 +171,8 @@ export class TokenExchangeClient {
         if (e instanceof OAuthError) throw e;
         // non-JSON or no "error" key — fall through
       }
-      throw new Error(
+      throw new OAuthError(
+        "invalid_response",
         `Token exchange failed (HTTP ${response.status})`,
       );
     }

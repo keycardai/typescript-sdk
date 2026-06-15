@@ -1,6 +1,7 @@
 import { jest } from '@jest/globals';
 import { TokenExchangeClient, TokenType } from './tokenExchange.js';
 import { ClientSecret } from './server/clientSecret.js';
+import { OAuthError } from './errors.js';
 
 const ISSUER = 'https://auth.example.com';
 const TOKEN_ENDPOINT = 'https://auth.example.com/token';
@@ -146,6 +147,18 @@ describe('deserializeTokenResponse', () => {
     const { deserializeTokenResponse } = await import('./tokenExchange.js');
     const response = deserializeTokenResponse({ access_token: 'tok' });
     expect(response.tokenType).toBe('Bearer');
+  });
+
+  it('throws OAuthError("invalid_response") when access_token is missing', async () => {
+    const { deserializeTokenResponse } = await import('./tokenExchange.js');
+    let thrown: unknown;
+    try {
+      deserializeTokenResponse({ token_type: 'Bearer' });
+    } catch (e) {
+      thrown = e;
+    }
+    expect(thrown).toBeInstanceOf(OAuthError);
+    expect((thrown as OAuthError).errorCode).toBe('invalid_response');
   });
 
   it('parses id_token when present', async () => {
