@@ -292,6 +292,80 @@ describe("AuthProvider", () => {
         );
         expect(payload.sub).toBe("alice@example.com");
       });
+
+      it("should apply a string requestScopes to every resource", async () => {
+        const provider = new AuthProvider({ zoneUrl: ZONE });
+        const middleware = provider.grant(
+          ["https://api-a.example.com", "https://api-b.example.com"],
+          { requestScopes: "read write" },
+        );
+
+        const req: any = { headers: {}, auth: { token: "subject-tok" } };
+        const res = mockResponse();
+        const next = jest.fn();
+
+        await middleware(req, res, next);
+
+        const tokenCalls = fetchMock.mock.calls.filter(
+          ([url]) => typeof url === "string" && (url as string).endsWith("/token"),
+        );
+        expect(tokenCalls).toHaveLength(2);
+        for (const call of tokenCalls) {
+          const params = new URLSearchParams(((call[1] as RequestInit).body ?? "") as string);
+          expect(params.get("scope")).toBe("read write");
+        }
+      });
+
+      it("should apply a record requestScopes per resource", async () => {
+        const RES_A = "https://api-a.example.com";
+        const RES_B = "https://api-b.example.com";
+        const RES_C = "https://api-c.example.com";
+        const provider = new AuthProvider({ zoneUrl: ZONE });
+        const middleware = provider.grant([RES_A, RES_B, RES_C], {
+          requestScopes: {
+            [RES_A]: ["read", "write"],
+            [RES_B]: "admin",
+          },
+        });
+
+        const req: any = { headers: {}, auth: { token: "subject-tok" } };
+        const res = mockResponse();
+        const next = jest.fn();
+
+        await middleware(req, res, next);
+
+        const scopeFor = (resource: string) => {
+          const tokenCalls = fetchMock.mock.calls.filter(
+            ([url]) => typeof url === "string" && (url as string).endsWith("/token"),
+          );
+          for (const c of tokenCalls) {
+            const params = new URLSearchParams(((c[1] as RequestInit).body ?? "") as string);
+            if (params.get("resource") === resource) return params.get("scope");
+          }
+          return null;
+        };
+
+        expect(scopeFor(RES_A)).toBe("read write");
+        expect(scopeFor(RES_B)).toBe("admin");
+        expect(scopeFor(RES_C)).toBeNull();
+      });
+
+      it("should send no scope param when requestScopes is unset", async () => {
+        const provider = new AuthProvider({ zoneUrl: ZONE });
+        const middleware = provider.grant("https://api.example.com");
+
+        const req: any = { headers: {}, auth: { token: "subject-tok" } };
+        const res = mockResponse();
+        const next = jest.fn();
+
+        await middleware(req, res, next);
+
+        const tokenCall = fetchMock.mock.calls.find(
+          ([url]) => typeof url === "string" && (url as string).endsWith("/token"),
+        );
+        const params = new URLSearchParams(((tokenCall![1] as RequestInit).body ?? "") as string);
+        expect(params.get("scope")).toBeNull();
+      });
     });
   });
 

@@ -37,6 +37,13 @@ export interface GrantMiddlewareOptions {
    * once per request and may be async.
    */
   userIdentifier?: (req: Request) => string | Promise<string>;
+  /**
+   * OAuth scopes to request for each per-resource token exchange. A single
+   * string or string array applies to every resource. A record keys scopes
+   * by resource string; resources absent from the record request no scope.
+   * String arrays are joined with spaces for the wire `scope` parameter.
+   */
+  requestScopes?: string | string[] | Record<string, string | string[]>;
 }
 
 export interface ExchangeTokensOptions {
@@ -46,6 +53,31 @@ export interface ExchangeTokensOptions {
    * the subject token.
    */
   userIdentifier?: string;
+  /**
+   * OAuth scopes to request for each per-resource token exchange. A single
+   * string or string array applies to every resource. A record keys scopes
+   * by resource string; resources absent from the record request no scope.
+   */
+  requestScopes?: string | string[] | Record<string, string | string[]>;
+}
+
+/**
+ * Resolve the wire `scope` value for a single resource from the
+ * `requestScopes` option. Returns undefined when no scope applies.
+ */
+function resolveRequestScope(
+  requestScopes: string | string[] | Record<string, string | string[]> | undefined,
+  resource: string,
+): string | undefined {
+  if (requestScopes === undefined) return undefined;
+  if (typeof requestScopes === "string") return requestScopes;
+  if (Array.isArray(requestScopes)) {
+    return requestScopes.join(" ") || undefined;
+  }
+  const perResource = requestScopes[resource];
+  if (perResource === undefined) return undefined;
+  if (typeof perResource === "string") return perResource;
+  return perResource.join(" ") || undefined;
 }
 
 // =============================================================================
@@ -111,6 +143,7 @@ export class AuthProvider {
 
       const accessCtx = await this.exchangeTokens(subjectToken, resources, {
         userIdentifier: resolvedUserIdentifier,
+        requestScopes: options?.requestScopes,
       });
       if (existingCtx) {
         existingCtx.merge(accessCtx);
@@ -145,10 +178,12 @@ export class AuthProvider {
 
     for (const resource of resourceList) {
       try {
+        const scope = resolveRequestScope(options?.requestScopes, resource);
         if (options?.userIdentifier !== undefined) {
           tokens[resource] = await client.impersonate({
             userIdentifier: options.userIdentifier,
             resource,
+            scope,
           });
           continue;
         }
@@ -166,6 +201,9 @@ export class AuthProvider {
             resource,
             subjectTokenType: "urn:ietf:params:oauth:token-type:access_token" as const,
           };
+        }
+        if (scope !== undefined) {
+          request = { ...request, scope };
         }
 
         const response = await client.exchangeToken(request);
