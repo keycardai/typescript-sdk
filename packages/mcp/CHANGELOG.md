@@ -1,3 +1,12 @@
+## 0.10.0-keycardai-mcp (2026-06-22)
+
+
+- feat(mcp): add requestScopes to AuthProvider.grant
+- grant() accepts requestScopes (a string/string[] applied to every
+resource, or a record keyed by resource), threaded through exchangeTokens
+and applied to the per-resource token-exchange scope on both the standard
+and substitute-user paths. No scope is sent when unset.
+
 ## 0.9.0-keycardai-mcp (2026-06-15)
 
 
