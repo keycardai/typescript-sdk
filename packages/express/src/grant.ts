@@ -54,6 +54,32 @@ export interface GrantOptions {
    * ```
    */
   userIdentifier?: (req: Request) => string | Promise<string>;
+  /**
+   * OAuth scopes to request for each per-resource token exchange. A single
+   * string or string array applies to every resource. A record keys scopes
+   * by resource string; resources absent from the record request no scope.
+   * String arrays are joined with spaces for the wire `scope` parameter.
+   */
+  requestScopes?: string | string[] | Record<string, string | string[]>;
+}
+
+/**
+ * Resolve the wire `scope` value for a single resource from the
+ * `requestScopes` option. Returns undefined when no scope applies.
+ */
+function resolveRequestScope(
+  requestScopes: string | string[] | Record<string, string | string[]> | undefined,
+  resource: string,
+): string | undefined {
+  if (requestScopes === undefined) return undefined;
+  if (typeof requestScopes === "string") return requestScopes;
+  if (Array.isArray(requestScopes)) {
+    return requestScopes.join(" ") || undefined;
+  }
+  const perResource = requestScopes[resource];
+  if (perResource === undefined) return undefined;
+  if (typeof perResource === "string") return perResource;
+  return perResource.join(" ") || undefined;
 }
 
 /**
@@ -181,10 +207,12 @@ export function grant(
 
     for (const resource of resourceList) {
       try {
+        const scope = resolveRequestScope(options.requestScopes, resource);
         if (resolvedUserIdentifier !== undefined) {
           tokens[resource] = await client.impersonate({
             userIdentifier: resolvedUserIdentifier,
             resource,
+            scope,
             issuer: resolvedIssuer,
           });
           continue;
@@ -202,6 +230,9 @@ export function grant(
             resource,
             subjectTokenType: "urn:ietf:params:oauth:token-type:access_token" as const,
           };
+        }
+        if (scope !== undefined) {
+          exchangeRequest = { ...exchangeRequest, scope };
         }
         tokens[resource] = await client.exchangeToken(exchangeRequest, {
           issuer: resolvedIssuer,

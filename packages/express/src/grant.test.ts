@@ -140,6 +140,76 @@ describe('grant', () => {
     expect(payload.sub).toBe('alice@example.com');
   });
 
+  it('applies a string requestScopes to every resource', async () => {
+    const RESOURCE_B = 'https://api-b.example.com';
+    const app = express();
+    app.use((req, _res, next) => { (req as any).auth = VALID_AUTH; next(); });
+    app.use(grant([RESOURCE, RESOURCE_B], {
+      zoneUrl: ZONE_URL,
+      requestScopes: 'read write',
+    }));
+    app.get('/data', (req, res) => {
+      res.json({ status: (req as any).accessContext.getStatus() });
+    });
+
+    await request(app).get('/data');
+
+    const tokenCalls = fetchMock.mock.calls.filter(
+      ([url]) => typeof url === 'string' && url.endsWith('/token'),
+    );
+    expect(tokenCalls).toHaveLength(2);
+    for (const call of tokenCalls) {
+      const params = new URLSearchParams(((call[1] as RequestInit).body ?? '') as string);
+      expect(params.get('scope')).toBe('read write');
+    }
+  });
+
+  it('applies a record requestScopes per resource', async () => {
+    const RES_A = RESOURCE;
+    const RES_B = 'https://api-b.example.com';
+    const RES_C = 'https://api-c.example.com';
+    const app = express();
+    app.use((req, _res, next) => { (req as any).auth = VALID_AUTH; next(); });
+    app.use(grant([RES_A, RES_B, RES_C], {
+      zoneUrl: ZONE_URL,
+      requestScopes: {
+        [RES_A]: ['read', 'write'],
+        [RES_B]: 'admin',
+      },
+    }));
+    app.get('/data', (req, res) => {
+      res.json({ status: (req as any).accessContext.getStatus() });
+    });
+
+    await request(app).get('/data');
+
+    const scopeFor = (resource: string) => {
+      const tokenCalls = fetchMock.mock.calls.filter(
+        ([url]) => typeof url === 'string' && url.endsWith('/token'),
+      );
+      for (const call of tokenCalls) {
+        const params = new URLSearchParams(((call[1] as RequestInit).body ?? '') as string);
+        if (params.get('resource') === resource) return params.get('scope');
+      }
+      return null;
+    };
+
+    expect(scopeFor(RES_A)).toBe('read write');
+    expect(scopeFor(RES_B)).toBe('admin');
+    expect(scopeFor(RES_C)).toBeNull();
+  });
+
+  it('sends no scope param when requestScopes is unset', async () => {
+    const app = makeApp([RESOURCE], VALID_AUTH);
+    await request(app).get('/data');
+
+    const tokenCall = fetchMock.mock.calls.find(
+      ([url]) => typeof url === 'string' && url.endsWith('/token'),
+    );
+    const params = new URLSearchParams(((tokenCall![1] as RequestInit).body ?? '') as string);
+    expect(params.get('scope')).toBeNull();
+  });
+
   it('records a global error when the userIdentifier resolver throws', async () => {
     const app = express();
     app.use((req, _res, next) => { (req as any).auth = VALID_AUTH; next(); });
