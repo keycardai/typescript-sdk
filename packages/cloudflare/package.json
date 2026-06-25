@@ -61,7 +61,7 @@
     "@cloudflare/workers-types": "^4.20250327.0",
     "@jest/globals": "^30.0.4",
     "jest": "^30.0.4",
-    "ts-jest": "^29.4.0",
+    "ts-jest": "^29.4.7",
     "typescript": "^5.8.3"
   }
 }
