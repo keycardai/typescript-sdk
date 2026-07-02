@@ -37,7 +37,7 @@ describe('MCP Auth Metadata Router', () => {
       jest.restoreAllMocks();
     });
 
-    it('returns OAuth protected resource metadata using self as authorization server for best compatibility with clients using MCP version 2025-03-26', async () => {
+    it('returns the configured issuer in authorization_servers regardless of the MCP-Protocol-Version header', async () => {
       const response = await supertest(app)
         .get('/.well-known/oauth-protected-resource')
         .set('Host', 'api.example.com')
@@ -48,7 +48,7 @@ describe('MCP Auth Metadata Router', () => {
       // Verify protected resource metadata
       expect(response.body).toStrictEqual({
         resource: 'http://api.example.com',
-        authorization_servers: ['http://api.example.com'],
+        authorization_servers: ['https://auth.example.com'],
         scopes_supported: ['read', 'write'],
         resource_name: 'Test API',
         resource_documentation: 'https://docs.example.com/'
