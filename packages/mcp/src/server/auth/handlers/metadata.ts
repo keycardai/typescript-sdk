@@ -16,14 +16,8 @@ export function protectedResourceMetadataHandler(metadata: InferredOAuthProtecte
 
     const baseUrl = `${req.protocol}://${req.host}`;
     const resource = `${baseUrl}${path}`;
-    const mcpVersion = req.headers['mcp-protocol-version'];
 
     const json: OAuthProtectedResourceMetadata = { resource, ...metadata };
-    switch (mcpVersion) {
-      case '2025-03-26':
-        json.authorization_servers = [ baseUrl ]
-        break;
-    }
     res.status(200).json(json);
   });
 
