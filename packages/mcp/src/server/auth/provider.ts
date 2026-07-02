@@ -1,5 +1,5 @@
 import type { Request, Response, NextFunction, RequestHandler } from "express";
-import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
+import type { AuthInfo } from "../../shared/auth.js";
 import { TokenExchangeClient } from "@keycardai/oauth/tokenExchange";
 import type { TokenResponse } from "@keycardai/oauth/tokenExchange";
 import { OAuthError } from "@keycardai/oauth/errors";

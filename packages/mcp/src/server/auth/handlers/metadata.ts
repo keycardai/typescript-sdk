@@ -1,6 +1,5 @@
 import express, { RequestHandler } from "express";
-import { OAuthProtectedResourceMetadata } from "@modelcontextprotocol/sdk/shared/auth.js";
-import type { InferredOAuthProtectedResourceMetadata } from "../../../shared/auth.js";
+import type { InferredOAuthProtectedResourceMetadata, OAuthProtectedResourceMetadata } from "../../../shared/auth.js";
 import cors from 'cors';
 
 export function protectedResourceMetadataHandler(metadata: InferredOAuthProtectedResourceMetadata): RequestHandler {

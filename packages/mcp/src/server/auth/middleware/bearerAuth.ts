@@ -1,6 +1,5 @@
 import type { Request, Response, NextFunction, RequestHandler } from "express";
-import { OAuthTokenVerifier } from "@modelcontextprotocol/sdk/server/auth/provider.js"
-import { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
+import type { AuthInfo, OAuthTokenVerifier } from "../../../shared/auth.js";
 import { JWTOAuthTokenVerifier } from "../verifiers/jwt.js";
 import { JWKSOAuthKeyring } from "@keycardai/oauth/keyring";
 import { getOAuthProtectedResourceMetadataUrl } from "../router.js"

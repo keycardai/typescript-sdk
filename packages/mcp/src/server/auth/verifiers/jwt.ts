@@ -1,5 +1,4 @@
-import { OAuthTokenVerifier } from "@modelcontextprotocol/sdk/server/auth/provider.js";
-import { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
+import type { AuthInfo, OAuthTokenVerifier } from "../../../shared/auth.js";
 import type { OAuthKeyring } from "@keycardai/oauth/keyring";
 import { JWTVerifier, type JWTVerifierOptions } from "@keycardai/oauth/jwt/verifier";
 
@@ -26,7 +25,7 @@ export class JWTOAuthTokenVerifier implements OAuthTokenVerifier {
 }
 
 /**
- * Convert a JWT `aud` claim into the MCP SDK's `AuthInfo.resource` URL.
+ * Convert a JWT `aud` claim into the `AuthInfo.resource` URL.
  * Returns `undefined` when the claim is absent, empty, or not a valid URL
  * (opaque audience strings like `"my-api"` are valid per RFC 7519 but not
  * representable as a URL — we surface them via `AuthInfo.token` instead).
