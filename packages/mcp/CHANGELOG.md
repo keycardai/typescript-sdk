@@ -1,3 +1,22 @@
+## 0.10.2-keycardai-mcp (2026-07-02)
+
+
+- refactor(mcp): vendor server-side auth types, make @modelcontextprotocol/sdk peer optional
+- Every @modelcontextprotocol/sdk import in this package is type-only;
+the compiled JS has zero runtime references. The official SDK's v2
+renames packages, which breaks .d.ts type resolution for v2 adopters
+and makes the ^1.15.0 peer range unsatisfiable.
+- Vendor structurally identical AuthInfo, OAuthTokenVerifier, and
+OAuthProtectedResourceMetadata types in shared/auth and switch the
+server-path modules (and the client JWT signer) to them. AuthInfo is
+field-identical in SDK v2, so structural typing preserves interop in
+both directions.
+- The client OAuth provider (client/auth/providers/base.ts) stays on
+the v1 SDK types pending its v2 rework, so the peer dependency is
+kept but marked optional; server-only installs work without the SDK.
+- Refs ECO-98
+- Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+
 ## 0.10.1-keycardai-mcp (2026-07-02)
 
 
