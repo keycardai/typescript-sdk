@@ -87,6 +87,11 @@
   "peerDependencies": {
     "@modelcontextprotocol/sdk": "^1.15.0"
   },
+  "peerDependenciesMeta": {
+    "@modelcontextprotocol/sdk": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "@jest/globals": "^30.0.4",
     "@modelcontextprotocol/sdk": "^1.15.0",

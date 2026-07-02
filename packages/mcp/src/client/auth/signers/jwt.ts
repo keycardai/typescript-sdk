@@ -1,4 +1,4 @@
-import { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
+import type { AuthInfo } from "../../../shared/auth.js";
 import type { PrivateKeyring } from "@keycardai/oauth/keyring";
 import { JWTSigner, type JWTClaims } from "@keycardai/oauth/jwt/signer";
 
