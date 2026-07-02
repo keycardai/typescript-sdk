@@ -1,3 +1,20 @@
+## 0.10.1-keycardai-mcp (2026-07-02)
+
+
+- fix(mcp): always emit configured issuer in authorization_servers
+- The protected resource metadata handler special-cased the
+mcp-protocol-version: 2025-03-26 header and overrode
+authorization_servers to the resource origin. The Go SDK
+(credentials-go #21, v0.10.1) and Python SDK always emit the
+configured issuer per RFC 9728, so legacy clients received
+[origin] from TypeScript but [issuer] from Go/Python. Drop the
+shim so all three SDKs converge on the issuer.
+- Legacy clients that resolve /.well-known/oauth-authorization-server
+on the resource origin are still served by the proxied AS metadata
+route.
+- Fixes ECO-100
+- Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+
 ## 0.10.0-keycardai-mcp (2026-06-22)
 
 
