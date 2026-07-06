@@ -1,3 +1,15 @@
+## 0.11.0-keycardai-mcp (2026-07-06)
+
+
+- feat(mcp): accept redirect URL and stores via BaseOAuthClientProvider options
+- BaseOAuthClientProvider could not be used for the authorization-code flow
+without forking: the redirect URL had no constructor parameter and no
+setter, so the redirectUrl getter always threw, and the token and code
+verifier stores were only injectable by subclassing. An optional options
+argument now wires redirectUrl, tokensStore, codeVerifierStore, and
+privateKeyring at construction.
+- Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+
 ## 0.10.2-keycardai-mcp (2026-07-02)
 
 
