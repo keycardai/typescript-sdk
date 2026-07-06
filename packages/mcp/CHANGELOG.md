@@ -1,3 +1,14 @@
+## 0.11.1-keycardai-mcp (2026-07-06)
+
+
+- fix(mcp): send client_id on token requests for public clients
+- BaseOAuthClientProvider.addClientAuthentication had no case for
+token_endpoint_auth_method "none", and the MCP SDK prefers a provider's
+addClientAuthentication over its own public-client handling whenever the
+method is defined. Public clients therefore sent token requests with no
+client identification, violating RFC 6749 section 4.1.3.
+- Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+
 ## 0.11.0-keycardai-mcp (2026-07-06)
 
 
