@@ -25,6 +25,31 @@ describe('Base OAuth client provider', () => {
     });
   }); // creation with client ID
 
+  describe('addClientAuthentication', () => {
+
+    it('should send client_id for public clients', async () => {
+      const provider = new BaseOAuthClientProvider({
+        token_endpoint_auth_method: "none",
+      }, 'client-123');
+
+      const params = new URLSearchParams();
+      await provider.addClientAuthentication(new Headers(), params, "https://auth.example.com");
+
+      expect(params.get('client_id')).toBe('client-123');
+    });
+
+    it('should throw without client information', async () => {
+      const provider = new BaseOAuthClientProvider({
+        token_endpoint_auth_method: "none",
+      });
+
+      await expect(
+        provider.addClientAuthentication(new Headers(), new URLSearchParams(), "https://auth.example.com")
+      ).rejects.toThrow('Client information not available for authentication');
+    });
+
+  }); // addClientAuthentication
+
   describe('creation with options', () => {
 
     it('should return the redirect URL passed via options', () => {
