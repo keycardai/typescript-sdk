@@ -77,6 +77,15 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
         });
       }
       break;
+
+      // RFC 6749 section 4.1.3: public clients authenticate token requests
+      // with their client_id alone. The MCP SDK prefers this method over its
+      // own public-client handling whenever a provider defines it, so leaving
+      // this case out sends token requests with no client identification.
+      case 'none': {
+        params.set('client_id', clientInformation.client_id);
+      }
+      break;
     }
 
   }
