@@ -25,6 +25,54 @@ describe('Base OAuth client provider', () => {
     });
   }); // creation with client ID
 
+  describe('creation with options', () => {
+
+    it('should return the redirect URL passed via options', () => {
+      const provider = new BaseOAuthClientProvider({
+        token_endpoint_auth_method: "client_secret_basic",
+      }, undefined, {
+        redirectUrl: "https://agent.example.com/oauth/callback",
+      });
+
+      expect(provider.redirectUrl).toBe("https://agent.example.com/oauth/callback");
+    });
+
+    it('should throw when redirect URL was not set', () => {
+      const provider = new BaseOAuthClientProvider({
+        token_endpoint_auth_method: "client_secret_basic",
+      });
+
+      expect(() => provider.redirectUrl).toThrow(
+        'Attempt to access redirectUrl before it was set'
+      );
+    });
+
+    it('should use stores passed via options', async () => {
+      const mockTokensStore = {
+        get: jest.fn(),
+        save: jest.fn(),
+      };
+      const mockCodeVerifierStore = {
+        get: jest.fn(),
+        save: jest.fn(),
+      };
+
+      const provider = new BaseOAuthClientProvider({
+        token_endpoint_auth_method: "client_secret_basic",
+      }, undefined, {
+        tokensStore: mockTokensStore,
+        codeVerifierStore: mockCodeVerifierStore,
+      });
+
+      provider.tokens();
+      expect(mockTokensStore.get).toHaveBeenCalled();
+
+      provider.saveCodeVerifier("verifier");
+      expect(mockCodeVerifierStore.save).toHaveBeenCalledWith("verifier");
+    });
+
+  }); // creation with options
+
   describe('OAuth token store', () => {
 
     describe('tokens', () => {
