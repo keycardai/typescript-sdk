@@ -13,7 +13,12 @@ export interface OAuthCodeVerifierStore {
   save(codeVerifier: string): void | Promise<void>;
 }
 
-
+export interface BaseOAuthClientProviderOptions {
+  redirectUrl?: string | URL;
+  tokensStore?: OAuthTokensStore;
+  codeVerifierStore?: OAuthCodeVerifierStore;
+  privateKeyring?: PrivateKeyring;
+}
 
 export class BaseOAuthClientProvider implements OAuthClientProvider {
   private _redirectUrl: string | URL | undefined;
@@ -25,9 +30,13 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
   protected tokensStore: OAuthTokensStore | undefined;
   protected codeVerifierStore: OAuthCodeVerifierStore | undefined;
 
-  constructor(metadata: OAuthClientMetadata, clientId?: string) {
+  constructor(metadata: OAuthClientMetadata, clientId?: string, options?: BaseOAuthClientProviderOptions) {
     this._clientId = clientId;
     this._metadata = metadata;
+    this._redirectUrl = options?.redirectUrl;
+    this.tokensStore = options?.tokensStore;
+    this.codeVerifierStore = options?.codeVerifierStore;
+    this.privateKeyring = options?.privateKeyring;
 
     // workaround to bind function to this context, since underlying
     // MCP library calls it without a context.
