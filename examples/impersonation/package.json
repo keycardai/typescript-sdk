@@ -1,0 +1,19 @@
+{
+  "name": "impersonation",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Background agent that impersonates a user via Keycard token exchange",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/agent.js",
+    "dev": "tsc --watch"
+  },
+  "dependencies": {
+    "@keycardai/oauth": "^0.19.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.8.3"
+  }
+}
