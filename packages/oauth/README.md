@@ -238,6 +238,11 @@ if called in a non-Node environment.
 | `AccessToken` (type) | `@keycardai/oauth/server` | Verified token shape (`token`, `clientId`, `scopes`, `expiresAt?`, `resource?`) |
 | `AccessContext` | `@keycardai/oauth/server` | Non-throwing per-resource token container with partial-error tracking |
 | `ClientSecret` | `@keycardai/oauth/server` | Application credential provider; supports `(clientId, clientSecret)`, tuple, or `Record<zoneId, [id, secret]>` |
+| `WorkloadIdentity` | `@keycardai/oauth/server` | Application credential using a platform-signed OIDC token from a pluggable source; optional `clientId` names the Keycard application credential |
+| `FileTokenSource` | `@keycardai/oauth/server` | Token source for projected token files (EKS, AKS, Kubernetes projected tokens). **Node.js only** |
+| `GCPMetadataTokenSource` | `@keycardai/oauth/server` | Token source for the GCP metadata server (GKE, GCE, Cloud Run) |
+| `FlyTokenSource` | `@keycardai/oauth/server` | Token source for the Fly.io Machines API Unix socket. **Node.js only** |
+| `EKSWorkloadIdentity` | `@keycardai/oauth/server` | Deprecated: `WorkloadIdentity` with a `FileTokenSource` limited to EKS env discovery |
 | `ApplicationCredential` (type) | `@keycardai/oauth/credentials` | Interface for credential providers |
 
 ### Errors

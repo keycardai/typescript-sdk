@@ -1,6 +1,8 @@
-import * as fs from "node:fs";
-import type { ApplicationCredential } from "../credentials.js";
-import type { TokenExchangeRequest } from "../tokenExchange.js";
+import {
+  FileTokenSource,
+  resolveTokenFilePath,
+  WorkloadIdentity,
+} from "./workloadIdentity.js";
 
 const DEFAULT_EKS_ENV_VARS = [
   "KEYCARD_EKS_WORKLOAD_IDENTITY_TOKEN_FILE",
@@ -21,65 +23,17 @@ export interface EKSWorkloadIdentityOptions {
  *
  * **Requires Node.js.** Reads the token file synchronously from the
  * filesystem at construction and exchange time.
+ *
+ * @deprecated Use {@link WorkloadIdentity} with {@link FileTokenSource},
+ * which also covers AKS and other platforms that project token files.
+ * Failures throw WorkloadIdentityConfigurationError /
+ * WorkloadIdentityRuntimeError (both Error subclasses).
  */
-export class EKSWorkloadIdentity implements ApplicationCredential {
-  #tokenFilePath: string;
-
+export class EKSWorkloadIdentity extends WorkloadIdentity {
   constructor(options?: EKSWorkloadIdentityOptions) {
-    if (options?.tokenFilePath) {
-      this.#tokenFilePath = options.tokenFilePath;
-    } else {
-      const envNames = options?.envVarName
-        ? [options.envVarName, ...DEFAULT_EKS_ENV_VARS]
-        : DEFAULT_EKS_ENV_VARS;
-      const found = envNames.find((name) => process.env[name]);
-      if (!found || !process.env[found]) {
-        throw new Error(
-          `EKSWorkloadIdentity: could not find token file path in environment variables. ` +
-          `Checked: ${envNames.join(", ")}`,
-        );
-      }
-      this.#tokenFilePath = process.env[found]!;
-    }
-    this.#validateTokenFile();
-  }
-
-  getAuth(): null {
-    return null;
-  }
-
-  async prepareTokenExchangeRequest(
-    subjectToken: string,
-    resource: string,
-  ): Promise<TokenExchangeRequest> {
-    return {
-      subjectToken,
-      resource,
-      subjectTokenType: "urn:ietf:params:oauth:token-type:access_token",
-      clientAssertionType: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
-      clientAssertion: this.#readToken(),
-    };
-  }
-
-  #validateTokenFile(): void {
-    try {
-      const token = fs.readFileSync(this.#tokenFilePath, "utf-8").trim();
-      if (!token) {
-        throw new Error(`EKSWorkloadIdentity: token file is empty: ${this.#tokenFilePath}`);
-      }
-    } catch (error) {
-      if (error instanceof Error && error.message.startsWith("EKSWorkloadIdentity:")) throw error;
-      throw new Error(
-        `EKSWorkloadIdentity: error reading token file "${this.#tokenFilePath}": ${error}`,
-      );
-    }
-  }
-
-  #readToken(): string {
-    const token = fs.readFileSync(this.#tokenFilePath, "utf-8").trim();
-    if (!token) {
-      throw new Error(`EKSWorkloadIdentity: token file is empty: ${this.#tokenFilePath}`);
-    }
-    return token;
+    // Discovery limited to the EKS environment variables; FileTokenSource's
+    // default list additionally includes AZURE_FEDERATED_TOKEN_FILE.
+    const tokenFilePath = resolveTokenFilePath(DEFAULT_EKS_ENV_VARS, options);
+    super(new FileTokenSource({ tokenFilePath }));
   }
 }

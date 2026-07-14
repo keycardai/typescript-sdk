@@ -11,3 +11,24 @@ export { WebIdentity } from "./webIdentity.js";
 export type { WebIdentityOptions } from "./webIdentity.js";
 export { EKSWorkloadIdentity } from "./eksWorkloadIdentity.js";
 export type { EKSWorkloadIdentityOptions } from "./eksWorkloadIdentity.js";
+export {
+  WorkloadIdentity,
+  FileTokenSource,
+  GCPMetadataTokenSource,
+  FlyTokenSource,
+  WorkloadIdentityConfigurationError,
+  WorkloadIdentityRuntimeError,
+  DEFAULT_FILE_TOKEN_ENV_VARS,
+  WORKLOAD_IDENTITY_SOURCE_FILE,
+  WORKLOAD_IDENTITY_SOURCE_GCP_METADATA,
+  WORKLOAD_IDENTITY_SOURCE_FLY,
+  WORKLOAD_IDENTITY_SOURCE_CUSTOM,
+} from "./workloadIdentity.js";
+export type {
+  SubjectTokenSource,
+  SubjectTokenFetcher,
+  WorkloadIdentityOptions,
+  FileTokenSourceOptions,
+  GCPMetadataTokenSourceOptions,
+  FlyTokenSourceOptions,
+} from "./workloadIdentity.js";
