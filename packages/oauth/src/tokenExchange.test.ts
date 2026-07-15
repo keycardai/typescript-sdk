@@ -69,6 +69,22 @@ describe('TokenExchangeClient.impersonate', () => {
     expect(params.get('grant_type')).toBe('urn:ietf:params:oauth:grant-type:token-exchange');
   });
 
+  it('serializes clientId as the client_id form parameter', async () => {
+    const client = new TokenExchangeClient(ISSUER, { clientId: 'app', clientSecret: 'shh' });
+    await client.exchangeToken({
+      subjectToken: 'subject',
+      resource: 'https://api.example.com',
+      clientAssertion: 'platform-jwt',
+      clientAssertionType: 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',
+      clientId: 'acr_123',
+    });
+
+    const tokenCall = fetchMock.mock.calls.find(([url]) => url === TOKEN_ENDPOINT);
+    const params = new URLSearchParams(((tokenCall![1] as RequestInit).body ?? '') as string);
+    expect(params.get('client_id')).toBe('acr_123');
+    expect(params.get('client_assertion')).toBe('platform-jwt');
+  });
+
   it('routes the Basic auth header by issuer when a multi-zone credential is provided', async () => {
     const credential = new ClientSecret({
       'https://zone-a.keycard.cloud': ['id-a', 'sec-a'],

@@ -303,6 +303,10 @@ export class FlyTokenSource implements IdentityTokenSource {
         },
       );
       request.on("error", (error) => {
+        if (error instanceof WorkloadIdentityRuntimeError) {
+          reject(error);
+          return;
+        }
         reject(
           new WorkloadIdentityRuntimeError(
             `Error calling Machines API socket ${this.#socketPath} (is this running on a Fly Machine?)`,
