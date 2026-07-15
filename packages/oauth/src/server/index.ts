@@ -25,8 +25,8 @@ export {
   WORKLOAD_IDENTITY_SOURCE_CUSTOM,
 } from "./workloadIdentity.js";
 export type {
-  SubjectTokenSource,
-  SubjectTokenFetcher,
+  IdentityTokenSource,
+  IdentityTokenFetcher,
   WorkloadIdentityOptions,
   FileTokenSourceOptions,
   GCPMetadataTokenSourceOptions,

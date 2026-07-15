@@ -159,7 +159,7 @@ describe("FileTokenSource", () => {
     const file = makeTokenFile("projected-token\n");
     const source = new FileTokenSource({ tokenFilePath: file });
 
-    await expect(source.subjectToken()).resolves.toBe("projected-token");
+    await expect(source.identityToken()).resolves.toBe("projected-token");
   });
 
   it("throws a configuration error for a missing file", () => {
@@ -179,7 +179,7 @@ describe("FileTokenSource", () => {
 
     const source = new FileTokenSource();
 
-    await expect(source.subjectToken()).resolves.toBe("discovered-token");
+    await expect(source.identityToken()).resolves.toBe("discovered-token");
   });
 
   it("consults a custom env var first", async () => {
@@ -188,7 +188,7 @@ describe("FileTokenSource", () => {
 
     const source = new FileTokenSource({ envVarName: "CUSTOM_TOKEN_FILE" });
 
-    await expect(source.subjectToken()).resolves.toBe("custom-token");
+    await expect(source.identityToken()).resolves.toBe("custom-token");
   });
 
   it("throws a configuration error without a path or env var", () => {
@@ -201,7 +201,7 @@ describe("FileTokenSource", () => {
 
     fs.writeFileSync(file, "rotated-token");
 
-    await expect(source.subjectToken()).resolves.toBe("rotated-token");
+    await expect(source.identityToken()).resolves.toBe("rotated-token");
   });
 
   it("throws a runtime error when the file disappears after construction", async () => {
@@ -210,7 +210,7 @@ describe("FileTokenSource", () => {
 
     fs.rmSync(file);
 
-    await expect(source.subjectToken()).rejects.toThrow(WorkloadIdentityRuntimeError);
+    await expect(source.identityToken()).rejects.toThrow(WorkloadIdentityRuntimeError);
   });
 });
 
@@ -286,7 +286,7 @@ describe("GCPMetadataTokenSource", () => {
       metadataUrl,
     });
 
-    await expect(source.subjectToken()).resolves.toBe("gcp-identity-token");
+    await expect(source.identityToken()).resolves.toBe("gcp-identity-token");
 
     const url = new URL(seenUrl, metadataUrl);
     expect(url.pathname).toBe("/computeMetadata/v1/instance/service-accounts/default/identity");
@@ -307,7 +307,7 @@ describe("GCPMetadataTokenSource", () => {
     });
 
     try {
-      await source.subjectToken();
+      await source.identityToken();
       fail("expected a runtime error");
     } catch (error) {
       expect(error).toBeInstanceOf(WorkloadIdentityRuntimeError);
@@ -323,7 +323,7 @@ describe("GCPMetadataTokenSource", () => {
     });
 
     try {
-      await source.subjectToken();
+      await source.identityToken();
       fail("expected a runtime error");
     } catch (error) {
       expect(error).toBeInstanceOf(WorkloadIdentityRuntimeError);
@@ -371,7 +371,7 @@ describe("FlyTokenSource", () => {
       socketPath,
     });
 
-    await expect(source.subjectToken()).resolves.toBe("fly-oidc-token");
+    await expect(source.identityToken()).resolves.toBe("fly-oidc-token");
     expect(seenMethod).toBe("POST");
     expect(seenUrl).toBe("/v1/tokens/oidc");
     expect(seenContentType).toBe("application/json");
@@ -392,7 +392,7 @@ describe("FlyTokenSource", () => {
 
     const source = new FlyTokenSource({ socketPath });
 
-    await expect(source.subjectToken()).resolves.toBe("fly-oidc-token");
+    await expect(source.identityToken()).resolves.toBe("fly-oidc-token");
     expect(seenBody).toBe("{}");
   });
 
@@ -405,7 +405,7 @@ describe("FlyTokenSource", () => {
     const source = new FlyTokenSource({ socketPath });
 
     try {
-      await source.subjectToken();
+      await source.identityToken();
       fail("expected a runtime error");
     } catch (error) {
       expect(error).toBeInstanceOf(WorkloadIdentityRuntimeError);
@@ -417,7 +417,7 @@ describe("FlyTokenSource", () => {
     const source = new FlyTokenSource({ socketPath: "/no/such/api.sock" });
 
     try {
-      await source.subjectToken();
+      await source.identityToken();
       fail("expected a runtime error");
     } catch (error) {
       expect(error).toBeInstanceOf(WorkloadIdentityRuntimeError);

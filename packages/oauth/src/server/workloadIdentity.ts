@@ -63,16 +63,16 @@ export class WorkloadIdentityRuntimeError extends Error {
  * metadata endpoint (GKE, GCE, Cloud Run), {@link FlyTokenSource} covers Fly
  * Machines, and any bare function returning the token is accepted as a source.
  *
- * `subjectToken` is called on every token exchange. Implementations must
+ * `identityToken` is called on every token exchange. Implementations must
  * return the current token; platforms rotate these tokens, so returning a
  * stale cached value risks an expired assertion.
  */
-export interface SubjectTokenSource {
-  subjectToken(): Promise<string>;
+export interface IdentityTokenSource {
+  identityToken(): Promise<string>;
 }
 
-/** A bare function accepted anywhere a SubjectTokenSource is. */
-export type SubjectTokenFetcher = () => Promise<string> | string;
+/** A bare function accepted anywhere a IdentityTokenSource is. */
+export type IdentityTokenFetcher = () => Promise<string> | string;
 
 export const DEFAULT_FILE_TOKEN_ENV_VARS = [
   "KEYCARD_EKS_WORKLOAD_IDENTITY_TOKEN_FILE",
@@ -147,7 +147,7 @@ function readTokenFile(
  * **Requires Node.js.** Validates at construction that the resolved file
  * exists and is non-empty.
  */
-export class FileTokenSource implements SubjectTokenSource {
+export class FileTokenSource implements IdentityTokenSource {
   #tokenFilePath: string;
 
   constructor(options?: FileTokenSourceOptions) {
@@ -156,7 +156,7 @@ export class FileTokenSource implements SubjectTokenSource {
   }
 
   /** Re-reads the token file and returns its trimmed contents. */
-  async subjectToken(): Promise<string> {
+  async identityToken(): Promise<string> {
     return readTokenFile(this.#tokenFilePath, WorkloadIdentityRuntimeError);
   }
 }
@@ -178,7 +178,7 @@ const GCP_IDENTITY_PATH = "/computeMetadata/v1/instance/service-accounts/default
  * Fetches an OIDC identity token for the default service account from the
  * GCP metadata server. Covers GKE, GCE, and Cloud Run.
  */
-export class GCPMetadataTokenSource implements SubjectTokenSource {
+export class GCPMetadataTokenSource implements IdentityTokenSource {
   #audience: string;
   #metadataUrl: string;
   #timeoutMs: number;
@@ -195,7 +195,7 @@ export class GCPMetadataTokenSource implements SubjectTokenSource {
   }
 
   /** Requests a GCP-signed OIDC JWT from the metadata server. */
-  async subjectToken(): Promise<string> {
+  async identityToken(): Promise<string> {
     const url =
       `${this.#metadataUrl}${GCP_IDENTITY_PATH}` +
       `?audience=${encodeURIComponent(this.#audience)}&format=full`;
@@ -250,7 +250,7 @@ const FLY_TIMEOUT_MS = 5000;
  * construction; an unreachable Machines API surfaces as a
  * WorkloadIdentityRuntimeError at the first fetch.
  */
-export class FlyTokenSource implements SubjectTokenSource {
+export class FlyTokenSource implements IdentityTokenSource {
   #audience?: string;
   #socketPath: string;
 
@@ -260,7 +260,7 @@ export class FlyTokenSource implements SubjectTokenSource {
   }
 
   /** Requests a Fly-signed OIDC JWT from the Machines API. */
-  async subjectToken(): Promise<string> {
+  async identityToken(): Promise<string> {
     const http = await import("node:http");
     const payload = JSON.stringify(this.#audience ? { aud: this.#audience } : {});
 
@@ -337,7 +337,7 @@ export interface WorkloadIdentityOptions {
 
 /**
  * Workload identity credential using a platform-signed OIDC token obtained
- * from a {@link SubjectTokenSource}. On every token exchange it fetches the
+ * from a {@link IdentityTokenSource}. On every token exchange it fetches the
  * current token from the source and attaches it as a jwt-bearer client
  * assertion. It holds no shared secret and never caches the token across
  * requests.
@@ -355,22 +355,22 @@ export interface WorkloadIdentityOptions {
  * const credential = new WorkloadIdentity(() => fetchMyToken());
  */
 export class WorkloadIdentity implements ApplicationCredential {
-  #source: SubjectTokenSource | SubjectTokenFetcher;
+  #source: IdentityTokenSource | IdentityTokenFetcher;
   #clientId?: string;
 
   constructor(
-    source: SubjectTokenSource | SubjectTokenFetcher,
+    source: IdentityTokenSource | IdentityTokenFetcher,
     options?: WorkloadIdentityOptions,
   ) {
     if (source == null) {
-      throw new WorkloadIdentityConfigurationError("subject token source must not be null");
+      throw new WorkloadIdentityConfigurationError("identity token source must not be null");
     }
     if (
       typeof source !== "function" &&
-      typeof (source as SubjectTokenSource).subjectToken !== "function"
+      typeof (source as IdentityTokenSource).identityToken !== "function"
     ) {
       throw new WorkloadIdentityConfigurationError(
-        "subject token source must provide subjectToken() or be a function",
+        "identity token source must provide identityToken() or be a function",
       );
     }
     this.#source = source;
@@ -385,7 +385,7 @@ export class WorkloadIdentity implements ApplicationCredential {
     subjectToken: string,
     resource: string,
   ): Promise<TokenExchangeRequest> {
-    const assertion = await this.#fetchSubjectToken();
+    const assertion = await this.#fetchIdentityToken();
 
     return {
       subjectToken,
@@ -397,13 +397,13 @@ export class WorkloadIdentity implements ApplicationCredential {
     };
   }
 
-  async #fetchSubjectToken(): Promise<string> {
+  async #fetchIdentityToken(): Promise<string> {
     let token: string;
     try {
       token =
         typeof this.#source === "function"
           ? await this.#source()
-          : await this.#source.subjectToken();
+          : await this.#source.identityToken();
     } catch (error) {
       if (
         error instanceof WorkloadIdentityConfigurationError ||
@@ -411,13 +411,13 @@ export class WorkloadIdentity implements ApplicationCredential {
       ) {
         throw error;
       }
-      throw new WorkloadIdentityRuntimeError("Error fetching subject token", {
+      throw new WorkloadIdentityRuntimeError("Error fetching identity token", {
         source: WORKLOAD_IDENTITY_SOURCE_CUSTOM,
         cause: error,
       });
     }
     if (typeof token !== "string" || !token.trim()) {
-      throw new WorkloadIdentityRuntimeError("Subject token source returned an empty token", {
+      throw new WorkloadIdentityRuntimeError("Identity token source returned an empty token", {
         source: WORKLOAD_IDENTITY_SOURCE_CUSTOM,
       });
     }
