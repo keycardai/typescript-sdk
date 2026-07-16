@@ -26,6 +26,7 @@ describe("ClientSecret", () => {
 describe("EKSWorkloadIdentity", () => {
   it("should throw when no token file path can be found", async () => {
     const { EKSWorkloadIdentity } = await import("./credentials.js");
+    const { WorkloadIdentityConfigurationError } = await import("@keycardai/oauth/server");
 
     const savedEnvs: Record<string, string | undefined> = {};
     for (const envName of [
@@ -39,7 +40,10 @@ describe("EKSWorkloadIdentity", () => {
 
     try {
       expect(() => new EKSWorkloadIdentity()).toThrow(
-        /could not find token file path in environment variables/,
+        WorkloadIdentityConfigurationError,
+      );
+      expect(() => new EKSWorkloadIdentity()).toThrow(
+        /Could not find token file path in environment variables/,
       );
     } finally {
       for (const [key, value] of Object.entries(savedEnvs)) {

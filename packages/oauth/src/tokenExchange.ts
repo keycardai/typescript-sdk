@@ -29,6 +29,12 @@ export interface TokenExchangeRequest {
   actorTokenType?: string;
   clientAssertion?: string;
   clientAssertionType?: string;
+  /**
+   * Names the application credential the client authenticates as, sent as
+   * the client_id form parameter. Used with assertion-based credentials that
+   * are resolved by ID rather than by the assertion's subject.
+   */
+  clientId?: string;
 }
 
 export interface TokenResponse {
@@ -85,6 +91,7 @@ function serializeRequest(request: TokenExchangeRequest): URLSearchParams {
   if (request.actorTokenType) params.set("actor_token_type", request.actorTokenType);
   if (request.clientAssertion) params.set("client_assertion", request.clientAssertion);
   if (request.clientAssertionType) params.set("client_assertion_type", request.clientAssertionType);
+  if (request.clientId) params.set("client_id", request.clientId);
 
   return params;
 }
