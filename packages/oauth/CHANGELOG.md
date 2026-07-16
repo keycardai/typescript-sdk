@@ -1,3 +1,40 @@
+## 0.20.0-keycardai-oauth (2026-07-16)
+
+
+- feat(oauth): add WorkloadIdentity credential with pluggable subject token sources (#118)
+- * feat(oauth): add WorkloadIdentity credential with pluggable subject token sources
+- One generic WorkloadIdentity credential owns the exchange contract
+(jwt-bearer client assertion, no basic auth, fresh fetch per exchange,
+no caching). A one-method SubjectTokenSource interface is the only
+per-platform code: FileTokenSource (EKS, AKS, Kubernetes projected
+tokens), GCPMetadataTokenSource (GKE, GCE, Cloud Run), FlyTokenSource
+(Fly Machines), or any bare function.
+- The optional clientId option is sent as the client_id form parameter
+alongside the assertion; token-federation application credentials
+(KEP 108) are resolved by it. TokenExchangeRequest gains a clientId
+field serialized as client_id.
+- EKSWorkloadIdentity becomes a deprecated subclass over FileTokenSource
+with unchanged signature and EKS-only env discovery. Its failures are
+now typed WorkloadIdentity{Configuration,Runtime}Error (Error
+subclasses) instead of plain Error, aligning the error taxonomy with
+the spec.
+- Implements the workload-identity spec (keycard-sdk-spec#39). ECO-111.
+- * refactor(oauth): rename IdentityTokenSource from SubjectTokenSource
+- The source returns the platform-issued OIDC identity token, which the
+credential attaches as the client assertion. Naming it a subject token
+collided with TokenExchangeRequest.subjectToken, which carries the
+inbound user token on the RFC 8693 exchange.
+- * fix(oauth): surface the Fly timeout error unwrapped; assert client_id on the wire
+- The Machines API timeout error was re-wrapped by the error handler
+with the generic unreachable-socket message, burying the timeout on
+cause. Typed errors now pass through the handler untouched.
+- Adds a wire-level test that clientId serializes as the client_id form
+parameter on token exchange.
+- * test(mcp): assert the typed error from the re-exported EKS credential
+- EKSWorkloadIdentity failures are WorkloadIdentityConfigurationError
+now that the credential wraps FileTokenSource; the test asserted the
+old plain-Error message casing.
+
 ## 0.19.0-keycardai-oauth (2026-06-15)
 
 
