@@ -4,6 +4,10 @@
 Compatible with branch-protection rulesets that require all changes to land
 through PRs and require commits to be signed:
 
+0. If the configured version already has a merged bump commit on main but
+   no release tag (a prior run's merge-wait timed out before tagging), the
+   missing tag is pushed and the run stops. Re-running cz in that state
+   would double-bump.
 1. ``cz bump --files-only`` updates ``.cz.toml`` (cz version field),
    ``package.json`` (via version_files), and ``CHANGELOG.md`` in the package
    directory; no local commit or tag.
@@ -93,6 +97,61 @@ def pull_main() -> bool:
     if exit_code != 0:
         print(f"Failed to reset to origin/main: {stderr}")
         return False
+    return True
+
+
+def get_configured_version(package_dir: str) -> str | None:
+    """Return the version cz has recorded for the package, or ``None``."""
+    exit_code, stdout, stderr = run_command(
+        ["cz", "version", "--project"], cwd=package_dir
+    )
+    if exit_code != 0 or not stdout.strip():
+        print(f"Could not read configured version: {stderr}")
+        return None
+    return stdout.strip()
+
+
+def tag_exists_on_remote(tag: str) -> bool:
+    exit_code, stdout, _ = run_command(
+        ["git", "ls-remote", "--tags", "origin", f"refs/tags/{tag}"]
+    )
+    return exit_code == 0 and bool(stdout.strip())
+
+
+def recover_untagged_bump(repo: str, package_name: str, package_dir: str) -> bool | None:
+    """Push the missing release tag for a bump that merged without one.
+
+    A bump PR can merge after this job's merge-wait times out, leaving the
+    version files ahead of the last release tag with nothing to trigger the
+    publish. When the configured version has a merged bump commit on main
+    but no tag, push the tag at that commit and stop.
+
+    Returns ``True`` when the missing tag was pushed (the bump is complete),
+    ``False`` when the tag push failed, and ``None`` when there is nothing
+    to recover and the normal bump flow should proceed.
+    """
+    version = get_configured_version(package_dir)
+    if version is None:
+        return None
+    tag = f"{version}-{package_name}"
+    if tag_exists_on_remote(tag):
+        return None
+
+    headline = f"bump: {package_name} → {version}"
+    exit_code, stdout, _ = run_command(
+        ["git", "log", "--fixed-strings", f"--grep={headline}", "--format=%H", "-1", "HEAD"]
+    )
+    sha = stdout.strip()
+    if exit_code != 0 or not sha:
+        return None
+
+    print(
+        f"Version {version} has a merged bump commit ({sha[:8]}) but no {tag} tag; "
+        "recovering the tag instead of bumping again."
+    )
+    if not create_and_push_tag(repo, tag, sha):
+        return False
+    print(f"Recovered: tag {tag} pushed.")
     return True
 
 
@@ -469,11 +528,15 @@ def bump_package(package_name: str, package_dir: str) -> bool:
     if not pull_main():
         return False
 
+    repo = get_repo_slug()
+
+    recovery = recover_untagged_bump(repo, package_name, package_dir)
+    if recovery is not None:
+        return recovery
+
     new_version = cz_bump_files_only(package_dir, package_name)
     if new_version is None:
         return True
-
-    repo = get_repo_slug()
     branch = f"bump/{package_name}-{new_version}"
     tag = f"{new_version}-{package_name}"
     parent_sha = get_main_sha()
