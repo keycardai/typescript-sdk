@@ -4,6 +4,10 @@
 Compatible with branch-protection rulesets that require all changes to land
 through PRs and require commits to be signed:
 
+0. If the configured version already has a merged bump commit on main but
+   no release tag (a prior run's merge-wait timed out before tagging), the
+   missing tag is pushed and the run stops. Re-running cz in that state
+   would double-bump.
 1. ``cz bump --files-only`` updates ``.cz.toml`` (cz version field),
    ``package.json`` (via version_files), and ``CHANGELOG.md`` in the package
    directory; no local commit or tag.
@@ -12,7 +16,12 @@ through PRs and require commits to be signed:
 3. The bumped files are committed onto that branch via the GraphQL
    ``createCommitOnBranch`` mutation, which signs the commit as the
    authenticated bot identity.
-4. A PR is opened with ``--squash --auto`` so it merges itself once
+4. A PR is opened with auto-merge armed. Once its checks are green the
+   script merges it directly: the workflow app is a ruleset bypass actor,
+   and auto-merge never exercises bypass, it only fires when every
+   requirement (including required reviews) is actually satisfied. Auto-merge
+   stays armed as the fallback if the direct merge is refused. Previously the
+   script only waited for auto-merge, i.e. it merges itself once
    required CI checks pass on it.
 5. The script polls until the PR merges, captures the squash-merge SHA on
    ``main``, then creates and pushes the ``<version>-<package>`` tag at
@@ -93,6 +102,61 @@ def pull_main() -> bool:
     if exit_code != 0:
         print(f"Failed to reset to origin/main: {stderr}")
         return False
+    return True
+
+
+def get_configured_version(package_dir: str) -> str | None:
+    """Return the version cz has recorded for the package, or ``None``."""
+    exit_code, stdout, stderr = run_command(
+        ["cz", "version", "--project"], cwd=package_dir
+    )
+    if exit_code != 0 or not stdout.strip():
+        print(f"Could not read configured version: {stderr}")
+        return None
+    return stdout.strip()
+
+
+def tag_exists_on_remote(tag: str) -> bool:
+    exit_code, stdout, _ = run_command(
+        ["git", "ls-remote", "--tags", "origin", f"refs/tags/{tag}"]
+    )
+    return exit_code == 0 and bool(stdout.strip())
+
+
+def recover_untagged_bump(repo: str, package_name: str, package_dir: str) -> bool | None:
+    """Push the missing release tag for a bump that merged without one.
+
+    A bump PR can merge after this job's merge-wait times out, leaving the
+    version files ahead of the last release tag with nothing to trigger the
+    publish. When the configured version has a merged bump commit on main
+    but no tag, push the tag at that commit and stop.
+
+    Returns ``True`` when the missing tag was pushed (the bump is complete),
+    ``False`` when the tag push failed, and ``None`` when there is nothing
+    to recover and the normal bump flow should proceed.
+    """
+    version = get_configured_version(package_dir)
+    if version is None:
+        return None
+    tag = f"{version}-{package_name}"
+    if tag_exists_on_remote(tag):
+        return None
+
+    headline = f"bump: {package_name} → {version}"
+    exit_code, stdout, _ = run_command(
+        ["git", "log", "--fixed-strings", f"--grep={headline}", "--format=%H", "-1", "HEAD"]
+    )
+    sha = stdout.strip()
+    if exit_code != 0 or not sha:
+        return None
+
+    print(
+        f"Version {version} has a merged bump commit ({sha[:8]}) but no {tag} tag; "
+        "recovering the tag instead of bumping again."
+    )
+    if not create_and_push_tag(repo, tag, sha):
+        return False
+    print(f"Recovered: tag {tag} pushed.")
     return True
 
 
@@ -369,6 +433,24 @@ def create_pr_with_automerge(
     return pr_number
 
 
+def checks_green(pr_data: dict) -> bool:
+    """True when every check in the PR's status rollup has finished cleanly.
+
+    An empty rollup counts as green (no required checks registered).
+    """
+    ok_conclusions = {"SUCCESS", "NEUTRAL", "SKIPPED"}
+    for check in pr_data.get("statusCheckRollup") or []:
+        status = (check.get("status") or "").upper()
+        conclusion = (check.get("conclusion") or "").upper()
+        if status and status != "COMPLETED":
+            return False
+        if conclusion and conclusion not in ok_conclusions:
+            return False
+        if not status and not conclusion:
+            return False
+    return True
+
+
 def wait_for_pr_merge(pr_number: int, timeout_seconds: int = 1800) -> str | None:
     """Poll the PR until it merges. Returns the merge commit SHA on main.
 
@@ -378,6 +460,7 @@ def wait_for_pr_merge(pr_number: int, timeout_seconds: int = 1800) -> str | None
     print(f"Waiting for PR #{pr_number} to merge (timeout {timeout_seconds}s)...")
     deadline = time.time() + timeout_seconds
     last_state = None
+    direct_merge_attempts = 0
 
     while time.time() < deadline:
         exit_code, stdout, stderr = run_command(
@@ -419,6 +502,21 @@ def wait_for_pr_merge(pr_number: int, timeout_seconds: int = 1800) -> str | None
         if state == "CLOSED":
             print(f"PR #{pr_number} was closed without merging.")
             return None
+
+        if state == "OPEN" and direct_merge_attempts < 3 and checks_green(data):
+            # Auto-merge waits for requirements the app is entitled to bypass
+            # (required reviews); bypass only applies to an explicit merge.
+            direct_merge_attempts += 1
+            exit_code, _, stderr = run_command(
+                ["gh", "pr", "merge", str(pr_number), "--squash"]
+            )
+            if exit_code == 0:
+                print(f"Merged PR #{pr_number} directly as the bypass actor.")
+            else:
+                print(
+                    f"Direct merge attempt {direct_merge_attempts} refused; "
+                    f"auto-merge stays armed: {stderr.strip()[:200]}"
+                )
 
         time.sleep(30)
 
@@ -469,11 +567,15 @@ def bump_package(package_name: str, package_dir: str) -> bool:
     if not pull_main():
         return False
 
+    repo = get_repo_slug()
+
+    recovery = recover_untagged_bump(repo, package_name, package_dir)
+    if recovery is not None:
+        return recovery
+
     new_version = cz_bump_files_only(package_dir, package_name)
     if new_version is None:
         return True
-
-    repo = get_repo_slug()
     branch = f"bump/{package_name}-{new_version}"
     tag = f"{new_version}-{package_name}"
     parent_sha = get_main_sha()
