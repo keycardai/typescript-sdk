@@ -7,6 +7,11 @@ export {
   InsufficientScopeError,
   ResourceAccessError,
   AuthProviderConfigurationError,
+  JWKSError,
+  JWKSDiscoveryError,
+  JWKSUriValidationError,
+  JWKSFetchError,
+  JWKSKeyNotFoundError,
 } from "@keycardai/oauth/errors";
 
 export class EKSWorkloadIdentityConfigurationError extends Error {

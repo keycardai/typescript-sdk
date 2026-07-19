@@ -3,7 +3,7 @@ import type { AuthInfo, OAuthTokenVerifier } from "../../../shared/auth.js";
 import { JWTOAuthTokenVerifier } from "../verifiers/jwt.js";
 import { JWKSOAuthKeyring } from "@keycardai/oauth/keyring";
 import { getOAuthProtectedResourceMetadataUrl } from "../router.js"
-import { BadRequestError, UnauthorizedError, InvalidTokenError, InsufficientScopeError } from "../errors.js";
+import { BadRequestError, UnauthorizedError, InvalidTokenError, InsufficientScopeError, HTTPError, OAuthError, JWKSError, JWKSKeyNotFoundError } from "../errors.js";
 
 export interface AuthenticatedRequest extends Request {
   auth: AuthInfo;
@@ -112,7 +112,24 @@ export function requireBearerAuth({
         const challenge = `Bearer error="${error.errorCode}", error_description="${error.message}", resource_metadata="${resourceMetadataUrl}"`;
         res.set("WWW-Authenticate", challenge);
         res.status(403).end();
+      } else if (error instanceof JWKSKeyNotFoundError) {
+        // A forged token, or a valid token whose signing key rotated out of the
+        // JWKS: the resource server cannot validate it. RFC 6750 invalid_token
+        // so the client re-runs authorization rather than seeing a 500.
+        const challenge = `Bearer error="invalid_token", error_description="Unable to verify token signing key", resource_metadata="${resourceMetadataUrl}"`;
+        res.set("WWW-Authenticate", challenge);
+        res.status(401).end();
+      } else if (error instanceof JWKSError || error instanceof HTTPError || error instanceof OAuthError) {
+        // JWKS fetch, discovery, or metadata failed: verification could not
+        // complete for a server-side reason (unreachable zone, non-2xx JWKS,
+        // malformed AS metadata). Signal a retryable 503 with a small body and
+        // no internals, rather than a 500 that leaks a stack trace.
+        res.status(503).json({ error: "temporarily_unavailable" });
       } else {
+        // Genuinely unexpected error. Delegate to the app's error handling
+        // (idiomatic Express) instead of swallowing a real bug. All expected
+        // verification failures are mapped above, so this no longer catches
+        // JWKS/discovery errors.
         next(error);
       }
     }
