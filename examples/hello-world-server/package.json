@@ -10,7 +10,7 @@
     "dev": "tsc --watch"
   },
   "dependencies": {
-    "@keycardai/mcp": "^0.1.0",
+    "@keycardai/mcp": "^0.11.0",
     "@modelcontextprotocol/sdk": "^1.15.0",
     "express": "^5.1.0"
   },
