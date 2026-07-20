@@ -3,7 +3,7 @@ import { Request, Response } from "express";
 import { OAuthTokenVerifier } from "@modelcontextprotocol/sdk/server/auth/provider.js";
 import { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import { requireBearerAuth } from "./bearerAuth.js";
-import { InvalidTokenError, InsufficientScopeError } from "../errors.js";
+import { InvalidTokenError, InsufficientScopeError, JWKSKeyNotFoundError, JWKSFetchError, JWKSDiscoveryError } from "../errors.js";
 
 // Mock verifier
 const mockVerifyAccessToken = jest.fn();
@@ -257,6 +257,47 @@ describe("requireBearerAuth middleware", () => {
     );
     expect(mockResponse.end).toHaveBeenCalled();
     expect(mockResponse.json).not.toHaveBeenCalled();
+    expect(nextFunction).not.toHaveBeenCalled();
+  });
+
+  it("should return 401 invalid_token when the signing key is not in the JWKS", async () => {
+    mockRequest.headers = {
+      authorization: "Bearer forged-or-rotated-token",
+    };
+
+    mockVerifyAccessToken.mockRejectedValue(
+      new JWKSKeyNotFoundError('Failed to find key "abc" of "https://zone.example.com"')
+    );
+
+    const middleware = requireBearerAuth({ verifier: mockVerifier });
+    await middleware(mockRequest as Request, mockResponse as Response, nextFunction);
+
+    expect(mockResponse.status).toHaveBeenCalledWith(401);
+    expect(mockResponse.set).toHaveBeenCalledWith(
+      "WWW-Authenticate",
+      'Bearer error="invalid_token", error_description="Unable to verify token signing key", resource_metadata="https://api.example.com/.well-known/oauth-protected-resource"'
+    );
+    expect(mockResponse.end).toHaveBeenCalled();
+    expect(mockResponse.json).not.toHaveBeenCalled();
+    expect(nextFunction).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["JWKSFetchError", new JWKSFetchError("JWKS endpoint returned 503")],
+    ["JWKSDiscoveryError", new JWKSDiscoveryError("Failed to discover authorization server metadata")],
+  ])("should return 503 (not 500) when %s occurs", async (_name, error) => {
+    mockRequest.headers = {
+      authorization: "Bearer valid-looking-token",
+    };
+
+    mockVerifyAccessToken.mockRejectedValue(error);
+
+    const middleware = requireBearerAuth({ verifier: mockVerifier });
+    await middleware(mockRequest as Request, mockResponse as Response, nextFunction);
+
+    expect(mockResponse.status).toHaveBeenCalledWith(503);
+    expect(mockResponse.json).toHaveBeenCalledWith({ error: "temporarily_unavailable" });
+    expect(mockResponse.set).not.toHaveBeenCalled();
     expect(nextFunction).not.toHaveBeenCalled();
   });
 
