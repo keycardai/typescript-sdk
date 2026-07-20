@@ -120,7 +120,7 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
     if (!this.tokensStore) {
       throw new Error("OAuth tokens store not initialized");
     }
-    this.tokensStore.save(tokens);
+    return this.tokensStore.save(tokens);
   }
 
   redirectToAuthorization(authorizationUrl: URL): void | Promise<void> {
@@ -131,7 +131,7 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
     if (!this.codeVerifierStore) {
       throw new Error("OAuth code verifier store not initialized");
     }
-    this.codeVerifierStore.save(codeVerifier);
+    return this.codeVerifierStore.save(codeVerifier);
   }
 
   codeVerifier(): string | Promise<string> {

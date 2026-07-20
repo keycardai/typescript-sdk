@@ -1,5 +1,6 @@
 import { jest } from '@jest/globals';
-import { BaseOAuthClientProvider } from './base.js';
+import type { OAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js';
+import { BaseOAuthClientProvider, type OAuthTokensStore, type OAuthCodeVerifierStore } from './base.js';
 
 describe('Base OAuth client provider', () => {
 
@@ -162,6 +163,50 @@ describe('Base OAuth client provider', () => {
         );
       });
 
+      it('should complete the async store write before resolving', async () => {
+        let stored: OAuthTokens | undefined;
+        const slowTokensStore: OAuthTokensStore = {
+          get: async () => stored,
+          save: async (tokens) => {
+            await new Promise((resolve) => setTimeout(resolve, 20));
+            stored = tokens;
+          },
+        };
+
+        const provider = new BaseOAuthClientProvider({
+          token_endpoint_auth_method: "client_secret_basic",
+        }, undefined, {
+          tokensStore: slowTokensStore,
+        });
+
+        const tokens = {
+          access_token: "2YotnFZFEjr1zCsicMWpAA",
+          token_type: "Bearer"
+        };
+        await provider.saveTokens(tokens);
+        expect(await provider.tokens()).toStrictEqual(tokens);
+      });
+
+      it('should propagate store save failures', async () => {
+        const failingTokensStore: OAuthTokensStore = {
+          get: async () => undefined,
+          save: async () => {
+            throw new Error('tokens store write failed');
+          },
+        };
+
+        const provider = new BaseOAuthClientProvider({
+          token_endpoint_auth_method: "client_secret_basic",
+        }, undefined, {
+          tokensStore: failingTokensStore,
+        });
+
+        await expect(provider.saveTokens({
+          access_token: "2YotnFZFEjr1zCsicMWpAA",
+          token_type: "Bearer"
+        })).rejects.toThrow('tokens store write failed');
+      });
+
     });
 
   });
@@ -222,6 +267,53 @@ describe('Base OAuth client provider', () => {
         await expect(() => provider.saveCodeVerifier(codeVerifier)).toThrow(
           'OAuth code verifier store not initialized'
         );
+      });
+
+      it('should complete the async store write before resolving', async () => {
+        let stored: string | undefined;
+        const slowCodeVerifierStore: OAuthCodeVerifierStore = {
+          get: async () => {
+            if (stored === undefined) {
+              throw new Error('code verifier not stored');
+            }
+            return stored;
+          },
+          save: async (codeVerifier) => {
+            await new Promise((resolve) => setTimeout(resolve, 20));
+            stored = codeVerifier;
+          },
+        };
+
+        const provider = new BaseOAuthClientProvider({
+          token_endpoint_auth_method: "client_secret_basic",
+        }, undefined, {
+          codeVerifierStore: slowCodeVerifierStore,
+        });
+
+        const codeVerifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
+        await provider.saveCodeVerifier(codeVerifier);
+        expect(await provider.codeVerifier()).toBe(codeVerifier);
+      });
+
+      it('should propagate store save failures', async () => {
+        const failingCodeVerifierStore: OAuthCodeVerifierStore = {
+          get: async () => {
+            throw new Error('code verifier not stored');
+          },
+          save: async () => {
+            throw new Error('code verifier store write failed');
+          },
+        };
+
+        const provider = new BaseOAuthClientProvider({
+          token_endpoint_auth_method: "client_secret_basic",
+        }, undefined, {
+          codeVerifierStore: failingCodeVerifierStore,
+        });
+
+        await expect(
+          provider.saveCodeVerifier("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk")
+        ).rejects.toThrow('code verifier store write failed');
       });
 
     });
