@@ -4,6 +4,7 @@ import { JWTSigner, type JWTClaims } from "@keycardai/oauth/jwt/signer";
 
 export interface FullAuthInfo extends AuthInfo {
   userId: string;
+  issuer?: string;
   notBefore?: number;
   issuedAt?: number;
   uniqueId?: string;
@@ -19,6 +20,7 @@ export class JSONWebTokenSigner {
   async signToken(authInfo: Partial<FullAuthInfo>): Promise<string> {
     const claims: JWTClaims = {
       ...authInfo.extra,
+      iss: authInfo.issuer,
       sub: authInfo.userId,
       aud: authInfo.resource?.toString(),
       client_id: authInfo.clientId,

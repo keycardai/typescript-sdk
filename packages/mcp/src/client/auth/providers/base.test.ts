@@ -1,6 +1,30 @@
 import { jest } from '@jest/globals';
-import type { OAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js';
+import type { OAuthMetadata, OAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js';
+import type { PrivateKeyring } from '@keycardai/oauth/keyring';
 import { BaseOAuthClientProvider, type OAuthTokensStore, type OAuthCodeVerifierStore } from './base.js';
+
+// https://datatracker.ietf.org/doc/html/rfc7515#appendix-A.2
+const RFC7515_RS256_PRIVATE_KEY = {
+  kty: "RSA",
+  n: "ofgWCuLjybRlzo0tZWJjNiuSfb4p4fAkd_wWJcyQoTbji9k0l8W26mPddxHmfHQp-Vaw-4qPCJrcS2mJPMEzP1Pt0Bm4d4QlL-yRT-SFd2lZS-pCgNMsD1W_YpRPEwOWvG6b32690r2jZ47soMZo9wGzjb_7OMg0LOL-bSf63kpaSHSXndS5z5rexMdbBYUsLA9e-KXBdQOS-UTo7WTBEMa2R2CapHg665xsmtdVMTBQY4uDZlxvb3qCo5ZwKh9kG4LT6_I5IhlJH7aGhyxXFvUK-DWNmoudF8NAco9_h9iaGNj8q2ethFkMLs91kzk2PAcDTW9gb54h4FRWyuXpoQ",
+  e: "AQAB",
+  d: "Eq5xpGnNCivDflJsRQBXHx1hdR1k6Ulwe2JZD50LpXyWPEAeP88vLNO97IjlA7_GQ5sLKMgvfTeXZx9SE-7YwVol2NXOoAJe46sui395IW_GO-pWJ1O0BkTGoVEn2bKVRUCgu-GjBVaYLU6f3l9kJfFNS3E0QbVdxzubSu3Mkqzjkn439X0M_V51gfpRLI9JYanrC4D4qAdGcopV_0ZHHzQlBjudU2QvXt4ehNYTCBr6XCLQUShb1juUO1ZdiYoFaFQT5Tw8bGUl_x_jTj3ccPDVZFD9pIuhLhBOneufuBiB4cS98l2SR_RQyGWSeWjnczT0QU91p1DhOVRuOopznQ",
+  p: "4BzEEOtIpmVdVEZNCqS7baC4crd0pqnRH_5IB3jw3bcxGn6QLvnEtfdUdiYrqBdss1l58BQ3KhooKeQTa9AB0Hw_Py5PJdTJNPY8cQn7ouZ2KKDcmnPGBY5t7yLc1QlQ5xHdwW1VhvKn-nXqhJTBgIPgtldC-KDV5z-y2XDwGUc",
+  q: "uQPEfgmVtjL0Uyyx88GZFF1fOunH3-7cepKmtH4pxhtCoHqpWmT8YAmZxaewHgHAjLYsp1ZSe7zFYHj7C6ul7TjeLQeZD_YwD66t62wDmpe_HlB-TnBA-njbglfIsRLtXlnDzQkv5dTltRJ11BKBBypeeF6689rjcJIDEz9RWdc",
+  dp: "BwKfV3Akq5_MFZDFZCnW-wzl-CCo83WoZvnLQwCTeDv8uzluRSnm71I3QCLdhrqE2e9YkxvuxdBfpT_PI7Yz-FOKnu1R6HsJeDCjn12Sk3vmAktV2zb34MCdy7cpdTh_YVr7tss2u6vneTwrA86rZtu5Mbr1C1XsmvkxHQAdYo0",
+  dq: "h_96-mK1R_7glhsum81dZxjTnYynPbZpHziZjeeHcXYsXaaMwkOlODsWa7I9xXDoRwbKgB719rrmI2oKr6N3Do9U0ajaHF-NKJnwgjMd2w9cjz3_-kyNlxAr2v4IKhGNpmM5iIgOS1VZnOZ68m6_pbLBSp3nssTdlqvd0tIiTHU",
+  qi: "IYd7DHOhrWvxkwPQsRM2tOgrjbcrfvtQJipd-DlcxyVuuM9sQLdgjVk2oy26F0EmpScGLq2MowX7fhd_QJQ3ydy5cY7YIBi87w93IKLEdfnbJtoOPLUW0ITrJReOgo1cq9SbsxYawBgfp_gh6A5603k2-ZQwVK0JKSHuLFkuQ3U"
+}
+
+const RFC7515_RS256_PUBLIC_KEY = {
+  kty: "RSA",
+  n: "ofgWCuLjybRlzo0tZWJjNiuSfb4p4fAkd_wWJcyQoTbji9k0l8W26mPddxHmfHQp-Vaw-4qPCJrcS2mJPMEzP1Pt0Bm4d4QlL-yRT-SFd2lZS-pCgNMsD1W_YpRPEwOWvG6b32690r2jZ47soMZo9wGzjb_7OMg0LOL-bSf63kpaSHSXndS5z5rexMdbBYUsLA9e-KXBdQOS-UTo7WTBEMa2R2CapHg665xsmtdVMTBQY4uDZlxvb3qCo5ZwKh9kG4LT6_I5IhlJH7aGhyxXFvUK-DWNmoudF8NAco9_h9iaGNj8q2ethFkMLs91kzk2PAcDTW9gb54h4FRWyuXpoQ",
+  e: "AQAB"
+}
+
+function base64urlDecodeToJSON(segment: string): Record<string, unknown> {
+  return JSON.parse(Buffer.from(segment, 'base64url').toString('utf8'));
+}
 
 describe('Base OAuth client provider', () => {
 
@@ -47,6 +71,85 @@ describe('Base OAuth client provider', () => {
       await expect(
         provider.addClientAuthentication(new Headers(), new URLSearchParams(), "https://auth.example.com")
       ).rejects.toThrow('Client information not available for authentication');
+    });
+
+    it('should attach a client assertion for private_key_jwt clients', async () => {
+      const privateKey = await crypto.subtle.importKey(
+        'jwk',
+        RFC7515_RS256_PRIVATE_KEY,
+        {
+          name: 'RSASSA-PKCS1-v1_5',
+          hash: 'SHA-256',
+        },
+        true,
+        ['sign']
+      );
+      const publicKey = await crypto.subtle.importKey(
+        'jwk',
+        RFC7515_RS256_PUBLIC_KEY,
+        {
+          name: 'RSASSA-PKCS1-v1_5',
+          hash: 'SHA-256',
+        },
+        true,
+        ['verify']
+      );
+      // The keyring issuer intentionally differs from the client ID: the
+      // assertion must carry iss = client_id, not the keyring fallback.
+      const privateKeyring: PrivateKeyring = {
+        key: async () => ({ issuer: 'https://keyring.example.com', kid: 'RjEwOwOA', key: privateKey }),
+      };
+
+      const provider = new BaseOAuthClientProvider({
+        token_endpoint_auth_method: "private_key_jwt",
+        jwks_uri: "https://client.example.com/jwks.json",
+      }, 'https://client.example.com', { privateKeyring });
+
+      const serverMetadata: OAuthMetadata = {
+        issuer: "https://auth.example.com",
+        authorization_endpoint: "https://auth.example.com/authorize",
+        token_endpoint: "https://auth.example.com/token",
+        response_types_supported: ["code"],
+      };
+
+      const params = new URLSearchParams();
+      await provider.addClientAuthentication(new Headers(), params, "https://auth.example.com", serverMetadata);
+
+      expect(params.get('client_id')).toBe('https://client.example.com');
+      expect(params.get('client_assertion_type')).toBe('urn:ietf:params:oauth:client-assertion-type:jwt-bearer');
+
+      const assertion = params.get('client_assertion');
+      expect(assertion).not.toBeNull();
+      const [headerSegment, payloadSegment, signatureSegment] = String(assertion).split('.');
+
+      const signatureValid = await crypto.subtle.verify(
+        { name: 'RSASSA-PKCS1-v1_5' },
+        publicKey,
+        Buffer.from(signatureSegment, 'base64url'),
+        Buffer.from(`${headerSegment}.${payloadSegment}`, 'utf8')
+      );
+      // The client assertion signature must verify against the client public key.
+      expect(signatureValid).toBe(true);
+
+      const claims = base64urlDecodeToJSON(payloadSegment);
+      expect(claims).toMatchObject({
+        iss: 'https://client.example.com',
+        sub: 'https://client.example.com',
+        aud: 'https://auth.example.com/token',
+      });
+      expect(typeof claims.jti).toBe('string');
+      expect(typeof claims.iat).toBe('number');
+      expect(claims.exp).toBeGreaterThan(Number(claims.iat));
+    });
+
+    it('should throw for private_key_jwt without a private keyring', async () => {
+      const provider = new BaseOAuthClientProvider({
+        token_endpoint_auth_method: "private_key_jwt",
+      }, 'https://client.example.com');
+
+      await expect(
+        provider.addClientAuthentication(new Headers(), new URLSearchParams(), "https://auth.example.com")
+      ).rejects.toThrow('Private keyring not initialized');
     });
 
   }); // addClientAuthentication

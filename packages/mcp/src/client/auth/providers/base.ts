@@ -68,13 +68,23 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
           : new URL("/token", authorizationServerUrl);
         const now = Date.now();
         const signer = new JSONWebTokenSigner(this.privateKeyring);
+        // RFC 7523 section 3: for client authentication both "iss" and
+        // "sub" MUST be the client_id, and "aud" identifies the token
+        // endpoint.
         const token = await signer.signToken({
+          issuer: clientInformation.client_id,
           userId: clientInformation.client_id,
           resource: tokenUrl,
           issuedAt: Math.floor(now / 1000),
           expiresAt: Math.floor(now / 1000) + 60,
           uniqueId: crypto.randomUUID()
         });
+
+        // RFC 7523 section 2.2: authenticate the token request with the
+        // signed assertion.
+        params.set('client_id', clientInformation.client_id);
+        params.set('client_assertion_type', 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer');
+        params.set('client_assertion', token);
       }
       break;
 
