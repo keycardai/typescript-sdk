@@ -124,6 +124,12 @@ export function requireBearerAuth({
         // complete for a server-side reason (unreachable zone, non-2xx JWKS,
         // malformed AS metadata). Signal a retryable 503 with a small body and
         // no internals, rather than a 500 that leaks a stack trace.
+        //
+        // The HTTPError/OAuthError bases here are the discovery/metadata
+        // failures thrown raw by discovery.ts. Token-level subclasses
+        // (BadRequest/Unauthorized, InvalidToken/InsufficientScope) are matched
+        // in the branches above, so any new client-facing OAuthError/HTTPError
+        // must be handled before this branch or it will be mis-bucketed as 503.
         res.status(503).json({ error: "temporarily_unavailable" });
       } else {
         // Genuinely unexpected error. Delegate to the app's error handling
