@@ -1,3 +1,45 @@
+## 0.12.0-keycardai-mcp (2026-07-20)
+
+
+- fix(mcp): return 401/503 (not 500) for JWKS errors in requireBearerAuth (#123)
+- * fix(mcp): return 401/503 (not 500) for JWKS errors in requireBearerAuth
+- requireBearerAuth only mapped BadRequestError, UnauthorizedError,
+InvalidTokenError, and InsufficientScopeError. Every other error hit
+next(error) and became an Express 500 that leaks a stack trace when
+NODE_ENV is not "production".
+- JWKS-layer failures are a separate class tree (JWKSError extends Error,
+not InvalidTokenError), so a token whose kid is absent from the JWKS
+(forged, or rotated out) and an unreachable/non-2xx JWKS or discovery
+endpoint all fell through to 500. An MCP client re-runs authorization on
+a 401 with WWW-Authenticate, not on a 500, so key rotation dead-ended
+users, and forged tokens tripped 5xx alerting.
+- Map the error classes explicitly:
+- JWKSKeyNotFoundError -> 401 invalid_token + WWW-Authenticate challenge
+- JWKSError / HTTPError / OAuthError (fetch, discovery, malformed
+  metadata) -> 503 temporarily_unavailable, small body, no internals
+- next(error) is kept for genuinely unexpected errors: those were never
+the bug, and delegating to the app's error handling is idiomatic Express.
+- Refs #119
+- Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+- * chore: bump @keycardai/mcp pin to ^0.11.0 in examples
+- examples/hello-world-server and examples/delegated-access pinned
+@keycardai/mcp at ^0.1.0, which resolves to 0.1.2 and no longer compiles
+against the current subpath API. Both examples' sources already use the
+current API, so bumping the pin is sufficient — verified `tsc` builds
+clean against the published 0.11.1. Examples are not in the pnpm
+workspace, so this isn't covered by monorepo CI.
+- Refs #119
+- Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+- * docs(mcp): note ordering intent on the 503 error branch in requireBearerAuth
+- The HTTPError/OAuthError base checks in the 503 bucket catch discovery
+and metadata failures; token-level subclasses are matched in earlier
+branches. Document that a new client-facing OAuthError/HTTPError must be
+handled before this branch or it would be mis-bucketed as 503.
+- Comment only, no behavior change.
+- Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+- ---------
+- Co-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+
 ## 0.11.1-keycardai-mcp (2026-07-06)
 
 
