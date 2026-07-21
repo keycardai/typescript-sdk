@@ -50,6 +50,14 @@ export class IsolateSafeTokenCache {
     subjectToken: string,
     resource: string,
   ): Promise<TokenResponse> {
+    // The cache keys upstream tokens per user. An empty subject would fold
+    // every caller into one entry and serve one user's upstream token to
+    // another, so refuse loudly instead.
+    if (!subject) {
+      throw new Error(
+        "getToken requires a non-empty subject: tokens are cached per user, and an empty subject would share one cache entry across all callers",
+      );
+    }
     const cacheKey = `${subject}::${resource}`;
     const now = Date.now();
 

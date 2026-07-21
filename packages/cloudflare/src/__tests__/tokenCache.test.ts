@@ -114,6 +114,15 @@ describe("IsolateSafeTokenCache", () => {
     expect(exchangeMock).toHaveBeenCalledTimes(4);
   });
 
+  it("rejects an empty subject before touching the cache or exchanging", async () => {
+    const cache = new IsolateSafeTokenCache(client);
+
+    await expect(cache.getToken("", "jwt", "https://api.github.com")).rejects.toThrow(
+      /non-empty subject/,
+    );
+    expect(exchangeMock).not.toHaveBeenCalled();
+  });
+
   it("respects skew seconds for early cache expiry", async () => {
     const response = mockTokenResponse({ expiresIn: 1 }); // 1 second TTL
     exchangeMock.mockResolvedValue(response);

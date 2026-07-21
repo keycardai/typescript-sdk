@@ -111,7 +111,15 @@ export class WorkersWebIdentity implements ApplicationCredential {
     if (this.#privateKeyPem.includes("-----BEGIN RSA PRIVATE KEY-----")) {
       throw new Error(
         'Private key is in PKCS#1 format ("BEGIN RSA PRIVATE KEY"), which WebCrypto cannot import. ' +
-          "Convert it to PKCS#8 first: " +
+          "Convert it to unencrypted PKCS#8: " +
+          "openssl pkcs8 -topk8 -nocrypt -in private-key.pem -out private-key-pkcs8.pem " +
+          "(openssl prompts for the passphrase if the key is encrypted)",
+      );
+    }
+    if (this.#privateKeyPem.includes("-----BEGIN ENCRYPTED PRIVATE KEY-----")) {
+      throw new Error(
+        'Private key is encrypted PKCS#8 ("BEGIN ENCRYPTED PRIVATE KEY"), which WebCrypto cannot import. ' +
+          "Decrypt it to unencrypted PKCS#8: " +
           "openssl pkcs8 -topk8 -nocrypt -in private-key.pem -out private-key-pkcs8.pem",
       );
     }

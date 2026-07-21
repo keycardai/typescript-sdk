@@ -80,8 +80,12 @@ export default createKeycardWorker<Env>({
 
       // Delegated access tool: fetch from upstream API using token exchange
       server.tool("github_user", "Fetches the authenticated user's GitHub profile", {}, async () => {
+        if (!auth.subject) {
+          // The cache keys tokens per user; never exchange without a subject.
+          throw new Error("Token has no subject");
+        }
         const cache = getTokenCache(env);
-        const token = await cache.getToken(auth.subject!, auth.token, env.KEYCARD_RESOURCE_URL);
+        const token = await cache.getToken(auth.subject, auth.token, env.KEYCARD_RESOURCE_URL);
 
         const response = await fetch("https://api.github.com/user", {
           headers: {

@@ -122,9 +122,15 @@ export default createKeycardWorker({
       tokenCache = new IsolateSafeTokenCache(client, { credential });
     }
 
+    // The cache keys tokens per user, so require a subject: a token
+    // without one must not share another user's upstream token.
+    if (!auth.subject) {
+      return new Response("Token has no subject", { status: 401 });
+    }
+
     // Exchange for upstream token (cached per-user, auto-refreshes)
     const upstream = await tokenCache.getToken(
-      auth.subject!,
+      auth.subject,
       auth.token,
       env.KEYCARD_RESOURCE_URL!,
     );

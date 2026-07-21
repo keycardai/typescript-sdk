@@ -36,6 +36,16 @@ describe("WorkersWebIdentity key import", () => {
     );
   });
 
+  it("rejects an encrypted PKCS#8 PEM with a clear decryption message", async () => {
+    const encryptedPem =
+      "-----BEGIN ENCRYPTED PRIVATE KEY-----\nAAAA\n-----END ENCRYPTED PRIVATE KEY-----";
+    const identity = new WorkersWebIdentity(encryptedPem);
+
+    await expect(identity.getPublicJwks()).rejects.toThrow(
+      /encrypted PKCS#8 .*"BEGIN ENCRYPTED PRIVATE KEY".*openssl pkcs8 -topk8 -nocrypt/s,
+    );
+  });
+
   it("rejects a PKCS#1 PEM from prepareTokenExchangeRequest too", async () => {
     const identity = new WorkersWebIdentity(generateRsaPem("pkcs1"));
 
