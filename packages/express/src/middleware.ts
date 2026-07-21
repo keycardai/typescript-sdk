@@ -40,9 +40,8 @@ export interface KeycardMiddleware {
 
 /**
  * Creates a pair of pre-configured Keycard middleware functions sharing a
- * common zone URL. Eliminates the naming mismatch between `requireBearerAuth`
- * (which takes `issuer`) and `grant` (which takes `zoneUrl`/`zoneId`) by
- * accepting a single consistent config.
+ * common zone configuration: pass `zoneUrl`/`zoneId` and credentials once
+ * and get `requireBearerAuth` and `grant` bound to that zone.
  *
  * Python equivalent: `AuthProvider(zone_url=..., application_credential=...)`
  *

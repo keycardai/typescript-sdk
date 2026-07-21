@@ -101,7 +101,7 @@ function resolveRequestScope(
  * per-resource tokens and errors into the existing `req.accessContext`.
  *
  * ```ts
- * app.use(requireBearerAuth({ issuer: "https://zone.keycard.cloud" }));
+ * app.use(requireBearerAuth({ zoneUrl: "https://zone.keycard.cloud" }));
  * app.use(grant(["https://graph.microsoft.com"], { zoneUrl: "https://zone.keycard.cloud" }));
  * app.get("/data", (req, res) => {
  *   const token = req.accessContext.access("https://graph.microsoft.com");
