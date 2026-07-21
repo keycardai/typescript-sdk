@@ -1,5 +1,6 @@
 import { Router } from "express";
 import type { RequestHandler } from "express";
+import { getRequestOrigin } from "./host.js";
 
 export interface KeycardRouterOptions {
   /**
@@ -101,7 +102,7 @@ function jwksHandler(publicJwks: { keys: Record<string, unknown>[] }): RequestHa
 
 function protectedResourceHandler(options: KeycardRouterOptions): RequestHandler {
   return (req, res) => {
-    const resource = `${req.protocol}://${req.host}`;
+    const resource = getRequestOrigin(req);
     const metadata: Record<string, unknown> = {
       resource,
       authorization_servers: [options.issuer],
@@ -132,7 +133,7 @@ function authorizationServerHandler(issuer: string, timeoutMs: number): RequestH
       // at this server's origin so the AS knows which resource is being accessed.
       if (typeof metadata.authorization_endpoint === "string") {
         const authUrl = new URL(metadata.authorization_endpoint);
-        authUrl.searchParams.set("resource", `${req.protocol}://${req.host}`);
+        authUrl.searchParams.set("resource", getRequestOrigin(req));
         metadata.authorization_endpoint = authUrl.toString();
       }
 

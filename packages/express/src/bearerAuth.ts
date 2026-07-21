@@ -12,6 +12,7 @@ import {
   JWKSError,
   JWKSKeyNotFoundError,
 } from "@keycardai/oauth/errors";
+import { getRequestOrigin } from "./host.js";
 
 /**
  * Extends Express `Request` with the verified Keycard `AccessToken`.
@@ -148,7 +149,7 @@ export function requireBearerAuth(options: BearerAuthOptions): RequestHandler {
       // server must not be accepted here. Compare origins so path and query
       // string differences are ignored (mirrors Workers auth.ts:88-92).
       if (accessToken.resource) {
-        const requestOrigin = `${req.protocol}://${req.host}`;
+        const requestOrigin = getRequestOrigin(req);
         try {
           const tokenOrigin = new URL(accessToken.resource).origin;
           if (tokenOrigin !== requestOrigin) {
@@ -223,8 +224,7 @@ export function requireBearerAuth(options: BearerAuthOptions): RequestHandler {
 }
 
 function getResourceMetadataUrl(req: Request): string {
-  const origin = `${req.protocol}://${req.host}`;
-  return `${origin}/.well-known/oauth-protected-resource`;
+  return `${getRequestOrigin(req)}/.well-known/oauth-protected-resource`;
 }
 
 function buildIssuerFromZoneId(zoneId?: string): string | undefined {

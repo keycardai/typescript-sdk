@@ -119,6 +119,41 @@ describe('requireBearerAuth', () => {
     expect(res.status).toBe(200);
   });
 
+  it('accepts a token bound to a nonstandard port (Express 5 host semantics)', async () => {
+    const tokenWithPort: AccessToken = {
+      ...VALID_TOKEN,
+      resource: 'http://api.example.com:8443/api',
+    };
+    const app = makeApp(makeVerifier(tokenWithPort));
+    const res = await request(app)
+      .get('/resource')
+      .set('Host', 'api.example.com:8443')
+      .set('Authorization', 'Bearer valid-jwt');
+    expect(res.status).toBe(200);
+  });
+
+  it('accepts a token bound to a nonstandard port when req.host strips it (Express 4 host semantics)', async () => {
+    const tokenWithPort: AccessToken = {
+      ...VALID_TOKEN,
+      resource: 'http://api.example.com:8443/api',
+    };
+    const app = express();
+    // Express 4's req.host is an alias for req.hostname: no port. Shadow the
+    // Express 5 getter to simulate that; the Host header still carries the port.
+    app.use((req, _res, next) => {
+      Object.defineProperty(req, 'host', { value: 'api.example.com' });
+      next();
+    });
+    app.use(requireBearerAuth({ verifier: makeVerifier(tokenWithPort) }));
+    app.get('/resource', (_req, res) => res.json({ ok: true }));
+
+    const res = await request(app)
+      .get('/resource')
+      .set('Host', 'api.example.com:8443')
+      .set('Authorization', 'Bearer valid-jwt');
+    expect(res.status).toBe(200);
+  });
+
   it('returns 401 invalid_token when the signing key is not in the JWKS', async () => {
     const app = makeApp(makeThrowingVerifier(
       new JWKSKeyNotFoundError('Failed to find key "abc" of "https://zone.example.com"'),
