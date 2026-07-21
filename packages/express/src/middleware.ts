@@ -1,6 +1,7 @@
-import type { RequestHandler } from "express";
+import type { Request, RequestHandler } from "express";
 import { requireBearerAuth } from "./bearerAuth.js";
 import { grant } from "./grant.js";
+import type { GrantOptions } from "./grant.js";
 import type { ApplicationCredential } from "@keycardai/oauth/credentials";
 
 export interface KeycardMiddlewareOptions {
@@ -18,6 +19,32 @@ export interface KeycardMiddlewareOptions {
    * Typically a `ClientSecret` from `@keycardai/oauth/server`.
    */
   applicationCredential?: ApplicationCredential;
+  /**
+   * Audience to validate tokens against in `requireBearerAuth()`.
+   */
+  audience?: string;
+  /**
+   * Enables per-request zone verification in `requireBearerAuth()`.
+   * Pair with `zoneResolver` for multi-zone deployments.
+   */
+  enableMultiZone?: boolean;
+  /**
+   * Resolves the zone ID for each incoming request in `requireBearerAuth()`.
+   * Requires `enableMultiZone: true`. `subdomainZoneResolver` can be passed
+   * directly for subdomain-per-zone deployments.
+   */
+  zoneResolver?: (req: Request) => string | undefined;
+  /**
+   * Resolver for the user identity to impersonate in `grant()`. When set,
+   * each per-resource exchange uses the substitute-user impersonation flow
+   * instead of exchanging the caller's bearer token. Overridable per call.
+   */
+  userIdentifier?: GrantOptions["userIdentifier"];
+  /**
+   * OAuth scopes to request for each per-resource token exchange in
+   * `grant()`. Overridable per call.
+   */
+  requestScopes?: GrantOptions["requestScopes"];
 }
 
 export interface KeycardMiddleware {
@@ -28,12 +55,15 @@ export interface KeycardMiddleware {
   requireBearerAuth(options?: { requiredScopes?: readonly string[] }): RequestHandler;
   /**
    * Express middleware for delegated RFC 8693 token exchange.
-   * Sets `req.accessContext` with per-resource tokens.
+   * Sets `req.accessContext` with per-resource tokens. Per-call options
+   * override the factory-level defaults.
    */
   grant(
     resources: string | readonly string[],
     options?: {
       applicationCredential?: ApplicationCredential;
+      userIdentifier?: GrantOptions["userIdentifier"];
+      requestScopes?: GrantOptions["requestScopes"];
     },
   ): RequestHandler;
 }
@@ -54,6 +84,17 @@ export interface KeycardMiddleware {
  * app.use(keycard.requireBearerAuth());
  * app.use(keycard.grant(["https://graph.microsoft.com"]));
  * ```
+ *
+ * Multi-zone deployments configure verification and exchange the same way
+ * they would with the standalone middlewares:
+ * ```ts
+ * const keycard = createKeycardMiddleware({
+ *   zoneUrl: "https://keycard.cloud",
+ *   enableMultiZone: true,
+ *   zoneResolver: subdomainZoneResolver,
+ *   applicationCredential: multiZoneClientSecret,
+ * });
+ * ```
  */
 export function createKeycardMiddleware(options: KeycardMiddlewareOptions): KeycardMiddleware {
   const zoneUrl = options.zoneUrl ?? buildZoneUrl(options.zoneId);
@@ -65,6 +106,9 @@ export function createKeycardMiddleware(options: KeycardMiddlewareOptions): Keyc
     requireBearerAuth(localOptions?: { requiredScopes?: readonly string[] }) {
       return requireBearerAuth({
         zoneUrl,
+        audience: options.audience,
+        enableMultiZone: options.enableMultiZone,
+        zoneResolver: options.zoneResolver,
         requiredScopes: localOptions?.requiredScopes,
       });
     },
@@ -74,6 +118,8 @@ export function createKeycardMiddleware(options: KeycardMiddlewareOptions): Keyc
         zoneUrl,
         applicationCredential:
           localOptions?.applicationCredential ?? options.applicationCredential,
+        userIdentifier: localOptions?.userIdentifier ?? options.userIdentifier,
+        requestScopes: localOptions?.requestScopes ?? options.requestScopes,
       });
     },
   };
