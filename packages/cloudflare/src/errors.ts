@@ -5,4 +5,9 @@ export {
   OAuthError,
   InvalidTokenError,
   InsufficientScopeError,
+  JWKSError,
+  JWKSDiscoveryError,
+  JWKSUriValidationError,
+  JWKSFetchError,
+  JWKSKeyNotFoundError,
 } from "@keycardai/oauth/errors";

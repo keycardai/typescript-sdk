@@ -35,4 +35,9 @@ export {
   InvalidTokenError,
   InsufficientScopeError,
   OAuthError,
+  JWKSError,
+  JWKSDiscoveryError,
+  JWKSUriValidationError,
+  JWKSFetchError,
+  JWKSKeyNotFoundError,
 } from "./errors.js";
