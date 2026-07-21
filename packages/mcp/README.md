@@ -90,6 +90,9 @@ app.get(
 
 ### MCP Client Provider
 
+Implements the `OAuthClientProvider` interface from the MCP v2 client SDK
+(`@modelcontextprotocol/client`, an optional peer dependency).
+
 ```typescript
 import { BaseOAuthClientProvider } from "@keycardai/mcp/client/auth/providers/base";
 
@@ -101,6 +104,9 @@ class MyOAuthProvider extends BaseOAuthClientProvider {
         client_name: "My MCP Client",
       },
       "your-client-id",
+      {
+        redirectUrl: "http://localhost:3000/callback",
+      },
     );
   }
 
@@ -111,6 +117,51 @@ class MyOAuthProvider extends BaseOAuthClientProvider {
 }
 ```
 
+Notes on the v2 provider contract:
+
+- `redirectUrl` returns `undefined` when no redirect URL is configured. The
+  MCP SDK reads that as a non-interactive provider (`client_credentials`,
+  `jwt-bearer`) and skips the authorization redirect leg.
+- Token and client credential values persisted by the SDK carry an
+  SDK-stamped authorization-server `issuer` field (`StoredOAuthTokens`,
+  `StoredOAuthClientInformation`), and the persistence methods receive an
+  optional context with the resolved issuer. The provider forwards that
+  context to the configured `tokensStore`.
+- Passing a `discoveryStateStore` in the options enables SEP-2352 discovery
+  caching and the callback-leg authorization-server binding check. The store
+  must persist with the same durability as the code verifier store: without
+  it the SDK re-runs discovery on the callback leg and cannot verify that
+  the authorization server matches the one recorded before the redirect.
+
+### `req.auth` typing conflict with `@modelcontextprotocol/express`
+
+The MCP v2 `@modelcontextprotocol/express` package globally augments
+Express's `Request` interface with `auth?: AuthInfo` (the MCP SDK token
+shape). Once that package is anywhere in your compilation, the
+augmentation is active for every Express request type in the project.
+
+This collides with `@keycardai/express`, which types `req.auth` as
+Keycard's `AccessToken`:
+
+- The `AuthenticatedRequest` interface (`auth: AccessToken`) extends the
+  augmented `Request` whose `auth` is `AuthInfo | undefined`, which is
+  TS2430 (incompatible member types: Keycard's `resource` is a string,
+  the MCP shape's is a `URL`). With `skipLibCheck: true` the error inside
+  the library declaration is suppressed and the
+  `req as AuthenticatedRequest` cast pattern keeps working; declaring an
+  equivalent interface in your own source surfaces the error.
+- A user-level `declare global namespace Express` augmentation of
+  `req.auth` as `AccessToken` does not error, it silently loses:
+  the MCP package augments the more derived
+  `express-serve-static-core` `Request`, so `req.auth` resolves to
+  `AuthInfo | undefined` and Keycard token fields stop typechecking.
+
+Workarounds until the two packages agree on a shared property: keep
+`skipLibCheck: true` and the `AuthenticatedRequest` cast pattern instead
+of global augmentation, or isolate the MCP express integration in a
+separate TypeScript project so only one declaration of `req.auth` is in
+scope per compilation.
+
 ## API Overview
 
 ### Server Auth Middleware
@@ -120,6 +171,7 @@ class MyOAuthProvider extends BaseOAuthClientProvider {
 | `requireBearerAuth` | `@keycardai/mcp/server/auth/middleware/bearerAuth` | Express middleware — verifies JWT bearer tokens, checks scopes, validates resource claims |
 | `mcpAuthMetadataRouter` | `@keycardai/mcp/server/auth/router` | Express router for `.well-known/oauth-protected-resource` and `.well-known/oauth-authorization-server` |
 | `JWTOAuthTokenVerifier` | `@keycardai/mcp/server/auth/verifiers/jwt` | Token verifier implementing the MCP SDK's `OAuthTokenVerifier` interface |
+| `requireToolScopes`, `missingToolScopes` | `@keycardai/mcp/server/auth/toolScopes` | Per-tool scope checks inside MCP tool handlers via `ctx.http.authInfo` (route-level `requiredScopes` cannot vary per tool on a multiplexed `/mcp` route) |
 
 ### Delegated Access
 
