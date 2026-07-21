@@ -94,6 +94,19 @@ describe('buildAgentCard', () => {
     expect(card.url).toBe('https://agent.example.com/a2a/jsonrpc');
     expect(card.capabilities).toBeDefined();
   });
+
+  it('declares a bearer security scheme and requires it', () => {
+    const card = buildAgentCard(CONFIG);
+    expect(card.securitySchemes).toEqual({
+      bearer: {
+        type: 'http',
+        scheme: 'bearer',
+        bearerFormat: 'JWT',
+        description: 'Keycard-issued JWT access token',
+      },
+    });
+    expect(card.security).toEqual([{ bearer: [] }]);
+  });
 });
 
 describe('agentCardHandler', () => {

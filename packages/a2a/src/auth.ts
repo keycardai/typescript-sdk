@@ -128,11 +128,3 @@ export function getKeycardAuth(requestContext: RequestContext): AccessToken | nu
   return null;
 }
 
-class UnauthenticatedUser implements User {
-  get isAuthenticated(): boolean {
-    return false;
-  }
-  get userName(): string {
-    return "anonymous";
-  }
-}

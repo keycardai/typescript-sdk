@@ -44,6 +44,10 @@ export function createKeycardRequestHandler(
 /**
  * Build an `AgentCard` from an `AgentServiceConfig` for use with
  * `createKeycardRequestHandler`.
+ *
+ * The card declares a `bearer` HTTP security scheme (Keycard-issued JWT)
+ * and requires it for all interactions via `security`, matching the auth
+ * enforced by `requireBearerAuth` and `keycardUserBuilder`.
  */
 export function buildAgentCard(config: AgentServiceConfig): AgentCard {
   return {
@@ -53,6 +57,15 @@ export function buildAgentCard(config: AgentServiceConfig): AgentCard {
     version: "0.1",
     protocolVersion: "0.3",
     capabilities: {},
+    securitySchemes: {
+      bearer: {
+        type: "http",
+        scheme: "bearer",
+        bearerFormat: "JWT",
+        description: "Keycard-issued JWT access token",
+      },
+    },
+    security: [{ bearer: [] }],
     defaultInputModes: ["text/plain"],
     defaultOutputModes: ["text/plain"],
     skills: config.skills?.map((s) => ({
