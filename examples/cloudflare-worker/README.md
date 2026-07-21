@@ -76,7 +76,13 @@ wrangler secret put KEYCARD_CLIENT_SECRET
 Generate a private key and store it as a Worker secret:
 
 ```bash
-openssl genrsa 2048 | wrangler secret put KEYCARD_PRIVATE_KEY
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 | wrangler secret put KEYCARD_PRIVATE_KEY
+```
+
+The key must be in PKCS#8 format (`BEGIN PRIVATE KEY`), which `openssl genpkey` always emits. If you already have a PKCS#1 key (`BEGIN RSA PRIVATE KEY`), convert it first:
+
+```bash
+openssl pkcs8 -topk8 -nocrypt -in private-key.pem -out private-key-pkcs8.pem
 ```
 
 The Worker automatically serves its public key at `/.well-known/jwks.json`. Register this URL in Keycard Console as the application's JWKS endpoint.
