@@ -55,6 +55,7 @@ export function createKeycardWorker<Env extends KeycardEnv = KeycardEnv>(
       // tokens with any other `iss` are rejected before any JWKS lookup.
       const authResult = await verifyBearerToken(request, {
         issuers: env.KEYCARD_ISSUER,
+        audiences: options.audiences,
         requiredScopes: options.requiredScopes,
       });
 

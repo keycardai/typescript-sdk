@@ -62,6 +62,8 @@ npm install
 
 Edit `wrangler.jsonc` and set `KEYCARD_ISSUER` to your zone URL, `KEYCARD_RESOURCE_URL` to `https://api.github.com`.
 
+In `src/index.ts`, set `audiences` to your Worker's public URL — the resource identifier you registered in step 3 — so tokens minted for other resources are rejected.
+
 ### Option A: Client Credentials
 
 ```bash

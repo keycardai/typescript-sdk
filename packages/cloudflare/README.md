@@ -25,6 +25,9 @@ The fastest way to add Keycard auth to a Worker:
 import { createKeycardWorker } from "@keycardai/cloudflare";
 
 export default createKeycardWorker({
+  // Bind accepted audiences to this Worker's public URL (its resource
+  // identifier in Keycard) so tokens minted for other resources are rejected.
+  audiences: ["https://my-worker.example.workers.dev"],
   requiredScopes: ["read"],
   scopesSupported: ["read", "write"],
   resourceName: "My MCP Server",
@@ -146,6 +149,8 @@ export default createKeycardWorker({
 ### `createKeycardWorker(options)`
 
 Returns an `ExportedHandler` with Keycard auth built in. Auto-detects credential type from env.
+
+Set `audiences` to the Worker's public URL so bearer tokens minted for other resources on the same issuer are rejected.
 
 ### `verifyBearerToken(request, options?)`
 

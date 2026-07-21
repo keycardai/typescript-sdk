@@ -48,6 +48,13 @@ export type AuthenticatedFetchHandler<Env extends KeycardEnv = KeycardEnv> = (
 ) => Response | Promise<Response>;
 
 export interface KeycardWorkerOptions<Env extends KeycardEnv = KeycardEnv> {
+  /**
+   * Audience(s) verified tokens must be intended for. Bind this to the
+   * Worker's public URL (the resource identifier registered in Keycard) so
+   * tokens minted for other resources are rejected even when they share the
+   * same issuer.
+   */
+  audiences?: string | readonly string[];
   /** Required scopes for bearer auth verification. */
   requiredScopes?: string[];
   /** Scopes advertised in the protected resource metadata. */

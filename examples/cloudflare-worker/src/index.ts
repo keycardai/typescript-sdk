@@ -43,6 +43,10 @@ function getTokenCache(env: Env): IsolateSafeTokenCache {
 
 export default createKeycardWorker<Env>({
   resourceName: "Cloudflare Worker Example",
+  // Bind accepted audiences to this Worker's public URL (the resource
+  // identifier registered in Keycard Console) so tokens minted for other
+  // resources are rejected.
+  audiences: ["https://your-worker.your-subdomain.workers.dev"],
   scopesSupported: ["mcp:tools"],
   requiredScopes: ["mcp:tools"],
 
