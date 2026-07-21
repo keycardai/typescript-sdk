@@ -14,6 +14,17 @@ import type { Request } from "express";
  *
  * The header value is only used when its hostname matches `req.host`, so the
  * result never diverges from the host Express itself resolved.
+ *
+ * Trust model: this inherits Express's own. Without a `trust proxy`
+ * setting, `req.host` (hostname and therefore the recovered port) comes
+ * from the client-supplied Host header, so origin comparisons and
+ * advertised resource URLs are only as trustworthy as that header. Apps
+ * behind a proxy must configure `trust proxy` for these values to reflect
+ * the public-facing host.
+ *
+ * Reading `req.host` emits a one-time depd deprecation warning on
+ * Express 4. It is deliberate: `req.hostname` strips the port on both
+ * majors, and the port is the point.
  */
 export function getRequestHost(req: Request): string {
   const host = req.host;

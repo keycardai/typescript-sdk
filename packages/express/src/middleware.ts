@@ -37,7 +37,10 @@ export interface KeycardMiddlewareOptions {
   /**
    * Resolver for the user identity to impersonate in `grant()`. When set,
    * each per-resource exchange uses the substitute-user impersonation flow
-   * instead of exchanging the caller's bearer token. Overridable per call.
+   * instead of exchanging the caller's bearer token. A per-call value
+   * replaces this one, but a factory-level identifier cannot be unset per
+   * call: every grant from this factory uses the impersonation flow. For a
+   * plain exchange on one route, use the standalone `grant()` instead.
    */
   userIdentifier?: GrantOptions["userIdentifier"];
   /**
