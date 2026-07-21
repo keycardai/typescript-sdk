@@ -101,8 +101,9 @@ import {
   IsolateSafeTokenCache,
   resolveCredential,
 } from "@keycardai/cloudflare";
+import { TokenExchangeClient } from "@keycardai/oauth/tokenExchange";
 
-let tokenCache: IsolateSafeTokenCache;
+let tokenCache: IsolateSafeTokenCache | undefined;
 
 export default createKeycardWorker({
   requiredScopes: ["read"],
@@ -110,17 +111,23 @@ export default createKeycardWorker({
   async fetch(request, env, ctx, auth) {
     // Lazy-init cache (module-level state is safe across requests in Workers)
     if (!tokenCache) {
-      tokenCache = new IsolateSafeTokenCache({
-        zoneUrl: env.KEYCARD_ISSUER,
-        credential: resolveCredential(env),
-      });
+      const credential = resolveCredential(env);
+      const client = new TokenExchangeClient(
+        env.KEYCARD_ISSUER,
+        credential.getAuth() ?? undefined,
+      );
+      tokenCache = new IsolateSafeTokenCache(client, { credential });
     }
 
     // Exchange for upstream token (cached per-user, auto-refreshes)
-    const upstream = await tokenCache.getToken(auth, env.KEYCARD_RESOURCE_URL!);
+    const upstream = await tokenCache.getToken(
+      auth.subject!,
+      auth.token,
+      env.KEYCARD_RESOURCE_URL!,
+    );
 
     const resp = await fetch("https://api.github.com/user", {
-      headers: { Authorization: `Bearer ${upstream}` },
+      headers: { Authorization: `Bearer ${upstream.accessToken}` },
     });
 
     return new Response(resp.body, resp);
