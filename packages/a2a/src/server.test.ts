@@ -3,8 +3,8 @@ import express from 'express';
 import request from 'supertest';
 import { createKeycardRequestHandler, buildAgentCard } from './server.js';
 import { keycardUserBuilder, KeycardUser, getKeycardAuth } from './auth.js';
-// Imported via the package index to cover the re-export from @keycardai/express.
-import { requireBearerAuth } from './index.js';
+// Imported via the package index to cover the re-exports from @keycardai/express.
+import { requireBearerAuth, keycardMetadataRouter } from './index.js';
 import {
   agentCardHandler,
   jsonRpcHandler,
@@ -203,6 +203,40 @@ describe('requireBearerAuth + keycardUserBuilder (end-to-end auth path)', () => 
     expect(res.status).toBe(401);
     expect(res.headers['www-authenticate']).toMatch(/^Bearer /);
     expect(res.headers['www-authenticate']).toContain('resource_metadata=');
+  });
+
+  it("resolves the 401's resource_metadata pointer in the documented quickstart wiring", async () => {
+    // Reproduces the README quickstart composition: keycardMetadataRouter at
+    // the app root plus a requireBearerAuth-protected JSON-RPC route. The URL
+    // advertised in the 401's WWW-Authenticate challenge must actually serve
+    // the RFC 9728 protected-resource metadata.
+    const agentCard = buildAgentCard(CONFIG);
+    const requestHandler = createKeycardRequestHandler(ECHO_EXECUTOR, agentCard);
+    const app = express();
+    app.use(express.json());
+    app.use(keycardMetadataRouter({ issuer: 'https://zone-abc.keycard.cloud' }));
+    app.use('/.well-known/agent-card.json', agentCardHandler({ agentCardProvider: requestHandler }));
+    app.use(
+      '/a2a/jsonrpc',
+      requireBearerAuth({ verifier: makeVerifier(null) }),
+      jsonRpcHandler({ requestHandler, userBuilder: keycardUserBuilder() }),
+    );
+
+    const unauth = await request(app)
+      .post('/a2a/jsonrpc')
+      .set('Content-Type', 'application/json')
+      .send({ jsonrpc: '2.0', id: '1', method: 'message/send',
+        params: { message: { messageId: 'm', role: 'user', parts: [] } } });
+    expect(unauth.status).toBe(401);
+
+    const challenge = unauth.headers['www-authenticate'];
+    const metadataUrl = /resource_metadata="([^"]+)"/.exec(challenge ?? '')?.[1];
+    expect(metadataUrl).toBeDefined();
+
+    const metadataRes = await request(app).get(new URL(String(metadataUrl)).pathname);
+    expect(metadataRes.status).toBe(200);
+    expect(metadataRes.body.resource).toBeDefined();
+    expect(metadataRes.body.authorization_servers).toEqual(['https://zone-abc.keycard.cloud']);
   });
 
   it('returns 401 with a WWW-Authenticate challenge when token is invalid', async () => {
