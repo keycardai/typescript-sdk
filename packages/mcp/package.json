@@ -40,6 +40,11 @@
       "require": "./dist/cjs/server/auth/errors.js",
       "types": "./dist/esm/server/auth/errors.d.ts"
     },
+    "./server/auth/toolScopes": {
+      "import": "./dist/esm/server/auth/toolScopes.js",
+      "require": "./dist/cjs/server/auth/toolScopes.js",
+      "types": "./dist/esm/server/auth/toolScopes.d.ts"
+    },
     "./shared/auth": {
       "import": "./dist/esm/shared/auth.js",
       "require": "./dist/cjs/shared/auth.js",
