@@ -61,6 +61,8 @@ app.use(
   // and sets req.auth to the verified token.
   requireBearerAuth({
     zoneUrl: `https://${config.zoneId}.keycard.cloud`,
+    // Recommended: leaving audience unset disables the audience check.
+    audience: config.identityUrl,
   }),
   // Wraps the verified token from req.auth into a KeycardUser for executors.
   jsonRpcHandler({ requestHandler, userBuilder: keycardUserBuilder() }),

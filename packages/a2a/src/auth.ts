@@ -30,6 +30,13 @@ export class KeycardUser implements User {
   }
 }
 
+/**
+ * Verification options for `keycardUserBuilder`'s standalone mode.
+ *
+ * Set `audience` to this agent's public URL so tokens minted for other
+ * resources are rejected. When `audience` is unset, the audience check
+ * is disabled.
+ */
 export type KeycardUserBuilderOptions = Pick<
   TokenVerifierOptions,
   "issuer" | "audience" | "enableMultiZone" | "keyring" | "requiredScopes"
