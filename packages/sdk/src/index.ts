@@ -15,7 +15,7 @@ export { JWTVerifier } from "@keycardai/oauth/jwt/verifier";
 
 // MCP OAuth integration
 export { BaseOAuthClientProvider } from "@keycardai/mcp/client/auth/providers/base";
-export type { OAuthTokensStore, OAuthCodeVerifierStore } from "@keycardai/mcp/client/auth/providers/base";
+export type { OAuthTokensStore, OAuthCodeVerifierStore, OAuthDiscoveryStateStore } from "@keycardai/mcp/client/auth/providers/base";
 export { JSONWebTokenSigner } from "@keycardai/mcp/client/auth/signers/jwt";
 export type { FullAuthInfo } from "@keycardai/mcp/client/auth/signers/jwt";
 export { mcpAuthMetadataRouter, getOAuthProtectedResourceMetadataUrl } from "@keycardai/mcp/server/auth/router";
@@ -23,6 +23,8 @@ export type { InferredAuthMetadataOptions } from "@keycardai/mcp/server/auth/rou
 export { requireBearerAuth } from "@keycardai/mcp/server/auth/middleware/bearerAuth";
 export type { BearerAuthMiddlewareOptions } from "@keycardai/mcp/server/auth/middleware/bearerAuth";
 export { JWTOAuthTokenVerifier } from "@keycardai/mcp/server/auth/verifiers/jwt";
+export { requireToolScopes, missingToolScopes } from "@keycardai/mcp/server/auth/toolScopes";
+export type { ToolAuthContext } from "@keycardai/mcp/server/auth/toolScopes";
 
 // Delegated access
 export { AuthProvider, AccessContext } from "@keycardai/mcp/server/auth/provider";
