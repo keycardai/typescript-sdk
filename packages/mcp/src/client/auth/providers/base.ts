@@ -76,7 +76,9 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
           userId: clientInformation.client_id,
           resource: tokenUrl,
           issuedAt: Math.floor(now / 1000),
-          expiresAt: Math.floor(now / 1000) + 60,
+          // 300s tolerates client clocks lagging the AS; the jti below keeps
+          // the replay window bounded by uniqueness, not by the ttl.
+          expiresAt: Math.floor(now / 1000) + 300,
           uniqueId: crypto.randomUUID()
         });
 
