@@ -172,7 +172,8 @@ describe('requireBearerAuth + keycardUserBuilder (end-to-end auth path)', () => 
   // These tests exercise the recommended wiring: requireBearerAuth fronts
   // the JSON-RPC handler, rejecting auth failures with HTTP 401 and an
   // RFC 6750 WWW-Authenticate challenge, and keycardUserBuilder() wraps the
-  // pre-verified token from req.auth into a KeycardUser.
+  // pre-verified token (branded on the request with KEYCARD_ACCESS_TOKEN)
+  // into a KeycardUser.
 
   function makeKeycardApp(
     verifierResult: AccessToken | null,
@@ -216,7 +217,7 @@ describe('requireBearerAuth + keycardUserBuilder (end-to-end auth path)', () => 
     expect(res.headers['www-authenticate']).toContain('error="invalid_token"');
   });
 
-  it('injects KeycardUser from req.auth and getKeycardAuth returns the AccessToken', async () => {
+  it('injects KeycardUser from the branded request and getKeycardAuth returns the AccessToken', async () => {
     let capturedAuth: AccessToken | null = null;
     const capturingExecutor: AgentExecutor = {
       async execute(requestContext, eventBus) {
@@ -270,6 +271,52 @@ describe('requireBearerAuth + keycardUserBuilder (end-to-end auth path)', () => 
       .set('Content-Type', 'application/json')
       .send({ jsonrpc: '2.0', id: '1', method: 'message/send',
         params: { message: { messageId: 'm', role: 'user', parts: [] } } });
+    expect(res.status).toBe(500);
     expect(res.body.error?.code).toBe(-32001);
+  });
+
+  it('does not launder a req.auth set by foreign middleware into an authenticated KeycardUser', async () => {
+    // express-jwt also writes to req.auth (its default requestProperty), so a
+    // token verified under someone else's rules could otherwise become an
+    // authenticated KeycardUser. The builder must trust only requests branded
+    // by requireBearerAuth, not bare req.auth.
+    let executed = false;
+    const trackingExecutor: AgentExecutor = {
+      async execute(_requestContext, eventBus) {
+        executed = true;
+        eventBus.finished();
+      },
+      async cancelTask() {},
+    };
+    const agentCard = buildAgentCard(CONFIG);
+    const requestHandler = createKeycardRequestHandler(trackingExecutor, agentCard);
+    const app = express();
+    app.use(express.json());
+    app.use(
+      '/a2a/jsonrpc',
+      // Fake upstream middleware (stand-in for express-jwt): sets req.auth
+      // without the KEYCARD_ACCESS_TOKEN brand.
+      (req, _res, next) => {
+        (req as express.Request & { auth?: AccessToken }).auth = {
+          token: 'foreign',
+          clientId: 'x',
+          scopes: [],
+        };
+        next();
+      },
+      jsonRpcHandler({ requestHandler, userBuilder: keycardUserBuilder() }),
+    );
+
+    const res = await request(app)
+      .post('/a2a/jsonrpc')
+      .set('Content-Type', 'application/json')
+      .send({ jsonrpc: '2.0', id: '1', method: 'message/send',
+        params: { message: { messageId: 'm', role: 'user', parts: [] } } });
+
+    // Without the brand the builder falls through to the standalone path;
+    // with no verifier options it rejects with A2A -32001 over HTTP 500.
+    expect(res.status).toBe(500);
+    expect(res.body.error?.code).toBe(-32001);
+    expect(executed).toBe(false);
   });
 });

@@ -6,6 +6,7 @@ import type { TokenVerifierOptions } from "@keycardai/oauth/server/tokenVerifier
 import type { AccessToken } from "@keycardai/oauth/server/accessToken";
 import type { RequestContext } from "@a2a-js/sdk/server";
 import { A2AError } from "@a2a-js/sdk/server";
+import { KEYCARD_ACCESS_TOKEN } from "@keycardai/express";
 
 /**
  * A Keycard-verified user. Implements `@a2a-js/sdk`'s `User` interface
@@ -49,9 +50,15 @@ export type KeycardUserBuilderOptions = Pick<
  * Mount `requireBearerAuth` from `@keycardai/express` (re-exported by this
  * package) in front of the JSON-RPC handler. The middleware verifies the
  * bearer token, responds to auth failures with HTTP 401 and an RFC 6750
- * `WWW-Authenticate` challenge, and sets `req.auth` to the verified
- * `AccessToken`. The builder then wraps that token in a `KeycardUser`
- * without verifying it a second time:
+ * `WWW-Authenticate` challenge, sets `req.auth` to the verified
+ * `AccessToken`, and brands the request with the `KEYCARD_ACCESS_TOKEN`
+ * provenance symbol. The builder then wraps that token in a `KeycardUser`
+ * without verifying it a second time. Only the symbol is trusted, never
+ * bare `req.auth`: other middleware (notably express-jwt, whose default
+ * `requestProperty` is also "auth"; see the express-jwt#311 note in
+ * `@keycardai/express`) populates the same property, and a token verified
+ * under foreign rules must not become an authenticated `KeycardUser` or
+ * flow into RFC 8693 delegation as a subject token.
  *
  * ```ts
  * app.post(
@@ -61,7 +68,7 @@ export type KeycardUserBuilderOptions = Pick<
  * );
  * ```
  *
- * When `req.auth` is absent, the builder falls back to verifying the bearer
+ * When the brand is absent, the builder falls back to verifying the bearer
  * token itself using `options` (which are then required). In that standalone
  * mode auth failures throw an A2A `-32001` error, which `@a2a-js/sdk`'s
  * handlers surface as a JSON-RPC error body over HTTP 500 with no
@@ -83,7 +90,11 @@ export function keycardUserBuilder(options?: KeycardUserBuilderOptions): UserBui
 
   return async (req: Request): Promise<User> => {
     // Token already verified by requireBearerAuth middleware: reuse it.
-    const preVerified = (req as Request & { auth?: AccessToken }).auth;
+    // Trust only the KEYCARD_ACCESS_TOKEN provenance brand, never bare
+    // req.auth, which other middleware (e.g. express-jwt) also populates.
+    const preVerified = (req as unknown as Record<symbol, unknown>)[KEYCARD_ACCESS_TOKEN] as
+      | AccessToken
+      | undefined;
     if (preVerified) {
       return new KeycardUser(preVerified);
     }
