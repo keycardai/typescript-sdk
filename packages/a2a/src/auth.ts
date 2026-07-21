@@ -36,31 +36,59 @@ export type KeycardUserBuilderOptions = Pick<
 >;
 
 /**
- * Returns a `UserBuilder` for `@a2a-js/sdk`'s Express handlers that validates
- * Keycard-issued JWTs and injects a `KeycardUser` into the request context.
+ * Returns a `UserBuilder` for `@a2a-js/sdk`'s Express handlers that injects
+ * a `KeycardUser` into the request context.
+ *
+ * Mount `requireBearerAuth` from `@keycardai/express` (re-exported by this
+ * package) in front of the JSON-RPC handler. The middleware verifies the
+ * bearer token, responds to auth failures with HTTP 401 and an RFC 6750
+ * `WWW-Authenticate` challenge, and sets `req.auth` to the verified
+ * `AccessToken`. The builder then wraps that token in a `KeycardUser`
+ * without verifying it a second time:
+ *
+ * ```ts
+ * app.post(
+ *   "/a2a/jsonrpc",
+ *   requireBearerAuth({ zoneUrl: "https://zone.keycard.cloud" }),
+ *   jsonRpcHandler({ requestHandler, userBuilder: keycardUserBuilder() }),
+ * );
+ * ```
+ *
+ * When `req.auth` is absent, the builder falls back to verifying the bearer
+ * token itself using `options` (which are then required). In that standalone
+ * mode auth failures throw an A2A `-32001` error, which `@a2a-js/sdk`'s
+ * handlers surface as a JSON-RPC error body over HTTP 500 with no
+ * `WWW-Authenticate` challenge. Prefer the `requireBearerAuth` composition.
  *
  * Python equivalent: `KeycardServerCallContextBuilder`, the auth extension
  * point of `a2a-sdk` where Keycard auth is wired in.
- *
- * ```ts
- * const userBuilder = keycardUserBuilder({ issuer: "https://zone.keycard.cloud" });
- * app.post("/a2a/jsonrpc", jsonRpcHandler({ requestHandler, userBuilder }));
- * ```
- *
- * On a valid token the SDK receives a `KeycardUser`; on an invalid or missing
- * token it receives an `UnauthenticatedUser`, and the SDK rejects the request
- * with a 401.
  */
-export function keycardUserBuilder(options: KeycardUserBuilderOptions): UserBuilder {
-  const verifier = new TokenVerifier({
-    issuer: options.issuer,
-    audience: options.audience,
-    enableMultiZone: options.enableMultiZone,
-    keyring: options.keyring,
-    requiredScopes: options.requiredScopes,
-  });
+export function keycardUserBuilder(options?: KeycardUserBuilderOptions): UserBuilder {
+  const verifier = options
+    ? new TokenVerifier({
+        issuer: options.issuer,
+        audience: options.audience,
+        enableMultiZone: options.enableMultiZone,
+        keyring: options.keyring,
+        requiredScopes: options.requiredScopes,
+      })
+    : undefined;
 
   return async (req: Request): Promise<User> => {
+    // Token already verified by requireBearerAuth middleware: reuse it.
+    const preVerified = (req as Request & { auth?: AccessToken }).auth;
+    if (preVerified) {
+      return new KeycardUser(preVerified);
+    }
+
+    if (!verifier) {
+      // -32001 is the A2A unauthorized error code
+      throw new A2AError(
+        -32001,
+        "Request not authenticated: mount requireBearerAuth() in front of this handler, or pass verification options to keycardUserBuilder()",
+      );
+    }
+
     const authorization = req.headers.authorization;
     if (!authorization?.startsWith("Bearer ")) {
       // -32001 is the A2A unauthorized error code
