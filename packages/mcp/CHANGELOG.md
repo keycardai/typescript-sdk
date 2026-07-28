@@ -1,3 +1,39 @@
+## 0.12.1-keycardai-mcp (2026-07-28)
+
+
+- fix(mcp): client provider store saves and private_key_jwt client assertion (#126)
+- * fix(mcp): return store promises from saveTokens and saveCodeVerifier
+- The MCP SDK awaits OAuthClientProvider.saveTokens and saveCodeVerifier
+before proceeding with the OAuth flow, but both methods discarded the
+result of the underlying store save. With an async store the flow could
+redirect to authorization before the code verifier persisted, and
+reconnects could miss freshly saved tokens. Store write failures were
+also silently swallowed as floating promise rejections.
+- Return the store call so callers observe completion and failures,
+matching how tokens() and codeVerifier() already return store promises.
+- Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+- * fix(mcp): attach client assertion params for private_key_jwt token requests
+- addClientAuthentication signed a client assertion for private_key_jwt
+clients but never wrote it to the request params, so token requests
+went out with no client authentication at all.
+- Attach the RFC 7523 section 2.2 parameters: client_assertion_type,
+the signed client_assertion, and client_id.
+- Also set the assertion's iss claim to the client_id as required by
+RFC 7523 section 3 for client authentication. JSONWebTokenSigner
+previously never set iss, leaving JWTSigner to fall back to the
+keyring issuer, which is not guaranteed to equal the client_id.
+FullAuthInfo gains an optional issuer field; callers that omit it
+keep the keyring-issuer fallback.
+- Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+- * fix(mcp): decouple the iss override from the signer's fallback semantics
+- Set iss only when a caller provides it, so the keyring-issuer fallback
+path never depends on how the oauth signer treats an explicit undefined.
+Also widen the client assertion lifetime to 300s for clock-skew
+tolerance; the jti bounds replay by uniqueness.
+- Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+- ---------
+- Co-authored-by: Claude Fable 5 <noreply@anthropic.com>
+
 ## 0.12.0-keycardai-mcp (2026-07-20)
 
 
