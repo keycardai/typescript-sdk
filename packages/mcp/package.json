@@ -90,21 +90,17 @@
     "zod": "^3.25.74"
   },
   "peerDependencies": {
-    "@modelcontextprotocol/client": "^2.0.0-beta.4",
-    "@modelcontextprotocol/sdk": "^1.15.0"
+    "@modelcontextprotocol/client": "^2.0.0"
   },
   "peerDependenciesMeta": {
     "@modelcontextprotocol/client": {
-      "optional": true
-    },
-    "@modelcontextprotocol/sdk": {
       "optional": true
     }
   },
   "devDependencies": {
     "@jest/globals": "^30.0.4",
-    "@modelcontextprotocol/client": "^2.0.0-beta.4",
-    "@modelcontextprotocol/sdk": "^1.15.0",
+    "@modelcontextprotocol/client": "^2.0.0",
+    "@modelcontextprotocol/server": "^2.0.0",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.3",
     "jest": "^30.0.4",

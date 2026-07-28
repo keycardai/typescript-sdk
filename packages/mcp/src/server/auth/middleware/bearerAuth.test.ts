@@ -1,7 +1,6 @@
 import { jest } from '@jest/globals';
 import { Request, Response } from "express";
-import { OAuthTokenVerifier } from "@modelcontextprotocol/sdk/server/auth/provider.js";
-import { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
+import type { AuthInfo, OAuthTokenVerifier } from "@modelcontextprotocol/server";
 import { requireBearerAuth } from "./bearerAuth.js";
 import { InvalidTokenError, InsufficientScopeError, JWKSKeyNotFoundError, JWKSFetchError, JWKSDiscoveryError } from "../errors.js";
 
