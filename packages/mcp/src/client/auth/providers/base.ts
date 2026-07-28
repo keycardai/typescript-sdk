@@ -68,13 +68,25 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
           : new URL("/token", authorizationServerUrl);
         const now = Date.now();
         const signer = new JSONWebTokenSigner(this.privateKeyring);
+        // RFC 7523 section 3: for client authentication both "iss" and
+        // "sub" MUST be the client_id, and "aud" identifies the token
+        // endpoint.
         const token = await signer.signToken({
+          issuer: clientInformation.client_id,
           userId: clientInformation.client_id,
           resource: tokenUrl,
           issuedAt: Math.floor(now / 1000),
-          expiresAt: Math.floor(now / 1000) + 60,
+          // 300s tolerates client clocks lagging the AS; the jti below keeps
+          // the replay window bounded by uniqueness, not by the ttl.
+          expiresAt: Math.floor(now / 1000) + 300,
           uniqueId: crypto.randomUUID()
         });
+
+        // RFC 7523 section 2.2: authenticate the token request with the
+        // signed assertion.
+        params.set('client_id', clientInformation.client_id);
+        params.set('client_assertion_type', 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer');
+        params.set('client_assertion', token);
       }
       break;
 
@@ -120,7 +132,7 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
     if (!this.tokensStore) {
       throw new Error("OAuth tokens store not initialized");
     }
-    this.tokensStore.save(tokens);
+    return this.tokensStore.save(tokens);
   }
 
   redirectToAuthorization(authorizationUrl: URL): void | Promise<void> {
@@ -131,7 +143,7 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
     if (!this.codeVerifierStore) {
       throw new Error("OAuth code verifier store not initialized");
     }
-    this.codeVerifierStore.save(codeVerifier);
+    return this.codeVerifierStore.save(codeVerifier);
   }
 
   codeVerifier(): string | Promise<string> {
