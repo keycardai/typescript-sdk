@@ -93,6 +93,20 @@ app.get(
 Implements the `OAuthClientProvider` interface from the MCP v2 client SDK
 (`@modelcontextprotocol/client`, an optional peer dependency).
 
+**Migrating from v1:** the client half now targets MCP v2, which shipped as a
+package split rather than a version bump — there is no `@modelcontextprotocol/sdk`
+2.x. Install the new client package alongside this one:
+
+```bash
+npm install @modelcontextprotocol/client
+```
+
+This applies equally if you consume `BaseOAuthClientProvider` through
+`@keycardai/sdk`, which re-exports it. Without the package installed, the
+provider's types resolve to `any` under `skipLibCheck` or fail with TS2307
+without it. Consumers who need the v1 SDK should pin the previous
+`@keycardai/mcp` minor instead; v1 and v2 are not supported side by side.
+
 ```typescript
 import { BaseOAuthClientProvider } from "@keycardai/mcp/client/auth/providers/base";
 

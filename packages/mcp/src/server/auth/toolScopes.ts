@@ -35,10 +35,23 @@ export function missingToolScopes(
  * Asserts that the current tool call is authenticated and its access token
  * carries every required scope, returning the validated `AuthInfo`.
  *
- * Throws `InsufficientScopeError` (OAuth error code `insufficient_scope`)
- * when the call is unauthenticated or scopes are missing. Use
- * `missingToolScopes` instead to shape a custom tool result for scope
- * step-up flows.
+ * Throws `InsufficientScopeError` when the call is unauthenticated or scopes
+ * are missing, which stops the handler and fails the tool call.
+ *
+ * What the client actually receives is a plain tool error, not an OAuth
+ * challenge. `@modelcontextprotocol/server` catches every handler throw except
+ * `UrlElicitationRequiredError` and flattens it into
+ * `{ content: [{ type: "text", ... }], isError: true }` at HTTP 200. So the
+ * `insufficient_scope` code, the 403, and the `WWW-Authenticate` header do not
+ * reach the wire from here — only the error's message text does. This helper
+ * enforces the requirement; it cannot signal it in a machine-readable way.
+ *
+ * That makes it unsuitable on its own for driving a scope step-up: the client
+ * cannot distinguish missing scopes from any other tool failure. For an
+ * interactive step-up, v2's own primitive is `UrlElicitationRequiredError`,
+ * the one error type it re-throws rather than flattening. For a structured
+ * in-band signal, use `missingToolScopes` and return a tool result your client
+ * knows how to interpret.
  *
  * ```ts
  * server.registerTool("delete_repo", config, async (args, ctx) => {

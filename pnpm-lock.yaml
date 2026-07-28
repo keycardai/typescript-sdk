@@ -178,6 +178,9 @@ importers:
       '@keycardai/oauth':
         specifier: workspace:*
         version: link:../oauth
+      '@modelcontextprotocol/client':
+        specifier: ^2.0.0
+        version: 2.0.0
     devDependencies:
       typescript:
         specifier: ^5.8.3

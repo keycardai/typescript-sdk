@@ -30,6 +30,15 @@ export interface OAuthCodeVerifierStore {
  * verifier store: the state has to survive the authorization redirect
  * round-trip.
  */
+/**
+ * Single-slot by design: `get`/`save` take no key, so one provider instance
+ * holds discovery state for one in-flight authorization at a time. Two
+ * concurrent flows against different authorization servers through the same
+ * provider will overwrite each other, and the second callback leg then fails
+ * the SEP-2352 binding check with `AuthorizationServerMismatchError`. Give each
+ * concurrent flow its own provider instance, or back the store with per-flow
+ * storage keyed outside this interface.
+ */
 export interface OAuthDiscoveryStateStore {
   get(): OAuthDiscoveryState | undefined | Promise<OAuthDiscoveryState | undefined>;
   save(state: OAuthDiscoveryState): void | Promise<void>;
@@ -73,6 +82,14 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
     this.codeVerifierStore = options?.codeVerifierStore;
     this.privateKeyring = options?.privateKeyring;
 
+    // Assigned as own properties, and only when a store exists, because SEP-2352
+    // keys off whether these members are *defined*: the v2 client throws
+    // AuthorizationServerMismatchError if saveDiscoveryState exists but no state
+    // reads back. Declaring them as prototype methods would make them always
+    // defined and break that check. The tradeoff is that an own property shadows
+    // a subclass's prototype override of the same name, so a subclass wanting
+    // custom discovery-state behavior should supply a discoveryStateStore rather
+    // than override saveDiscoveryState/discoveryState.
     const discoveryStateStore = options?.discoveryStateStore;
     if (discoveryStateStore) {
       this.discoveryStateStore = discoveryStateStore;

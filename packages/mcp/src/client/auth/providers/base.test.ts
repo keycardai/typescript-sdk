@@ -63,7 +63,7 @@ describe('Base OAuth client provider', () => {
       }, 'client-123');
 
       const params = new URLSearchParams();
-      await provider.addClientAuthentication(new Headers(), params, "https://auth.example.com");
+      await provider.addClientAuthentication(new Headers(), params, new URL("https://auth.example.com"));
 
       expect(params.get('client_id')).toBe('client-123');
     });
@@ -74,7 +74,7 @@ describe('Base OAuth client provider', () => {
       });
 
       await expect(
-        provider.addClientAuthentication(new Headers(), new URLSearchParams(), "https://auth.example.com")
+        provider.addClientAuthentication(new Headers(), new URLSearchParams(), new URL("https://auth.example.com"))
       ).rejects.toThrow('Client information not available for authentication');
     });
 
@@ -118,7 +118,7 @@ describe('Base OAuth client provider', () => {
       };
 
       const params = new URLSearchParams();
-      await provider.addClientAuthentication(new Headers(), params, "https://auth.example.com", serverMetadata);
+      await provider.addClientAuthentication(new Headers(), params, new URL("https://auth.example.com"), serverMetadata);
 
       expect(params.get('client_id')).toBe('https://client.example.com');
       expect(params.get('client_assertion_type')).toBe('urn:ietf:params:oauth:client-assertion-type:jwt-bearer');
@@ -171,7 +171,7 @@ describe('Base OAuth client provider', () => {
       // argument, so the assertion audience must be that URL when no
       // server metadata is supplied.
       const params = new URLSearchParams();
-      await provider.addClientAuthentication(new Headers(), params, "https://auth.example.com/token");
+      await provider.addClientAuthentication(new Headers(), params, new URL("https://auth.example.com/token"));
 
       const assertion = params.get('client_assertion');
       expect(assertion).not.toBeNull();
@@ -189,7 +189,7 @@ describe('Base OAuth client provider', () => {
       }, 'https://client.example.com');
 
       await expect(
-        provider.addClientAuthentication(new Headers(), new URLSearchParams(), "https://auth.example.com")
+        provider.addClientAuthentication(new Headers(), new URLSearchParams(), new URL("https://auth.example.com"))
       ).rejects.toThrow('Private keyring not initialized');
     });
 
