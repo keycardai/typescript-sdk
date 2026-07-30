@@ -15,6 +15,16 @@ import {
 import { getRequestOrigin } from "./host.js";
 
 /**
+ * Provenance brand for downstream Keycard packages: `requireBearerAuth` stamps
+ * this symbol on the request alongside `req.auth`, so consumers can confirm the
+ * token was verified by this middleware; `req.auth` alone must not be treated
+ * as Keycard-verified, since other middleware (notably express-jwt, whose
+ * default `requestProperty` is also "auth") populates the same property.
+ * Registry symbol (`Symbol.for`) so duplicate module instances agree.
+ */
+export const KEYCARD_ACCESS_TOKEN = Symbol.for("@keycardai/express.accessToken");
+
+/**
  * Extends Express `Request` with the verified Keycard `AccessToken`.
  *
  * Cast inside handlers that run after `requireBearerAuth()`:
@@ -175,6 +185,7 @@ export function requireBearerAuth(options: BearerAuthOptions): RequestHandler {
       }
 
       (req as AuthenticatedRequest).auth = accessToken;
+      (req as unknown as Record<symbol, unknown>)[KEYCARD_ACCESS_TOKEN] = accessToken;
       next();
     } catch (error) {
       if (error instanceof BadRequestError) {

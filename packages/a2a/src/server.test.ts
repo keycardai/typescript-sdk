@@ -3,6 +3,8 @@ import express from 'express';
 import request from 'supertest';
 import { createKeycardRequestHandler, buildAgentCard } from './server.js';
 import { keycardUserBuilder, KeycardUser, getKeycardAuth } from './auth.js';
+// Imported via the package index to cover the re-exports from @keycardai/express.
+import { requireBearerAuth, keycardMetadataRouter } from './index.js';
 import {
   agentCardHandler,
   jsonRpcHandler,
@@ -92,6 +94,19 @@ describe('buildAgentCard', () => {
     expect(card.url).toBe('https://agent.example.com/a2a/jsonrpc');
     expect(card.capabilities).toBeDefined();
   });
+
+  it('declares a bearer security scheme and requires it', () => {
+    const card = buildAgentCard(CONFIG);
+    expect(card.securitySchemes).toEqual({
+      bearer: {
+        type: 'http',
+        scheme: 'bearer',
+        bearerFormat: 'JWT',
+        description: 'Keycard-issued JWT access token',
+      },
+    });
+    expect(card.security).toEqual([{ bearer: [] }]);
+  });
 });
 
 describe('agentCardHandler', () => {
@@ -153,67 +168,78 @@ describe('getKeycardAuth', () => {
   });
 });
 
-describe('keycardUserBuilder (end-to-end auth path)', () => {
-  // These tests exercise the real keycardUserBuilder by injecting a mock
-  // keyring into TokenVerifier. This verifies that auth failures flow
-  // through the SDK's jsonRpcHandler and produce a JSONRPC error body.
+describe('requireBearerAuth + keycardUserBuilder (end-to-end auth path)', () => {
+  // These tests exercise the recommended wiring: requireBearerAuth fronts
+  // the JSON-RPC handler, rejecting auth failures with HTTP 401 and an
+  // RFC 6750 WWW-Authenticate challenge, and keycardUserBuilder() wraps the
+  // pre-verified token (branded on the request with KEYCARD_ACCESS_TOKEN)
+  // into a KeycardUser.
 
-  function makeKeycardApp(verifierResult: AccessToken | null) {
-    // Inject a mock keyring so TokenVerifier calls verifyToken without real JWTs.
-    const mockKeyring = {
-      key: jest.fn<() => Promise<CryptoKey>>().mockRejectedValue(new Error('mock')),
-    };
-
-    // Override verifyToken directly by patching the TokenVerifier prototype
-    // after construction for this test only.
+  function makeKeycardApp(
+    verifierResult: AccessToken | null,
+    executor: AgentExecutor = ECHO_EXECUTOR,
+  ) {
     const agentCard = buildAgentCard(CONFIG);
-    const requestHandler = createKeycardRequestHandler(ECHO_EXECUTOR, agentCard);
-
-    const userBuilder = keycardUserBuilder({ issuer: 'https://zone-abc.keycard.cloud' });
-    // Patch: intercept the underlying TokenVerifier to return our result
-    const originalVerifyToken = (userBuilder as any)._verifier?.verifyToken;
-
-    // Simpler: build a userBuilder that delegates to a spy verifier
-    const spyVerifier = {
-      verifyToken: jest.fn<() => Promise<AccessToken | null>>().mockResolvedValue(verifierResult),
-      verifyTokenForZone: jest.fn(),
-      clearCache: jest.fn(),
-    };
-    const patchedUserBuilder = async (req: any): Promise<any> => {
-      const authorization = req.headers?.authorization;
-      if (!authorization?.startsWith('Bearer ')) {
-        const { A2AError } = await import('@a2a-js/sdk/server');
-        throw new A2AError(-32001, 'Missing or invalid Authorization header');
-      }
-      const token = authorization.slice(7);
-      const accessToken = await spyVerifier.verifyToken(token);
-      if (!accessToken) {
-        const { A2AError } = await import('@a2a-js/sdk/server');
-        throw new A2AError(-32001, 'Invalid or expired token');
-      }
-      return new KeycardUser(accessToken);
-    };
+    const requestHandler = createKeycardRequestHandler(executor, agentCard);
 
     const app = express();
     app.use(express.json());
     app.use('/.well-known/agent-card.json', agentCardHandler({ agentCardProvider: requestHandler }));
-    app.use('/a2a/jsonrpc', jsonRpcHandler({ requestHandler, userBuilder: patchedUserBuilder as any }));
+    app.use(
+      '/a2a/jsonrpc',
+      requireBearerAuth({ verifier: makeVerifier(verifierResult) }),
+      jsonRpcHandler({ requestHandler, userBuilder: keycardUserBuilder() }),
+    );
     return app;
   }
 
-  it('returns JSONRPC error with code -32001 when Authorization header is missing', async () => {
+  it('returns 401 with a WWW-Authenticate challenge when Authorization header is missing', async () => {
     const app = makeKeycardApp(VALID_TOKEN);
     const res = await request(app)
       .post('/a2a/jsonrpc')
       .set('Content-Type', 'application/json')
       .send({ jsonrpc: '2.0', id: '1', method: 'message/send',
         params: { message: { messageId: 'm', role: 'user', parts: [] } } });
-    expect(res.status).toBe(500); // SDK always returns 500 for caught errors
-    expect(res.body.error).toBeDefined();
-    expect(res.body.error.code).toBe(-32001);
+    expect(res.status).toBe(401);
+    expect(res.headers['www-authenticate']).toMatch(/^Bearer /);
+    expect(res.headers['www-authenticate']).toContain('resource_metadata=');
   });
 
-  it('returns JSONRPC error with code -32001 when token is invalid', async () => {
+  it("resolves the 401's resource_metadata pointer in the documented quickstart wiring", async () => {
+    // Reproduces the README quickstart composition: keycardMetadataRouter at
+    // the app root plus a requireBearerAuth-protected JSON-RPC route. The URL
+    // advertised in the 401's WWW-Authenticate challenge must actually serve
+    // the RFC 9728 protected-resource metadata.
+    const agentCard = buildAgentCard(CONFIG);
+    const requestHandler = createKeycardRequestHandler(ECHO_EXECUTOR, agentCard);
+    const app = express();
+    app.use(express.json());
+    app.use(keycardMetadataRouter({ issuer: 'https://zone-abc.keycard.cloud' }));
+    app.use('/.well-known/agent-card.json', agentCardHandler({ agentCardProvider: requestHandler }));
+    app.use(
+      '/a2a/jsonrpc',
+      requireBearerAuth({ verifier: makeVerifier(null) }),
+      jsonRpcHandler({ requestHandler, userBuilder: keycardUserBuilder() }),
+    );
+
+    const unauth = await request(app)
+      .post('/a2a/jsonrpc')
+      .set('Content-Type', 'application/json')
+      .send({ jsonrpc: '2.0', id: '1', method: 'message/send',
+        params: { message: { messageId: 'm', role: 'user', parts: [] } } });
+    expect(unauth.status).toBe(401);
+
+    const challenge = unauth.headers['www-authenticate'];
+    const metadataUrl = /resource_metadata="([^"]+)"/.exec(challenge ?? '')?.[1];
+    expect(metadataUrl).toBeDefined();
+
+    const metadataRes = await request(app).get(new URL(String(metadataUrl)).pathname);
+    expect(metadataRes.status).toBe(200);
+    expect(metadataRes.body.resource).toBeDefined();
+    expect(metadataRes.body.authorization_servers).toEqual(['https://zone-abc.keycard.cloud']);
+  });
+
+  it('returns 401 with a WWW-Authenticate challenge when token is invalid', async () => {
     const app = makeKeycardApp(null); // verifier returns null = invalid token
     const res = await request(app)
       .post('/a2a/jsonrpc')
@@ -221,34 +247,30 @@ describe('keycardUserBuilder (end-to-end auth path)', () => {
       .set('Content-Type', 'application/json')
       .send({ jsonrpc: '2.0', id: '1', method: 'message/send',
         params: { message: { messageId: 'm', role: 'user', parts: [] } } });
-    expect(res.status).toBe(500);
-    expect(res.body.error?.code).toBe(-32001);
+    expect(res.status).toBe(401);
+    expect(res.headers['www-authenticate']).toContain('error="invalid_token"');
   });
 
-  it('injects KeycardUser and getKeycardAuth returns the AccessToken', async () => {
+  it('injects KeycardUser from the branded request and getKeycardAuth returns the AccessToken', async () => {
     let capturedAuth: AccessToken | null = null;
     const capturingExecutor: AgentExecutor = {
       async execute(requestContext, eventBus) {
         capturedAuth = getKeycardAuth(requestContext);
-        eventBus.publish({ messageId: 'r', role: 'agent',
-          parts: [{ kind: 'text', text: 'ok' }] } as any);
+        const responseMsg: Message = {
+          kind: 'message',
+          messageId: 'r',
+          role: 'agent',
+          parts: [{ kind: 'text', text: 'ok' }],
+        };
+        eventBus.publish(responseMsg);
         eventBus.finished();
       },
       async cancelTask() {},
     };
 
-    const agentCard = buildAgentCard(CONFIG);
-    const requestHandler = createKeycardRequestHandler(capturingExecutor, agentCard);
-    const spyUserBuilder = async (_req: any) => new KeycardUser(VALID_TOKEN);
+    const app = makeKeycardApp(VALID_TOKEN, capturingExecutor);
 
-    const app = express();
-    app.use(express.json());
-    app.use('/a2a/jsonrpc', jsonRpcHandler({
-      requestHandler,
-      userBuilder: spyUserBuilder as any,
-    }));
-
-    await request(app)
+    const res = await request(app)
       .post('/a2a/jsonrpc')
       .set('Authorization', 'Bearer valid-jwt')
       .set('Content-Type', 'application/json')
@@ -256,7 +278,79 @@ describe('keycardUserBuilder (end-to-end auth path)', () => {
         params: { message: { messageId: 'm', role: 'user',
           parts: [{ kind: 'text', text: 'hi' }] } } });
 
+    expect(res.status).toBe(200);
     expect(capturedAuth?.token).toBe('valid-jwt');
     expect(capturedAuth?.clientId).toBe('svc-x');
+  });
+
+  it('keycardUserBuilder verifies the token itself when no middleware ran (standalone fallback)', async () => {
+    // Without requireBearerAuth in front, the builder throws an A2A -32001
+    // error which the SDK's jsonRpcHandler surfaces as HTTP 500 with a
+    // JSON-RPC error body. This documents the standalone contract; prefer
+    // the requireBearerAuth composition above.
+    const agentCard = buildAgentCard(CONFIG);
+    const requestHandler = createKeycardRequestHandler(ECHO_EXECUTOR, agentCard);
+    const app = express();
+    app.use(express.json());
+    app.use(
+      '/a2a/jsonrpc',
+      jsonRpcHandler({
+        requestHandler,
+        userBuilder: keycardUserBuilder({ issuer: 'https://zone-abc.keycard.cloud' }),
+      }),
+    );
+
+    const res = await request(app)
+      .post('/a2a/jsonrpc')
+      .set('Content-Type', 'application/json')
+      .send({ jsonrpc: '2.0', id: '1', method: 'message/send',
+        params: { message: { messageId: 'm', role: 'user', parts: [] } } });
+    expect(res.status).toBe(500);
+    expect(res.body.error?.code).toBe(-32001);
+  });
+
+  it('does not launder a req.auth set by foreign middleware into an authenticated KeycardUser', async () => {
+    // express-jwt also writes to req.auth (its default requestProperty), so a
+    // token verified under someone else's rules could otherwise become an
+    // authenticated KeycardUser. The builder must trust only requests branded
+    // by requireBearerAuth, not bare req.auth.
+    let executed = false;
+    const trackingExecutor: AgentExecutor = {
+      async execute(_requestContext, eventBus) {
+        executed = true;
+        eventBus.finished();
+      },
+      async cancelTask() {},
+    };
+    const agentCard = buildAgentCard(CONFIG);
+    const requestHandler = createKeycardRequestHandler(trackingExecutor, agentCard);
+    const app = express();
+    app.use(express.json());
+    app.use(
+      '/a2a/jsonrpc',
+      // Fake upstream middleware (stand-in for express-jwt): sets req.auth
+      // without the KEYCARD_ACCESS_TOKEN brand.
+      (req, _res, next) => {
+        (req as express.Request & { auth?: AccessToken }).auth = {
+          token: 'foreign',
+          clientId: 'x',
+          scopes: [],
+        };
+        next();
+      },
+      jsonRpcHandler({ requestHandler, userBuilder: keycardUserBuilder() }),
+    );
+
+    const res = await request(app)
+      .post('/a2a/jsonrpc')
+      .set('Content-Type', 'application/json')
+      .send({ jsonrpc: '2.0', id: '1', method: 'message/send',
+        params: { message: { messageId: 'm', role: 'user', parts: [] } } });
+
+    // Without the brand the builder falls through to the standalone path;
+    // with no verifier options it rejects with A2A -32001 over HTTP 500.
+    expect(res.status).toBe(500);
+    expect(res.body.error?.code).toBe(-32001);
+    expect(executed).toBe(false);
   });
 });

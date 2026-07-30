@@ -21,6 +21,8 @@ import express from "express";
 import { agentCardHandler, jsonRpcHandler } from "@a2a-js/sdk/server/express";
 import { InMemoryTaskStore, type AgentExecutor, type RequestContext, type ExecutionEventBus } from "@a2a-js/sdk/server";
 import {
+  requireBearerAuth,
+  keycardMetadataRouter,
   keycardUserBuilder,
   getKeycardAuth,
   createKeycardRequestHandler,
@@ -30,7 +32,7 @@ import {
 const executor: AgentExecutor = {
   async execute(requestContext: RequestContext, eventBus: ExecutionEventBus) {
     const auth = getKeycardAuth(requestContext);
-    if (!auth) throw new Error("unauthenticated"); // guard: keycardUserBuilder normally prevents this
+    if (!auth) throw new Error("unauthenticated"); // guard: requireBearerAuth normally prevents this
     // auth.token is the raw bearer string for downstream delegation
     const text = (requestContext.userMessage.parts[0] as any).text;
     eventBus.publish({ messageId: crypto.randomUUID(), role: "agent",
@@ -50,14 +52,25 @@ const config = {
 
 const agentCard = buildAgentCard(config);
 const requestHandler = createKeycardRequestHandler(executor, agentCard);
-const userBuilder = keycardUserBuilder({
-  issuer: `https://${config.zoneId}.keycard.cloud`,
-});
 
 const app = express();
 app.use(express.json());
+// Serves /.well-known/oauth-protected-resource (RFC 9728). This is what makes
+// the resource_metadata URL in requireBearerAuth's 401 challenge resolve.
+app.use(keycardMetadataRouter({ issuer: `https://${config.zoneId}.keycard.cloud` }));
 app.use("/.well-known/agent-card.json", agentCardHandler({ agentCardProvider: requestHandler }));
-app.use("/a2a/jsonrpc", jsonRpcHandler({ requestHandler, userBuilder }));
+app.use(
+  "/a2a/jsonrpc",
+  // Rejects unauthenticated requests with 401 + WWW-Authenticate (RFC 6750)
+  // and sets req.auth to the verified token.
+  requireBearerAuth({
+    zoneUrl: `https://${config.zoneId}.keycard.cloud`,
+    // Recommended: leaving audience unset disables the audience check.
+    audience: config.identityUrl,
+  }),
+  // Wraps the verified token from req.auth into a KeycardUser for executors.
+  jsonRpcHandler({ requestHandler, userBuilder: keycardUserBuilder() }),
+);
 
 app.listen(3000);
 ```
@@ -84,7 +97,12 @@ async execute(requestContext, eventBus) {
 
 ## How it works
 
-`keycardUserBuilder` implements [`@a2a-js/sdk`'s `UserBuilder`](https://github.com/a2aproject/a2a-js) interface — the auth extension point where Keycard JWT validation is wired in. This is the same pattern as Python's `KeycardServerCallContextBuilder`. The builder validates the bearer token with `TokenVerifier`, creates a `KeycardUser` carrying the `AccessToken`, and injects it into each `RequestContext` via `ServerCallContext`.
+Auth happens in two layers:
+
+1. `requireBearerAuth` (from [`@keycardai/express`](../express/), re-exported here) fronts the JSON-RPC handler as standard Express middleware. It validates the bearer token with `TokenVerifier`, rejects auth failures with HTTP 401 and an RFC 6750 `WWW-Authenticate` challenge, sets `req.auth` to the verified `AccessToken`, and brands the request with a provenance symbol. The 401 challenge advertises a `resource_metadata` URL (RFC 9728); `keycardMetadataRouter`, mounted at the app root, is what serves that URL.
+2. `keycardUserBuilder` implements [`@a2a-js/sdk`'s `UserBuilder`](https://github.com/a2aproject/a2a-js) interface, the auth extension point of the SDK's Express handlers. It wraps the already-verified token from the branded request into a `KeycardUser` (no second verification) and injects it into each `RequestContext` via `ServerCallContext`. It deliberately ignores bare `req.auth`, which other middleware such as express-jwt also populates. This is the same pattern as Python's `KeycardServerCallContextBuilder`.
+
+If you skip the middleware and pass verification options directly to `keycardUserBuilder(options)`, it verifies the token itself, but auth failures then surface as JSON-RPC errors over HTTP 500 without a `WWW-Authenticate` challenge, because `@a2a-js/sdk`'s handlers convert thrown builder errors to 500. Prefer the middleware composition.
 
 `getKeycardAuth(requestContext)` extracts that `AccessToken` in the executor, giving you the caller's identity and a ready-to-use `token` string for downstream RFC 8693 delegation.
 
@@ -92,7 +110,9 @@ async execute(requestContext, eventBus) {
 
 | Export | Description |
 |---|---|
-| `keycardUserBuilder(options)` | Returns a `UserBuilder` for `@a2a-js/sdk`'s Express handlers; validates Keycard JWTs |
+| `requireBearerAuth(options)` | Express middleware (re-exported from `@keycardai/express`); 401 + `WWW-Authenticate` on auth failure, sets `req.auth` |
+| `keycardMetadataRouter(options)` | Express router (re-exported from `@keycardai/express`) serving the RFC 9728/8414 discovery endpoints that the 401 challenge's `resource_metadata` URL points at |
+| `keycardUserBuilder(options?)` | Returns a `UserBuilder` for `@a2a-js/sdk`'s Express handlers; wraps `req.auth` into a `KeycardUser`, or verifies the token itself when given options |
 | `KeycardUser` | Implements `User`, carries `AccessToken` |
 | `getKeycardAuth(requestContext)` | Extracts `AccessToken` from executor context; returns `null` if unauthenticated |
 | `createKeycardRequestHandler(executor, agentCard, options?)` | Convenience wrapper creating `DefaultRequestHandler` with `InMemoryTaskStore` |
