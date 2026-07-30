@@ -25,6 +25,9 @@ The fastest way to add Keycard auth to a Worker:
 import { createKeycardWorker } from "@keycardai/cloudflare";
 
 export default createKeycardWorker({
+  // Bind accepted audiences to this Worker's public URL (its resource
+  // identifier in Keycard) so tokens minted for other resources are rejected.
+  audiences: ["https://my-worker.example.workers.dev"],
   requiredScopes: ["read"],
   scopesSupported: ["read", "write"],
   resourceName: "My MCP Server",
@@ -101,8 +104,9 @@ import {
   IsolateSafeTokenCache,
   resolveCredential,
 } from "@keycardai/cloudflare";
+import { TokenExchangeClient } from "@keycardai/oauth/tokenExchange";
 
-let tokenCache: IsolateSafeTokenCache;
+let tokenCache: IsolateSafeTokenCache | undefined;
 
 export default createKeycardWorker({
   requiredScopes: ["read"],
@@ -110,17 +114,29 @@ export default createKeycardWorker({
   async fetch(request, env, ctx, auth) {
     // Lazy-init cache (module-level state is safe across requests in Workers)
     if (!tokenCache) {
-      tokenCache = new IsolateSafeTokenCache({
-        zoneUrl: env.KEYCARD_ISSUER,
-        credential: resolveCredential(env),
-      });
+      const credential = resolveCredential(env);
+      const client = new TokenExchangeClient(
+        env.KEYCARD_ISSUER,
+        credential.getAuth() ?? undefined,
+      );
+      tokenCache = new IsolateSafeTokenCache(client, { credential });
+    }
+
+    // The cache keys tokens per user, so require a subject: a token
+    // without one must not share another user's upstream token.
+    if (!auth.subject) {
+      return new Response("Token has no subject", { status: 401 });
     }
 
     // Exchange for upstream token (cached per-user, auto-refreshes)
-    const upstream = await tokenCache.getToken(auth, env.KEYCARD_RESOURCE_URL!);
+    const upstream = await tokenCache.getToken(
+      auth.subject,
+      auth.token,
+      env.KEYCARD_RESOURCE_URL!,
+    );
 
     const resp = await fetch("https://api.github.com/user", {
-      headers: { Authorization: `Bearer ${upstream}` },
+      headers: { Authorization: `Bearer ${upstream.accessToken}` },
     });
 
     return new Response(resp.body, resp);
@@ -139,6 +155,8 @@ export default createKeycardWorker({
 ### `createKeycardWorker(options)`
 
 Returns an `ExportedHandler` with Keycard auth built in. Auto-detects credential type from env.
+
+Set `audiences` to the Worker's public URL so bearer tokens minted for other resources on the same issuer are rejected.
 
 ### `verifyBearerToken(request, options?)`
 

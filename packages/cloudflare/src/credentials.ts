@@ -104,10 +104,30 @@ export class WorkersWebIdentity implements ApplicationCredential {
   }
 
   async #importKey(): Promise<void> {
+    // WebCrypto only imports PKCS#8 ("BEGIN PRIVATE KEY"). A PKCS#1 key
+    // ("BEGIN RSA PRIVATE KEY", the OpenSSL 1.x `openssl genrsa` default)
+    // would fail deep inside crypto.subtle.importKey with an opaque
+    // DataError, so detect it up front and explain how to convert.
+    if (this.#privateKeyPem.includes("-----BEGIN RSA PRIVATE KEY-----")) {
+      throw new Error(
+        'Private key is in PKCS#1 format ("BEGIN RSA PRIVATE KEY"), which WebCrypto cannot import. ' +
+          "Convert it to unencrypted PKCS#8: " +
+          "openssl pkcs8 -topk8 -nocrypt -in private-key.pem -out private-key-pkcs8.pem " +
+          "(openssl prompts for the passphrase if the key is encrypted)",
+      );
+    }
+    if (this.#privateKeyPem.includes("-----BEGIN ENCRYPTED PRIVATE KEY-----")) {
+      throw new Error(
+        'Private key is encrypted PKCS#8 ("BEGIN ENCRYPTED PRIVATE KEY"), which WebCrypto cannot import. ' +
+          "Decrypt it to unencrypted PKCS#8: " +
+          "openssl pkcs8 -topk8 -nocrypt -in private-key.pem -out private-key-pkcs8.pem",
+      );
+    }
+
     // Strip PEM headers and decode
     const pemBody = this.#privateKeyPem
-      .replace(/-----BEGIN (?:RSA )?PRIVATE KEY-----/g, "")
-      .replace(/-----END (?:RSA )?PRIVATE KEY-----/g, "")
+      .replace(/-----BEGIN PRIVATE KEY-----/g, "")
+      .replace(/-----END PRIVATE KEY-----/g, "")
       .replace(/\s/g, "");
 
     const binaryDer = Uint8Array.from(atob(pemBody), (c) => c.charCodeAt(0));

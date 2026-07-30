@@ -89,6 +89,28 @@ describe("createKeycardWorker", () => {
     expect(fetchHandler).toHaveBeenCalledWith(request, mockEnv, mockCtx, authInfo);
   });
 
+  it("passes audiences through to verifyBearerToken", async () => {
+    (handleMetadataRequest as jest.Mock).mockResolvedValue(null);
+    (verifyBearerToken as jest.Mock).mockResolvedValue(makeAuthInfo());
+
+    const worker = createKeycardWorker({
+      audiences: ["https://my-worker.example.workers.dev"],
+      requiredScopes: ["mcp:tools"],
+      fetch: jest.fn<() => Promise<Response>>().mockResolvedValue(new Response("ok")),
+    });
+
+    const request = new Request("https://my-worker.example.workers.dev/mcp", {
+      headers: { Authorization: "Bearer test-token" },
+    });
+    await worker.fetch!(request, mockEnv, mockCtx);
+
+    expect(verifyBearerToken).toHaveBeenCalledWith(request, {
+      issuers: mockEnv.KEYCARD_ISSUER,
+      audiences: ["https://my-worker.example.workers.dev"],
+      requiredScopes: ["mcp:tools"],
+    });
+  });
+
   it("returns auth error response without calling user handler", async () => {
     (handleMetadataRequest as jest.Mock).mockResolvedValue(null);
     const errorResponse = new Response(null, { status: 401 });

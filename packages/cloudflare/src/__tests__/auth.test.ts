@@ -1,4 +1,9 @@
 import { describe, it, expect, jest, beforeEach } from "@jest/globals";
+import {
+  JWKSKeyNotFoundError,
+  JWKSFetchError,
+  JWKSDiscoveryError,
+} from "@keycardai/oauth/errors";
 
 const mockVerify = jest.fn();
 
@@ -112,5 +117,57 @@ describe("verifyBearerToken", () => {
     const wwwAuth = result.headers.get("WWW-Authenticate");
     expect(wwwAuth).toContain("resource_metadata=");
     expect(wwwAuth).toContain("/.well-known/oauth-protected-resource");
+  });
+
+  it("returns 401 invalid_token when the token's signing key is not in the JWKS", async () => {
+    mockVerify.mockRejectedValue(
+      new JWKSKeyNotFoundError('Failed to find key "kid-1" of "https://auth.keycard.ai"'),
+    );
+
+    const result = await verifyBearerToken(makeRequest("Bearer forged-token"), {
+      issuers: "https://auth.keycard.ai",
+    });
+
+    expect(isAuthError(result)).toBe(true);
+    const response = result as Response;
+    expect(response.status).toBe(401);
+    const wwwAuth = response.headers.get("WWW-Authenticate");
+    expect(wwwAuth).toContain('error="invalid_token"');
+    expect(wwwAuth).toContain("resource_metadata=");
+  });
+
+  it("returns 503 without WWW-Authenticate when the JWKS endpoint is unavailable", async () => {
+    mockVerify.mockRejectedValue(new JWKSFetchError("JWKS endpoint returned 502"));
+
+    const result = await verifyBearerToken(makeRequest("Bearer valid-token"), {
+      issuers: "https://auth.keycard.ai",
+    });
+
+    expect(isAuthError(result)).toBe(true);
+    const response = result as Response;
+    expect(response.status).toBe(503);
+    expect(response.headers.get("WWW-Authenticate")).toBeNull();
+    expect(await response.json()).toEqual({ error: "temporarily_unavailable" });
+  });
+
+  it("returns 503 when issuer discovery fails", async () => {
+    mockVerify.mockRejectedValue(new JWKSDiscoveryError("Failed to discover jwks_uri"));
+
+    const result = await verifyBearerToken(makeRequest("Bearer valid-token"), {
+      issuers: "https://auth.keycard.ai",
+    });
+
+    expect(isAuthError(result)).toBe(true);
+    expect((result as Response).status).toBe(503);
+  });
+
+  it("rethrows genuinely unexpected errors instead of masking them as 401", async () => {
+    mockVerify.mockRejectedValue(new TypeError("boom"));
+
+    await expect(
+      verifyBearerToken(makeRequest("Bearer valid-token"), {
+        issuers: "https://auth.keycard.ai",
+      }),
+    ).rejects.toThrow("boom");
   });
 });

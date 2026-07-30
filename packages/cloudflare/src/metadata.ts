@@ -28,7 +28,7 @@ export async function handleMetadataRequest(
   }
 
   if (url.pathname === "/.well-known/oauth-protected-resource") {
-    return handleProtectedResourceMetadata(request, url, options);
+    return handleProtectedResourceMetadata(url, options);
   }
 
   if (url.pathname === "/.well-known/oauth-authorization-server") {
@@ -43,7 +43,6 @@ export async function handleMetadataRequest(
 }
 
 function handleProtectedResourceMetadata(
-  request: Request,
   url: URL,
   options: MetadataOptions,
 ): Response {
@@ -62,13 +61,6 @@ function handleProtectedResourceMetadata(
   }
   if (options.serviceDocumentationUrl) {
     json.resource_documentation = options.serviceDocumentationUrl;
-  }
-
-  // MCP protocol version 2025-03-26 backwards compat:
-  // rewrite authorization_servers to the base URL
-  const mcpVersion = request.headers.get("mcp-protocol-version");
-  if (mcpVersion === "2025-03-26") {
-    json.authorization_servers = [baseUrl];
   }
 
   return jsonResponse(json);

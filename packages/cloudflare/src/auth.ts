@@ -5,6 +5,10 @@ import {
   UnauthorizedError,
   InvalidTokenError,
   InsufficientScopeError,
+  HTTPError,
+  OAuthError,
+  JWKSError,
+  JWKSKeyNotFoundError,
 } from "@keycardai/oauth/errors";
 import type { AuthInfo, BearerAuthOptions } from "./types.js";
 
@@ -144,13 +148,41 @@ export async function verifyBearerToken(
       });
     }
 
-    // Unexpected error — return 401
-    return new Response(null, {
-      status: 401,
-      headers: {
-        "WWW-Authenticate": `Bearer resource_metadata="${resourceMetadataUrl}"`,
-      },
-    });
+    if (error instanceof JWKSKeyNotFoundError) {
+      // A forged token, or a valid token whose signing key rotated out of the
+      // JWKS: the resource server cannot validate it. RFC 6750 invalid_token
+      // so the client re-runs authorization rather than seeing a server error.
+      return new Response(null, {
+        status: 401,
+        headers: {
+          "WWW-Authenticate": `Bearer error="invalid_token", error_description="Unable to verify token signing key", resource_metadata="${resourceMetadataUrl}"`,
+        },
+      });
+    }
+
+    if (error instanceof JWKSError || error instanceof HTTPError || error instanceof OAuthError) {
+      // JWKS fetch, discovery, or metadata failed: verification could not
+      // complete for a server-side reason (unreachable zone, non-2xx JWKS,
+      // malformed AS metadata). Signal a retryable 503 with a small body,
+      // no internals, and no WWW-Authenticate challenge — this is not an
+      // auth failure, so the client should not re-run authorization.
+      //
+      // The HTTPError/OAuthError bases here are the discovery/metadata
+      // failures thrown raw by the keyring's discovery path. Token-level
+      // subclasses (BadRequest/Unauthorized, InvalidToken/InsufficientScope)
+      // are matched in the branches above, so any new client-facing
+      // OAuthError/HTTPError must be handled before this branch or it will
+      // be mis-bucketed as 503.
+      return new Response(JSON.stringify({ error: "temporarily_unavailable" }), {
+        status: 503,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    // Genuinely unexpected error. Rethrow so it surfaces through the
+    // Worker's own error handling instead of masquerading as an auth
+    // failure. All expected verification failures are mapped above.
+    throw error;
   }
 }
 

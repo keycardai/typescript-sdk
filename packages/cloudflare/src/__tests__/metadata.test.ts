@@ -28,15 +28,14 @@ describe("handleMetadataRequest", () => {
     expect(json.resource_name).toBe("Test MCP Server");
   });
 
-  it("handles MCP protocol version 2025-03-26 backwards compat", async () => {
+  it("returns the configured issuer in authorization_servers regardless of the MCP-Protocol-Version header", async () => {
     const request = new Request("https://example.com/.well-known/oauth-protected-resource", {
       headers: { "mcp-protocol-version": "2025-03-26" },
     });
     const result = await handleMetadataRequest(request, baseOptions);
     const json = await result!.json();
 
-    // Should rewrite authorization_servers to the base URL
-    expect(json.authorization_servers).toEqual(["https://example.com"]);
+    expect(json.authorization_servers).toEqual(["https://z_abc123.keycard.cloud"]);
   });
 
   it("returns CORS headers", async () => {
