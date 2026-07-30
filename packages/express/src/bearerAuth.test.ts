@@ -4,6 +4,11 @@ import request from 'supertest';
 import { requireBearerAuth, subdomainZoneResolver } from './bearerAuth.js';
 import { TokenVerifier } from '@keycardai/oauth/server';
 import type { AccessToken } from '@keycardai/oauth/server';
+import {
+  JWKSKeyNotFoundError,
+  JWKSFetchError,
+  JWKSDiscoveryError,
+} from '@keycardai/oauth/errors';
 
 const VALID_TOKEN: AccessToken = {
   token: 'valid-jwt',
@@ -15,6 +20,15 @@ const VALID_TOKEN: AccessToken = {
 function makeVerifier(result: AccessToken | null) {
   const verifier = {
     verifyToken: jest.fn<() => Promise<AccessToken | null>>().mockResolvedValue(result),
+    verifyTokenForZone: jest.fn(),
+    clearCache: jest.fn(),
+  } as unknown as TokenVerifier;
+  return verifier;
+}
+
+function makeThrowingVerifier(error: Error) {
+  const verifier = {
+    verifyToken: jest.fn<() => Promise<AccessToken | null>>().mockRejectedValue(error),
     verifyTokenForZone: jest.fn(),
     clearCache: jest.fn(),
   } as unknown as TokenVerifier;
@@ -103,6 +117,77 @@ describe('requireBearerAuth', () => {
       .get('/resource')
       .set('Authorization', 'Bearer valid-jwt');
     expect(res.status).toBe(200);
+  });
+
+  it('accepts a token bound to a nonstandard port (Express 5 host semantics)', async () => {
+    const tokenWithPort: AccessToken = {
+      ...VALID_TOKEN,
+      resource: 'http://api.example.com:8443/api',
+    };
+    const app = makeApp(makeVerifier(tokenWithPort));
+    const res = await request(app)
+      .get('/resource')
+      .set('Host', 'api.example.com:8443')
+      .set('Authorization', 'Bearer valid-jwt');
+    expect(res.status).toBe(200);
+  });
+
+  it('accepts a token bound to a nonstandard port when req.host strips it (Express 4 host semantics)', async () => {
+    const tokenWithPort: AccessToken = {
+      ...VALID_TOKEN,
+      resource: 'http://api.example.com:8443/api',
+    };
+    const app = express();
+    // Express 4's req.host is an alias for req.hostname: no port. Shadow the
+    // Express 5 getter to simulate that; the Host header still carries the port.
+    app.use((req, _res, next) => {
+      Object.defineProperty(req, 'host', { value: 'api.example.com' });
+      next();
+    });
+    app.use(requireBearerAuth({ verifier: makeVerifier(tokenWithPort) }));
+    app.get('/resource', (_req, res) => res.json({ ok: true }));
+
+    const res = await request(app)
+      .get('/resource')
+      .set('Host', 'api.example.com:8443')
+      .set('Authorization', 'Bearer valid-jwt');
+    expect(res.status).toBe(200);
+  });
+
+  it('returns 401 invalid_token when the signing key is not in the JWKS', async () => {
+    const app = makeApp(makeThrowingVerifier(
+      new JWKSKeyNotFoundError('Failed to find key "abc" of "https://zone.example.com"'),
+    ));
+    const res = await request(app)
+      .get('/resource')
+      .set('Authorization', 'Bearer forged-or-rotated-token');
+    expect(res.status).toBe(401);
+    expect(res.headers['www-authenticate']).toMatch(
+      /^Bearer error="invalid_token", error_description="Unable to verify token signing key", resource_metadata="/,
+    );
+  });
+
+  it.each([
+    ['JWKSFetchError', new JWKSFetchError('JWKS endpoint returned 503')],
+    ['JWKSDiscoveryError', new JWKSDiscoveryError('Failed to discover authorization server metadata')],
+  ])('returns 503 (not 500) when the verifier throws %s', async (_name, error) => {
+    const app = makeApp(makeThrowingVerifier(error));
+    const res = await request(app)
+      .get('/resource')
+      .set('Authorization', 'Bearer valid-looking-token');
+    expect(res.status).toBe(503);
+    expect(res.body).toEqual({ error: 'temporarily_unavailable' });
+    expect(res.headers['www-authenticate']).toBeUndefined();
+  });
+
+  it('delegates genuinely unexpected verifier errors to the app error handler', async () => {
+    const app = makeApp(makeThrowingVerifier(new Error('database on fire')));
+    // Express's default error handler answers 500; the point is that the
+    // middleware forwarded via next(error) rather than mapping the status.
+    const res = await request(app)
+      .get('/resource')
+      .set('Authorization', 'Bearer valid-jwt');
+    expect(res.status).toBe(500);
   });
 });
 

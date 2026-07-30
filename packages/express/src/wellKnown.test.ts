@@ -45,6 +45,23 @@ describe('keycardMetadataRouter', () => {
     expect(res.headers['access-control-allow-origin']).toBe('*');
   });
 
+  it('includes a nonstandard port in resource when req.host strips it (Express 4 host semantics)', async () => {
+    const app = express();
+    // Express 4's req.host is an alias for req.hostname: no port. Shadow the
+    // Express 5 getter to simulate that; the Host header still carries the port.
+    app.use((req, _res, next) => {
+      Object.defineProperty(req, 'host', { value: 'api.example.com' });
+      next();
+    });
+    app.use(keycardMetadataRouter({ issuer: ISSUER }));
+
+    const res = await request(app)
+      .get('/.well-known/oauth-protected-resource')
+      .set('Host', 'api.example.com:8443');
+    expect(res.status).toBe(200);
+    expect(res.body.resource).toBe('http://api.example.com:8443');
+  });
+
   it('serves /.well-known/oauth-authorization-server proxied from issuer', async () => {
     const app = makeApp();
     const res = await request(app).get('/.well-known/oauth-authorization-server');

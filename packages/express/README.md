@@ -16,22 +16,25 @@ npm install @keycardai/express express
 
 ```typescript
 import express from "express";
-import { requireBearerAuth } from "@keycardai/express";
+import { requireBearerAuth, type AuthenticatedRequest } from "@keycardai/express";
 
 const app = express();
 
 app.use(requireBearerAuth({ zoneUrl: "https://your-zone.keycard.cloud" }));
 
 app.get("/api/data", (req, res) => {
-  // req.auth is AccessToken: { token, clientId, scopes, ... }
-  res.json({ clientId: req.auth.clientId });
+  // auth is AccessToken: { token, clientId, scopes, ... }
+  const { auth } = req as AuthenticatedRequest;
+  res.json({ clientId: auth.clientId });
 });
 ```
+
+Handlers behind `requireBearerAuth` cast to `AuthenticatedRequest` to type `req.auth`. If you prefer `req.auth` without casting across your entire app, adopt Express module augmentation instead; see the `AuthenticatedRequest` docs for the trade-off.
 
 ### Delegate tokens with `grant`
 
 ```typescript
-import { requireBearerAuth, grant } from "@keycardai/express";
+import { requireBearerAuth, grant, type GrantedRequest } from "@keycardai/express";
 import { ClientSecret } from "@keycardai/oauth/server";
 
 const credential = new ClientSecret("your-client-id", "your-client-secret");
@@ -43,7 +46,8 @@ app.use(grant(["https://graph.microsoft.com"], {
 }));
 
 app.get("/api/email", async (req, res) => {
-  const token = req.accessContext.access("https://graph.microsoft.com");
+  const { accessContext } = req as GrantedRequest;
+  const token = accessContext.access("https://graph.microsoft.com");
   // use token.accessToken to call Graph API
   res.json({ ok: true });
 });

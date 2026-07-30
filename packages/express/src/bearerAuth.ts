@@ -8,7 +8,11 @@ import {
   InvalidTokenError,
   InsufficientScopeError,
   OAuthError,
+  HTTPError,
+  JWKSError,
+  JWKSKeyNotFoundError,
 } from "@keycardai/oauth/errors";
+import { getRequestOrigin } from "./host.js";
 
 /**
  * Extends Express `Request` with the verified Keycard `AccessToken`.
@@ -145,7 +149,7 @@ export function requireBearerAuth(options: BearerAuthOptions): RequestHandler {
       // server must not be accepted here. Compare origins so path and query
       // string differences are ignored (mirrors Workers auth.ts:88-92).
       if (accessToken.resource) {
-        const requestOrigin = `${req.protocol}://${req.host}`;
+        const requestOrigin = getRequestOrigin(req);
         try {
           const tokenOrigin = new URL(accessToken.resource).origin;
           if (tokenOrigin !== requestOrigin) {
@@ -181,16 +185,38 @@ export function requireBearerAuth(options: BearerAuthOptions): RequestHandler {
       } else if (error instanceof InsufficientScopeError) {
         res.set(
           "WWW-Authenticate",
-          `Bearer error="${(error as OAuthError).errorCode}", error_description="${error.message}", resource_metadata="${resourceMetadataUrl}"`,
+          `Bearer error="${error.errorCode}", error_description="${error.message}", resource_metadata="${resourceMetadataUrl}"`,
         );
         res.status(403).end();
-      } else if (error instanceof OAuthError || error instanceof InvalidTokenError) {
+      } else if (error instanceof InvalidTokenError) {
         res.set(
           "WWW-Authenticate",
-          `Bearer error="${(error as OAuthError).errorCode}", error_description="${error.message}", resource_metadata="${resourceMetadataUrl}"`,
+          `Bearer error="${error.errorCode}", error_description="${error.message}", resource_metadata="${resourceMetadataUrl}"`,
         );
         res.status(401).end();
+      } else if (error instanceof JWKSKeyNotFoundError) {
+        // A forged token, or a valid token whose signing key rotated out of the
+        // JWKS: the resource server cannot validate it. RFC 6750 invalid_token
+        // so the client re-runs authorization rather than seeing a 500.
+        const challenge = `Bearer error="invalid_token", error_description="Unable to verify token signing key", resource_metadata="${resourceMetadataUrl}"`;
+        res.set("WWW-Authenticate", challenge);
+        res.status(401).end();
+      } else if (error instanceof JWKSError || error instanceof HTTPError || error instanceof OAuthError) {
+        // JWKS fetch, discovery, or metadata failed: verification could not
+        // complete for a server-side reason (unreachable zone, non-2xx JWKS,
+        // malformed AS metadata). Signal a retryable 503 with a small body and
+        // no internals, rather than a 500 that leaks a stack trace.
+        //
+        // The HTTPError/OAuthError bases here are the discovery/metadata
+        // failures thrown raw by discovery.ts. Token-level subclasses
+        // (BadRequest/Unauthorized, InvalidToken/InsufficientScope) are matched
+        // in the branches above, so any new client-facing OAuthError/HTTPError
+        // must be handled before this branch or it will be mis-bucketed as 503.
+        res.status(503).json({ error: "temporarily_unavailable" });
       } else {
+        // Genuinely unexpected error. Delegate to the app's error handling
+        // (idiomatic Express) instead of swallowing a real bug. All expected
+        // verification failures are mapped in the branches above.
         next(error);
       }
     }
@@ -198,8 +224,7 @@ export function requireBearerAuth(options: BearerAuthOptions): RequestHandler {
 }
 
 function getResourceMetadataUrl(req: Request): string {
-  const origin = `${req.protocol}://${req.host}`;
-  return `${origin}/.well-known/oauth-protected-resource`;
+  return `${getRequestOrigin(req)}/.well-known/oauth-protected-resource`;
 }
 
 function buildIssuerFromZoneId(zoneId?: string): string | undefined {

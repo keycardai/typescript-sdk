@@ -6,6 +6,7 @@ import { OAuthError, AuthProviderConfigurationError } from "@keycardai/oauth/err
 import type { AuthenticatedRequest } from "./bearerAuth.js";
 import type { AccessToken } from "@keycardai/oauth/server/accessToken";
 import type { TokenResponse } from "@keycardai/oauth/tokenExchange";
+import { getRequestOrigin } from "./host.js";
 
 export interface GrantedRequest extends AuthenticatedRequest {
   accessContext: AccessContext;
@@ -100,7 +101,7 @@ function resolveRequestScope(
  * per-resource tokens and errors into the existing `req.accessContext`.
  *
  * ```ts
- * app.use(requireBearerAuth({ issuer: "https://zone.keycard.cloud" }));
+ * app.use(requireBearerAuth({ zoneUrl: "https://zone.keycard.cloud" }));
  * app.use(grant(["https://graph.microsoft.com"], { zoneUrl: "https://zone.keycard.cloud" }));
  * app.get("/data", (req, res) => {
  *   const token = req.accessContext.access("https://graph.microsoft.com");
@@ -133,7 +134,7 @@ export function grant(
     if (!subjectToken) {
       // Unauthenticated request: respond 401 with an RFC 6750 challenge
       // (same shape as requireBearerAuth) without invoking the handler.
-      const resourceMetadataUrl = `${req.protocol}://${req.host}/.well-known/oauth-protected-resource`;
+      const resourceMetadataUrl = `${getRequestOrigin(req)}/.well-known/oauth-protected-resource`;
       res.set("WWW-Authenticate", `Bearer resource_metadata="${resourceMetadataUrl}"`);
       res.status(401).json({
         error: "invalid_request",
