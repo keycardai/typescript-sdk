@@ -1,6 +1,6 @@
 {
   "name": "@keycardai/a2a",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "[Preview] Keycard auth integration for Agent-to-Agent (A2A) protocol servers and clients",
   "license": "MIT",
   "repository": {
