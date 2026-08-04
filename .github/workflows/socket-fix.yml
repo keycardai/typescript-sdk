@@ -13,16 +13,7 @@ jobs:
   fix:
     runs-on: ubuntu-latest
     steps:
-      - name: Generate GitHub App token
-        id: generate-token
-        uses: actions/create-github-app-token@v2
-        with:
-          app-id: ${{ secrets.GH_REPO_ACCESS_APP_ID }}
-          private-key: ${{ secrets.GH_REPO_ACCESS_PRIVATE_KEY }}
-
       - uses: actions/checkout@v4
-        with:
-          token: ${{ steps.generate-token.outputs.token }}
 
       - uses: pnpm/action-setup@v4
 
@@ -36,7 +27,7 @@ jobs:
 
       - name: Run Socket Fix
         env:
-          SOCKET_CLI_GITHUB_TOKEN: ${{ steps.generate-token.outputs.token }}
+          SOCKET_CLI_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SOCKET_CLI_API_TOKEN: ${{ secrets.SOCKET_API_TOKEN }}
           SOCKET_CLI_GIT_USER_NAME: github-actions[bot]
           SOCKET_CLI_GIT_USER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
