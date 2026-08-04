@@ -54,6 +54,8 @@ jobs:
         id: package
         run: |
           TAG="${{ inputs.tag || github.ref_name }}"
+          VERSION="${TAG%%-keycardai-*}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
           if [[ "$TAG" == *-keycardai-oauth ]]; then
             echo "name=@keycardai/oauth" >> $GITHUB_OUTPUT
             echo "dir=packages/oauth" >> $GITHUB_OUTPUT
@@ -77,6 +79,12 @@ jobs:
             echo "dir=packages/sdk" >> $GITHUB_OUTPUT
           fi
 
+          if [[ "$VERSION" == 1.* ]] && [[ "$TAG" == *-keycardai-mcp || "$TAG" == *-keycardai-sdk ]]; then
+            echo "npm-tag=legacy" >> $GITHUB_OUTPUT
+          else
+            echo "npm-tag=latest" >> $GITHUB_OUTPUT
+          fi
+
       - name: Build all packages
         run: pnpm -r run build
 
@@ -84,4 +92,4 @@ jobs:
         run: npm install -g npm@11.5.2
 
       - name: Publish
-        run: pnpm --filter "${{ steps.package.outputs.name }}" publish --access public --no-git-checks --provenance
+        run: pnpm --filter "${{ steps.package.outputs.name }}" publish --access public --no-git-checks --provenance --tag "${{ steps.package.outputs.npm-tag }}"

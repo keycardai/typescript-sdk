@@ -4,15 +4,16 @@
 Compatible with branch-protection rulesets that require all changes to land
 through PRs and require commits to be signed:
 
-0. If the configured version already has a merged bump commit on main but
+0. If the configured version already has a merged bump commit on the target
+   branch but
    no release tag (a prior run's merge-wait timed out before tagging), the
    missing tag is pushed and the run stops. Re-running cz in that state
    would double-bump.
 1. ``cz bump --files-only`` updates ``.cz.toml`` (cz version field),
    ``package.json`` (via version_files), and ``CHANGELOG.md`` in the package
    directory; no local commit or tag.
-2. A new branch ``bump/<package>-<version>`` is created on the remote at the
-   current main tip via the REST refs API.
+2. A release-line-specific bump branch is created on the remote at the current
+   target-branch tip via the REST refs API.
 3. The bumped files are committed onto that branch via the GraphQL
    ``createCommitOnBranch`` mutation, which signs the commit as the
    authenticated bot identity.
@@ -24,7 +25,7 @@ through PRs and require commits to be signed:
    script only waited for auto-merge, i.e. it merges itself once
    required CI checks pass on it.
 5. The script polls until the PR merges, captures the squash-merge SHA on
-   ``main``, then creates and pushes the ``<version>-<package>`` tag at
+   the target branch, then creates and pushes the ``<version>-<package>`` tag at
    that SHA. Tags trigger the existing ``publish.yml`` publish workflow.
 
 The runner needs:
@@ -83,24 +84,26 @@ def get_repo_slug() -> str:
     return stdout
 
 
-def get_main_sha() -> str:
-    """Return the current commit SHA on origin/main."""
-    exit_code, stdout, stderr = run_command(["git", "rev-parse", "origin/main"])
+def get_branch_sha(branch: str) -> str:
+    """Return the current commit SHA on an origin branch."""
+    exit_code, stdout, stderr = run_command(["git", "rev-parse", f"origin/{branch}"])
     if exit_code != 0:
-        print(f"Failed to read origin/main: {stderr}")
+        print(f"Failed to read origin/{branch}: {stderr}")
         sys.exit(1)
     return stdout
 
 
-def pull_main() -> bool:
-    print("Pulling latest changes from origin/main...")
-    exit_code, _, stderr = run_command(["git", "fetch", "origin", "main"])
+def pull_branch(branch: str) -> bool:
+    print(f"Pulling latest changes from origin/{branch}...")
+    exit_code, _, stderr = run_command(["git", "fetch", "origin", branch])
     if exit_code != 0:
-        print(f"Failed to fetch origin/main: {stderr}")
+        print(f"Failed to fetch origin/{branch}: {stderr}")
         return False
-    exit_code, _, stderr = run_command(["git", "reset", "--hard", "origin/main"])
+    exit_code, _, stderr = run_command(
+        ["git", "reset", "--hard", f"origin/{branch}"]
+    )
     if exit_code != 0:
-        print(f"Failed to reset to origin/main: {stderr}")
+        print(f"Failed to reset to origin/{branch}: {stderr}")
         return False
     return True
 
@@ -160,7 +163,9 @@ def recover_untagged_bump(repo: str, package_name: str, package_dir: str) -> boo
     return True
 
 
-def cz_bump_files_only(package_dir: str, package_name: str) -> str | None:
+def cz_bump_files_only(
+    package_dir: str, package_name: str, increment: str | None = None
+) -> str | None:
     """Run ``cz bump --files-only`` and return the new version string.
 
     cz prints a line like ``bump: keycardai-oauth 0.4.0 → 0.5.0`` to stdout;
@@ -168,10 +173,10 @@ def cz_bump_files_only(package_dir: str, package_name: str) -> str | None:
     the version transition could not be determined (e.g. nothing to bump).
     """
     print(f"Running cz bump --files-only for {package_name}...")
-    exit_code, stdout, stderr = run_command(
-        ["cz", "bump", "--changelog", "--yes", "--files-only"],
-        cwd=package_dir,
-    )
+    command = ["cz", "bump", "--changelog", "--yes", "--files-only"]
+    if increment:
+        command.append(f"--{increment.lower()}")
+    exit_code, stdout, stderr = run_command(command, cwd=package_dir)
 
     if exit_code != 0:
         if "NO_COMMITS_TO_BUMP" in stderr or "no eligible commits" in stderr.lower():
@@ -382,7 +387,7 @@ def wait_for_pr_stable(pr_number: int, timeout_seconds: int = 300) -> bool:
 
 
 def create_pr_with_automerge(
-    branch: str, package_name: str, new_version: str
+    branch: str, target_branch: str, package_name: str, new_version: str
 ) -> int | None:
     """Open a PR for the bump branch with auto-merge (squash) enabled.
 
@@ -405,7 +410,7 @@ def create_pr_with_automerge(
             "--head",
             branch,
             "--base",
-            "main",
+            target_branch,
             "--title",
             title,
             "--body",
@@ -451,8 +456,13 @@ def checks_green(pr_data: dict) -> bool:
     return True
 
 
-def wait_for_pr_merge(repo: str, pr_number: int, timeout_seconds: int = 1800) -> str | None:
-    """Poll the PR until it merges. Returns the merge commit SHA on main.
+def wait_for_pr_merge(
+    repo: str,
+    pr_number: int,
+    target_branch: str,
+    timeout_seconds: int = 1800,
+) -> str | None:
+    """Poll the PR until it merges. Returns the merge commit SHA.
 
     Fails if the PR is closed without merging or if the timeout elapses.
     Polls every 30s; logs each status change so the run is debuggable.
@@ -507,7 +517,7 @@ def wait_for_pr_merge(repo: str, pr_number: int, timeout_seconds: int = 1800) ->
             # Auto-merge waits for requirements the app is entitled to bypass
             # (required reviews), and the merge API does not exercise ruleset
             # bypass either; ref updates do. Try the merge for the clean PR
-            # timeline, then fall back to fast-forwarding main to the PR head,
+            # timeline, then fall back to fast-forwarding the target branch,
             # which GitHub records as merging the PR.
             direct_merge_attempts += 1
             exit_code, _, stderr = run_command(
@@ -525,20 +535,20 @@ def wait_for_pr_merge(repo: str, pr_number: int, timeout_seconds: int = 1800) ->
                             "api",
                             "-X",
                             "PATCH",
-                            f"repos/{repo}/git/refs/heads/main",
+                            f"repos/{repo}/git/refs/heads/{target_branch}",
                             "-f",
                             f"sha={head_sha}",
                         ]
                     )
                     if exit_code == 0:
                         print(
-                            f"Fast-forwarded main to {head_sha[:8]}; "
+                            f"Fast-forwarded {target_branch} to {head_sha[:8]}; "
                             f"PR #{pr_number} will be marked merged."
                         )
                     else:
                         print(
                             f"Fast-forward attempt {direct_merge_attempts} failed "
-                            f"(main may have moved); auto-merge stays armed: "
+                            f"({target_branch} may have moved); auto-merge stays armed: "
                             f"{stderr.strip()[:200]}"
                         )
 
@@ -579,7 +589,18 @@ def create_and_push_tag(repo: str, tag: str, sha: str) -> bool:
     return True
 
 
-def bump_package(package_name: str, package_dir: str) -> bool:
+def bump_branch_name(target_branch: str, package_name: str, version: str) -> str:
+    """Return a collision-free bump branch name for a release line."""
+    release_line = re.sub(r"[^A-Za-z0-9._-]+", "-", target_branch)
+    return f"bump/{release_line}/{package_name}-{version}"
+
+
+def bump_package(
+    package_name: str,
+    package_dir: str,
+    target_branch: str = "main",
+    increment: str | None = None,
+) -> bool:
     print(f"Starting version bump for {package_name}...")
 
     if not Path(package_dir).exists():
@@ -588,7 +609,7 @@ def bump_package(package_name: str, package_dir: str) -> bool:
 
     configure_git()
 
-    if not pull_main():
+    if not pull_branch(target_branch):
         return False
 
     repo = get_repo_slug()
@@ -597,12 +618,12 @@ def bump_package(package_name: str, package_dir: str) -> bool:
     if recovery is not None:
         return recovery
 
-    new_version = cz_bump_files_only(package_dir, package_name)
+    new_version = cz_bump_files_only(package_dir, package_name, increment)
     if new_version is None:
         return True
-    branch = f"bump/{package_name}-{new_version}"
+    branch = bump_branch_name(target_branch, package_name, new_version)
     tag = f"{new_version}-{package_name}"
-    parent_sha = get_main_sha()
+    parent_sha = get_branch_sha(target_branch)
 
     modified = get_modified_files()
     if not modified:
@@ -625,7 +646,9 @@ def bump_package(package_name: str, package_dir: str) -> bool:
             body=f"Auto-bump for {package_name}.",
         ):
             return False
-        pr_number = create_pr_with_automerge(branch, package_name, new_version)
+        pr_number = create_pr_with_automerge(
+            branch, target_branch, package_name, new_version
+        )
         if pr_number is None:
             return False
     else:
@@ -657,11 +680,13 @@ def bump_package(package_name: str, package_dir: str) -> bool:
                 )
             ):
                 return False
-            pr_number = create_pr_with_automerge(branch, package_name, new_version)
+            pr_number = create_pr_with_automerge(
+                branch, target_branch, package_name, new_version
+            )
             if pr_number is None:
                 return False
 
-    merge_sha = wait_for_pr_merge(repo, pr_number)
+    merge_sha = wait_for_pr_merge(repo, pr_number, target_branch)
     if merge_sha is None:
         return False
 
@@ -678,9 +703,24 @@ def main() -> None:
     )
     parser.add_argument("package_name", help="Package name (e.g. keycardai-oauth).")
     parser.add_argument("package_dir", help="Package directory (e.g. packages/oauth).")
+    parser.add_argument(
+        "--target-branch",
+        default="main",
+        help="Branch that receives the bump PR (default: main).",
+    )
+    parser.add_argument(
+        "--increment",
+        choices=("major", "minor", "patch"),
+        help="Force a specific increment instead of deriving it from commits.",
+    )
     args = parser.parse_args()
 
-    if not bump_package(args.package_name, args.package_dir):
+    if not bump_package(
+        args.package_name,
+        args.package_dir,
+        target_branch=args.target_branch,
+        increment=args.increment,
+    ):
         print("Version bump failed")
         sys.exit(1)
     print("Version bump completed successfully")

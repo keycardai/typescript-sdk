@@ -28,7 +28,7 @@
   },
   "dependencies": {
     "@keycardai/oauth": "workspace:*",
-    "@keycardai/mcp": "workspace:*"
+    "@keycardai/mcp": "workspace:^"
   },
   "devDependencies": {
     "typescript": "^5.8.3"
