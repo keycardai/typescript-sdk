@@ -175,7 +175,7 @@ def cz_bump_files_only(
     print(f"Running cz bump --files-only for {package_name}...")
     command = ["cz", "bump", "--changelog", "--yes", "--files-only"]
     if increment:
-        command.append(f"--{increment.lower()}")
+        command.extend(["--increment", increment.upper(), "--allow-no-commit"])
     exit_code, stdout, stderr = run_command(command, cwd=package_dir)
 
     if exit_code != 0:

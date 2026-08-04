@@ -42,7 +42,16 @@ class BumpPackageTest(unittest.TestCase):
         self.assertEqual(version, "1.0.0")
         self.assertEqual(
             run_command.call_args.args[0],
-            ["cz", "bump", "--changelog", "--yes", "--files-only", "--major"],
+            [
+                "cz",
+                "bump",
+                "--changelog",
+                "--yes",
+                "--files-only",
+                "--increment",
+                "MAJOR",
+                "--allow-no-commit",
+            ],
         )
 
     @patch("bump_package.enable_automerge", return_value=True)
