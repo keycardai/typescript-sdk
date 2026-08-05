@@ -170,7 +170,7 @@ importers:
   packages/sdk:
     dependencies:
       '@keycardai/mcp':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../mcp
       '@keycardai/oauth':
         specifier: workspace:*

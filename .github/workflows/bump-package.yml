@@ -11,6 +11,37 @@ on:
         required: true
         type: string
         description: "Directory of the package (e.g., packages/oauth)"
+      target_branch:
+        required: false
+        type: string
+        default: main
+        description: "Branch that receives the bump PR"
+      increment:
+        required: false
+        type: string
+        default: auto
+        description: "Optional forced increment: major, minor, or patch"
+  workflow_dispatch:
+    inputs:
+      package_name:
+        required: true
+        type: string
+      package_dir:
+        required: true
+        type: string
+      target_branch:
+        required: false
+        type: string
+        default: main
+      increment:
+        required: false
+        type: choice
+        default: auto
+        options:
+          - auto
+          - major
+          - minor
+          - patch
 
 jobs:
   bump:
@@ -44,4 +75,8 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.generate-token.outputs.token }}
         run: |
-          python scripts/bump_package.py "${{ inputs.package_name }}" "${{ inputs.package_dir }}"
+          ARGS=(--target-branch "${{ inputs.target_branch }}")
+          if [[ "${{ inputs.increment }}" != "auto" ]]; then
+            ARGS+=(--increment "${{ inputs.increment }}")
+          fi
+          python scripts/bump_package.py "${{ inputs.package_name }}" "${{ inputs.package_dir }}" "${ARGS[@]}"
