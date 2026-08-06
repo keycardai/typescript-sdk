@@ -94,7 +94,7 @@
   },
   "devDependencies": {
     "@jest/globals": "^30.0.4",
-    "@modelcontextprotocol/sdk": "^1.15.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.3",
     "jest": "^30.0.4",
