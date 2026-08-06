@@ -1,3 +1,105 @@
+## 1.1.0-keycardai-mcp (2026-08-06)
+
+
+- feat(mcp)!: cut the client OAuthClientProvider to MCP v2 (ECO-134) (#139)
+- * feat(mcp): rework BaseOAuthClientProvider against the MCP v2 client interface
+- Implements the OAuthClientProvider interface from @modelcontextprotocol/client
+2.0.0-beta.4:
+- - tokens/saveTokens use StoredOAuthTokens and accept the optional
+  OAuthClientInformationContext, forwarded to the tokens store
+- clientInformation returns StoredOAuthClientInformation and accepts the
+  optional context (ignored: single credential set)
+- addClientAuthentication takes AuthorizationServerMetadata and treats the
+  url argument as the token endpoint (v2 passes the token URL, not the
+  authorization server base URL), removing the hardcoded /token fallback
+- redirectUrl returns undefined instead of throwing when unset, which v2
+  reads as a non-interactive provider
+- SEP-2352 discovery-state persistence via a new optional
+  discoveryStateStore; saveDiscoveryState/discoveryState are only defined
+  when a store is configured because v2 fails the authorization callback
+  leg when saveDiscoveryState exists but no recorded state is readable
+- Keeps the returned store promises and the private_key_jwt client assertion
+contract (iss = sub = client_id, aud = token endpoint) intact.
+- @modelcontextprotocol/client is added as an optional peer + dev dependency;
+the v1 @modelcontextprotocol/sdk peer stays for the server half until the
+v2 stable cut. All imports from the v2 package are type-only, so no runtime
+dependency is added.
+- Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+- * feat(mcp): add per-tool scope check helpers for MCP tool handlers
+- Route-level requiredScopes on requireBearerAuth applies to every tool on a
+multiplexed /mcp route, so per-tool enforcement has to happen inside the
+tool handler. missingToolScopes and requireToolScopes read the validated
+token from ctx.http.authInfo (the MCP v2 handler context, accepted
+structurally so no dependency on @modelcontextprotocol/server is needed)
+and reuse InsufficientScopeError from @keycardai/oauth/errors.
+- Exported as @keycardai/mcp/server/auth/toolScopes.
+- Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+- * docs(mcp): document v2 client provider contract and req.auth typing conflict
+- Covers the non-interactive redirectUrl semantics, issuer-stamped stored
+credentials, the discoveryStateStore option, the new toolScopes export,
+and the collision between @modelcontextprotocol/express's global
+Request.auth augmentation (AuthInfo) and @keycardai/express's AccessToken
+typing, with verified failure modes and workarounds.
+- Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+- * feat(sdk): re-export OAuthDiscoveryStateStore and tool scope helpers
+- Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+- * feat(mcp)!: cut to MCP v2 stable, drop the v1 SDK peer
+- Pin the client peer to the released @modelcontextprotocol/client ^2.0.0
+(was ^2.0.0-beta.4) and remove @modelcontextprotocol/sdk ^1.15.0 from
+peerDependencies entirely.
+- We do not maintain old major versions. Consumers on the v1 SDK pin the
+prior @keycardai/mcp minor.
+- The one remaining v1 import was in bearerAuth.test.ts, which typed its
+mocks against upstream AuthInfo / OAuthTokenVerifier to prove the
+vendored types in shared/auth.ts stay structurally compatible. It now
+imports both from @modelcontextprotocol/server, so that assertion holds
+against v2 instead of v1. The vendored-type doc comments cite the v2
+package for the same reason.
+- zod majors coexist: the v2 packages depend on zod ^4.2.0 while this
+package stays on ^3.25.74. Our imports from @modelcontextprotocol/client
+are type-only, so both resolve side by side (3.25.76 and 4.4.3) and the
+build typechecks clean.
+- Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+- * fix(mcp): address review on the v2 client cut
+- packages/sdk declared no peerDependencies while re-exporting
+BaseOAuthClientProvider, so a consumer installing only @keycardai/sdk hit
+TS2307 on @modelcontextprotocol/client from base.d.ts with no warning
+from tsc or the package manager first, or silently degraded types under
+skipLibCheck. Added the same optional peer packages/mcp declares, plus a
+README migration note covering both entry points.
+- Corrected requireToolScopes' contract. It claimed to surface OAuth error
+code insufficient_scope; it cannot. @modelcontextprotocol/server catches
+every handler throw except UrlElicitationRequiredError and flattens it
+into {content:[text], isError:true} at HTTP 200, so no 403, no
+WWW-Authenticate and no error code reach the wire -- only the message
+text. The helper still enforces the requirement, but it cannot signal it
+machine-readably, which makes it unsuitable alone for driving a scope
+step-up. Documented that, and pointed at UrlElicitationRequiredError and
+missingToolScopes as the two paths that do work.
+- Documented why the discovery-state members are own-property assignments:
+SEP-2352 keys off whether they are defined, so prototype methods would
+always be defined and break the v2 client's binding check. The tradeoff
+is that they shadow a subclass override, and the README tells users to
+subclass, so the guidance is now explicit -- supply a store rather than
+override.
+- Documented OAuthDiscoveryStateStore as single-slot. get/save take no
+key, so two concurrent flows to different authorization servers through
+one provider overwrite each other and the second callback leg fails the
+binding check.
+- Test mocks passed a string as the token endpoint where v2 always passes
+a URL. Corrected all five call sites so the fixtures match the caller.
+- Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+- * docs(mcp): servers moving to the v2 packages need zod 4
+- Found live-testing the Express template against this branch's tarball:
+v2's registerTool types its zod overload against zod 4 internals, so a
+zod 3 schema in application code fails typecheck with a misleading
+'missing properties from ZodType' error. Our own zod 3 dependency is
+unaffected (type-only v2 imports), but the coexistence note stopped at
+our package boundary; consumers registering tools cross it.
+- Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+- ---------
+- Co-authored-by: Claude Fable 5 <noreply@anthropic.com>
+
 ## 1.0.0-keycardai-mcp (2026-08-06)
 
 ## 0.12.1-keycardai-mcp (2026-07-28)
