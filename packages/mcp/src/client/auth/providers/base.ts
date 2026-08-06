@@ -1,11 +1,18 @@
-import { OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js';
-import { OAuthClientMetadata, OAuthClientInformation, OAuthTokens, OAuthMetadata } from '@modelcontextprotocol/sdk/shared/auth.js';
+import type {
+  AuthorizationServerMetadata,
+  OAuthClientInformationContext,
+  OAuthClientMetadata,
+  OAuthClientProvider,
+  OAuthDiscoveryState,
+  StoredOAuthClientInformation,
+  StoredOAuthTokens,
+} from '@modelcontextprotocol/client';
 import type { PrivateKeyring } from "@keycardai/oauth/keyring";
 import { JSONWebTokenSigner } from "../signers/jwt.js";
 
 export interface OAuthTokensStore {
-  get(): Promise<OAuthTokens | undefined>;
-  save(tokens: OAuthTokens): void | Promise<void>;
+  get(ctx?: OAuthClientInformationContext): Promise<StoredOAuthTokens | undefined>;
+  save(tokens: StoredOAuthTokens, ctx?: OAuthClientInformationContext): void | Promise<void>;
 }
 
 export interface OAuthCodeVerifierStore {
@@ -13,10 +20,35 @@ export interface OAuthCodeVerifierStore {
   save(codeVerifier: string): void | Promise<void>;
 }
 
+/**
+ * Persists OAuth discovery state (SEP-2352) so the MCP SDK can skip
+ * redundant RFC 9728 / RFC 8414 discovery requests and verify that the
+ * authorization server on the redirect callback leg matches the one
+ * recorded before the redirect.
+ *
+ * Implementations MUST persist with the same durability as the code
+ * verifier store: the state has to survive the authorization redirect
+ * round-trip.
+ */
+/**
+ * Single-slot by design: `get`/`save` take no key, so one provider instance
+ * holds discovery state for one in-flight authorization at a time. Two
+ * concurrent flows against different authorization servers through the same
+ * provider will overwrite each other, and the second callback leg then fails
+ * the SEP-2352 binding check with `AuthorizationServerMismatchError`. Give each
+ * concurrent flow its own provider instance, or back the store with per-flow
+ * storage keyed outside this interface.
+ */
+export interface OAuthDiscoveryStateStore {
+  get(): OAuthDiscoveryState | undefined | Promise<OAuthDiscoveryState | undefined>;
+  save(state: OAuthDiscoveryState): void | Promise<void>;
+}
+
 export interface BaseOAuthClientProviderOptions {
   redirectUrl?: string | URL;
   tokensStore?: OAuthTokensStore;
   codeVerifierStore?: OAuthCodeVerifierStore;
+  discoveryStateStore?: OAuthDiscoveryStateStore;
   privateKeyring?: PrivateKeyring;
 }
 
@@ -29,6 +61,18 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
   protected privateKeyring: PrivateKeyring | undefined;
   protected tokensStore: OAuthTokensStore | undefined;
   protected codeVerifierStore: OAuthCodeVerifierStore | undefined;
+  protected discoveryStateStore: OAuthDiscoveryStateStore | undefined;
+
+  /**
+   * SEP-2352 discovery-state persistence. Defined only when a
+   * `discoveryStateStore` is configured: the MCP SDK treats the presence of
+   * `saveDiscoveryState` as a promise that discovery state is durably
+   * persisted, and fails the authorization callback leg when the method
+   * exists but no recorded state can be read back. A provider without a
+   * store must therefore not define these members at all.
+   */
+  saveDiscoveryState?: (state: OAuthDiscoveryState) => void | Promise<void>;
+  discoveryState?: () => OAuthDiscoveryState | undefined | Promise<OAuthDiscoveryState | undefined>;
 
   constructor(metadata: OAuthClientMetadata, clientId?: string, options?: BaseOAuthClientProviderOptions) {
     this._clientId = clientId;
@@ -38,6 +82,21 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
     this.codeVerifierStore = options?.codeVerifierStore;
     this.privateKeyring = options?.privateKeyring;
 
+    // Assigned as own properties, and only when a store exists, because SEP-2352
+    // keys off whether these members are *defined*: the v2 client throws
+    // AuthorizationServerMismatchError if saveDiscoveryState exists but no state
+    // reads back. Declaring them as prototype methods would make them always
+    // defined and break that check. The tradeoff is that an own property shadows
+    // a subclass's prototype override of the same name, so a subclass wanting
+    // custom discovery-state behavior should supply a discoveryStateStore rather
+    // than override saveDiscoveryState/discoveryState.
+    const discoveryStateStore = options?.discoveryStateStore;
+    if (discoveryStateStore) {
+      this.discoveryStateStore = discoveryStateStore;
+      this.saveDiscoveryState = (state) => discoveryStateStore.save(state);
+      this.discoveryState = () => discoveryStateStore.get();
+    }
+
     // workaround to bind function to this context, since underlying
     // MCP library calls it without a context.
     this.addClientAuthentication = this.addClientAuthentication.bind(this);
@@ -46,15 +105,14 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
   async addClientAuthentication(
     headers: Headers,
     params: URLSearchParams,
-    authorizationServerUrl: string | URL,
-    metadata?: OAuthMetadata,
-  ) {
+    url: string | URL,
+    metadata?: AuthorizationServerMetadata,
+  ): Promise<void> {
     const clientInfo = await this.clientInformation();
     if (!clientInfo) {
       throw new Error("Client information not available for authentication");
     }
     const clientInformation = { ...this._metadata, ...clientInfo };
-    const supportedMethods = metadata?.token_endpoint_auth_methods_supported ?? [];
     const authMethod = clientInformation.token_endpoint_auth_method || 'client_secret_basic';
 
     switch (authMethod) {
@@ -63,9 +121,12 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
           throw new Error("Private keyring not initialized");
         }
 
+        // The MCP SDK passes the token endpoint URL being called as `url`;
+        // prefer the metadata value when present since it is the validated
+        // RFC 8414 document entry.
         const tokenUrl = metadata?.token_endpoint
           ? new URL(metadata.token_endpoint)
-          : new URL("/token", authorizationServerUrl);
+          : new URL(url);
         const now = Date.now();
         const signer = new JSONWebTokenSigner(this.privateKeyring);
         // RFC 7523 section 3: for client authentication both "iss" and
@@ -102,10 +163,12 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
 
   }
 
-  get redirectUrl() {
-    if (!this._redirectUrl) {
-      throw new Error("Attempt to access redirectUrl before it was set");
-    }
+  /**
+   * Returns `undefined` when no redirect URL was configured. The MCP SDK
+   * reads that as a non-interactive provider (`client_credentials`,
+   * `jwt-bearer`) and skips the authorization redirect leg.
+   */
+  get redirectUrl(): string | URL | undefined {
     return this._redirectUrl;
   }
 
@@ -113,7 +176,11 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
     return this._metadata;
   }
 
-  clientInformation(): OAuthClientInformation | undefined | Promise<OAuthClientInformation | undefined> {
+  /**
+   * This provider holds a single credential set, so the authorization-server
+   * binding context is ignored (permitted by the MCP SDK contract).
+   */
+  clientInformation(ctx?: OAuthClientInformationContext): StoredOAuthClientInformation | undefined | Promise<StoredOAuthClientInformation | undefined> {
     if (this._clientId) {
       return { ...this.clientMetadata, client_id: this._clientId };
     }
@@ -121,18 +188,18 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
     return undefined;
   }
 
-  tokens(): Promise<OAuthTokens | undefined> {
+  tokens(ctx?: OAuthClientInformationContext): Promise<StoredOAuthTokens | undefined> {
     if (!this.tokensStore) {
       throw new Error("OAuth tokens store not initialized");
     }
-    return this.tokensStore.get();
+    return this.tokensStore.get(ctx);
   }
 
-  saveTokens(tokens: OAuthTokens): void | Promise<void> {
+  saveTokens(tokens: StoredOAuthTokens, ctx?: OAuthClientInformationContext): void | Promise<void> {
     if (!this.tokensStore) {
       throw new Error("OAuth tokens store not initialized");
     }
-    return this.tokensStore.save(tokens);
+    return this.tokensStore.save(tokens, ctx);
   }
 
   redirectToAuthorization(authorizationUrl: URL): void | Promise<void> {

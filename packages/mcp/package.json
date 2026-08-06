@@ -40,6 +40,11 @@
       "require": "./dist/cjs/server/auth/errors.js",
       "types": "./dist/esm/server/auth/errors.d.ts"
     },
+    "./server/auth/toolScopes": {
+      "import": "./dist/esm/server/auth/toolScopes.js",
+      "require": "./dist/cjs/server/auth/toolScopes.js",
+      "types": "./dist/esm/server/auth/toolScopes.d.ts"
+    },
     "./shared/auth": {
       "import": "./dist/esm/shared/auth.js",
       "require": "./dist/cjs/shared/auth.js",
@@ -85,16 +90,17 @@
     "zod": "^3.25.74"
   },
   "peerDependencies": {
-    "@modelcontextprotocol/sdk": "^1.15.0"
+    "@modelcontextprotocol/client": "^2.0.0"
   },
   "peerDependenciesMeta": {
-    "@modelcontextprotocol/sdk": {
+    "@modelcontextprotocol/client": {
       "optional": true
     }
   },
   "devDependencies": {
     "@jest/globals": "^30.0.4",
-    "@modelcontextprotocol/sdk": "^1.15.0",
+    "@modelcontextprotocol/client": "^2.0.0",
+    "@modelcontextprotocol/server": "^2.0.0",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.3",
     "jest": "^30.0.4",

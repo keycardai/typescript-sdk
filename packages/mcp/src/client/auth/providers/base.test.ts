@@ -1,7 +1,12 @@
 import { jest } from '@jest/globals';
-import type { OAuthMetadata, OAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js';
+import type { AuthorizationServerMetadata, OAuthDiscoveryState, StoredOAuthTokens } from '@modelcontextprotocol/client';
 import type { PrivateKeyring } from '@keycardai/oauth/keyring';
-import { BaseOAuthClientProvider, type OAuthTokensStore, type OAuthCodeVerifierStore } from './base.js';
+import {
+  BaseOAuthClientProvider,
+  type OAuthTokensStore,
+  type OAuthCodeVerifierStore,
+  type OAuthDiscoveryStateStore,
+} from './base.js';
 
 // https://datatracker.ietf.org/doc/html/rfc7515#appendix-A.2
 const RFC7515_RS256_PRIVATE_KEY = {
@@ -58,7 +63,7 @@ describe('Base OAuth client provider', () => {
       }, 'client-123');
 
       const params = new URLSearchParams();
-      await provider.addClientAuthentication(new Headers(), params, "https://auth.example.com");
+      await provider.addClientAuthentication(new Headers(), params, new URL("https://auth.example.com"));
 
       expect(params.get('client_id')).toBe('client-123');
     });
@@ -69,7 +74,7 @@ describe('Base OAuth client provider', () => {
       });
 
       await expect(
-        provider.addClientAuthentication(new Headers(), new URLSearchParams(), "https://auth.example.com")
+        provider.addClientAuthentication(new Headers(), new URLSearchParams(), new URL("https://auth.example.com"))
       ).rejects.toThrow('Client information not available for authentication');
     });
 
@@ -105,7 +110,7 @@ describe('Base OAuth client provider', () => {
         jwks_uri: "https://client.example.com/jwks.json",
       }, 'https://client.example.com', { privateKeyring });
 
-      const serverMetadata: OAuthMetadata = {
+      const serverMetadata: AuthorizationServerMetadata = {
         issuer: "https://auth.example.com",
         authorization_endpoint: "https://auth.example.com/authorize",
         token_endpoint: "https://auth.example.com/token",
@@ -113,7 +118,7 @@ describe('Base OAuth client provider', () => {
       };
 
       const params = new URLSearchParams();
-      await provider.addClientAuthentication(new Headers(), params, "https://auth.example.com", serverMetadata);
+      await provider.addClientAuthentication(new Headers(), params, new URL("https://auth.example.com"), serverMetadata);
 
       expect(params.get('client_id')).toBe('https://client.example.com');
       expect(params.get('client_assertion_type')).toBe('urn:ietf:params:oauth:client-assertion-type:jwt-bearer');
@@ -142,13 +147,49 @@ describe('Base OAuth client provider', () => {
       expect(claims.exp).toBeGreaterThan(Number(claims.iat));
     });
 
+    it('should use the url argument as assertion audience when metadata is absent', async () => {
+      const privateKey = await crypto.subtle.importKey(
+        'jwk',
+        RFC7515_RS256_PRIVATE_KEY,
+        {
+          name: 'RSASSA-PKCS1-v1_5',
+          hash: 'SHA-256',
+        },
+        true,
+        ['sign']
+      );
+      const privateKeyring: PrivateKeyring = {
+        key: async () => ({ issuer: 'https://keyring.example.com', kid: 'RjEwOwOA', key: privateKey }),
+      };
+
+      const provider = new BaseOAuthClientProvider({
+        token_endpoint_auth_method: "private_key_jwt",
+        jwks_uri: "https://client.example.com/jwks.json",
+      }, 'https://client.example.com', { privateKeyring });
+
+      // The MCP SDK passes the token endpoint URL being called as the url
+      // argument, so the assertion audience must be that URL when no
+      // server metadata is supplied.
+      const params = new URLSearchParams();
+      await provider.addClientAuthentication(new Headers(), params, new URL("https://auth.example.com/token"));
+
+      const assertion = params.get('client_assertion');
+      expect(assertion).not.toBeNull();
+      const claims = base64urlDecodeToJSON(String(assertion).split('.')[1]);
+      expect(claims).toMatchObject({
+        iss: 'https://client.example.com',
+        sub: 'https://client.example.com',
+        aud: 'https://auth.example.com/token',
+      });
+    });
+
     it('should throw for private_key_jwt without a private keyring', async () => {
       const provider = new BaseOAuthClientProvider({
         token_endpoint_auth_method: "private_key_jwt",
       }, 'https://client.example.com');
 
       await expect(
-        provider.addClientAuthentication(new Headers(), new URLSearchParams(), "https://auth.example.com")
+        provider.addClientAuthentication(new Headers(), new URLSearchParams(), new URL("https://auth.example.com"))
       ).rejects.toThrow('Private keyring not initialized');
     });
 
@@ -166,14 +207,15 @@ describe('Base OAuth client provider', () => {
       expect(provider.redirectUrl).toBe("https://agent.example.com/oauth/callback");
     });
 
-    it('should throw when redirect URL was not set', () => {
+    it('should return undefined when redirect URL was not set', () => {
       const provider = new BaseOAuthClientProvider({
         token_endpoint_auth_method: "client_secret_basic",
       });
 
-      expect(() => provider.redirectUrl).toThrow(
-        'Attempt to access redirectUrl before it was set'
-      );
+      // The MCP SDK reads an undefined redirectUrl as a non-interactive
+      // provider (client_credentials, jwt-bearer) and skips the
+      // authorization redirect leg.
+      expect(provider.redirectUrl).toBeUndefined();
     });
 
     it('should use stores passed via options', async () => {
@@ -249,7 +291,7 @@ describe('Base OAuth client provider', () => {
           token_type: "Bearer"
         };
         provider.saveTokens(tokens);
-        expect(provider.tokensStore.save).toHaveBeenCalledWith(tokens);
+        expect(provider.tokensStore.save).toHaveBeenCalledWith(tokens, undefined);
       });
 
       it('should throw when not initialized', async () => {
@@ -310,6 +352,115 @@ describe('Base OAuth client provider', () => {
         })).rejects.toThrow('tokens store write failed');
       });
 
+    });
+
+    describe('authorization server binding context', () => {
+
+      it('should forward the context to the store on reads and writes', async () => {
+        const mockTokensStore = {
+          get: jest.fn<OAuthTokensStore['get']>(async () => undefined),
+          save: jest.fn<OAuthTokensStore['save']>(async () => undefined),
+        };
+
+        const provider = new BaseOAuthClientProvider({
+          token_endpoint_auth_method: "client_secret_basic",
+        }, undefined, {
+          tokensStore: mockTokensStore,
+        });
+
+        const ctx = { issuer: "https://auth.example.com" };
+        const tokens: StoredOAuthTokens = {
+          access_token: "2YotnFZFEjr1zCsicMWpAA",
+          token_type: "Bearer",
+          issuer: "https://auth.example.com",
+        };
+
+        await provider.tokens(ctx);
+        expect(mockTokensStore.get).toHaveBeenCalledWith(ctx);
+
+        await provider.saveTokens(tokens, ctx);
+        expect(mockTokensStore.save).toHaveBeenCalledWith(tokens, ctx);
+      });
+
+    });
+
+  });
+
+  describe('OAuth discovery state store', () => {
+
+    const discoveryState: OAuthDiscoveryState = {
+      authorizationServerUrl: "https://auth.example.com",
+      resourceMetadataUrl: "https://mcp.example.com/.well-known/oauth-protected-resource",
+    };
+
+    it('should not define the discovery state methods without a store', () => {
+      const provider = new BaseOAuthClientProvider({
+        token_endpoint_auth_method: "client_secret_basic",
+      });
+
+      // The MCP SDK fails the authorization callback leg when
+      // saveDiscoveryState is defined but no recorded state can be read
+      // back, so a provider without a store must not define the methods.
+      expect(provider.saveDiscoveryState).toBeUndefined();
+      expect(provider.discoveryState).toBeUndefined();
+    });
+
+    it('should delegate to the store passed via options', async () => {
+      const mockDiscoveryStateStore = {
+        get: jest.fn<OAuthDiscoveryStateStore['get']>(async () => discoveryState),
+        save: jest.fn<OAuthDiscoveryStateStore['save']>(async () => undefined),
+      };
+
+      const provider = new BaseOAuthClientProvider({
+        token_endpoint_auth_method: "client_secret_basic",
+      }, undefined, {
+        discoveryStateStore: mockDiscoveryStateStore,
+      });
+
+      await provider.saveDiscoveryState?.(discoveryState);
+      expect(mockDiscoveryStateStore.save).toHaveBeenCalledWith(discoveryState);
+
+      expect(await provider.discoveryState?.()).toStrictEqual(discoveryState);
+      expect(mockDiscoveryStateStore.get).toHaveBeenCalled();
+    });
+
+    it('should complete the async store write before resolving', async () => {
+      let stored: OAuthDiscoveryState | undefined;
+      const slowDiscoveryStateStore: OAuthDiscoveryStateStore = {
+        get: async () => stored,
+        save: async (state) => {
+          await new Promise((resolve) => setTimeout(resolve, 20));
+          stored = state;
+        },
+      };
+
+      const provider = new BaseOAuthClientProvider({
+        token_endpoint_auth_method: "client_secret_basic",
+      }, undefined, {
+        discoveryStateStore: slowDiscoveryStateStore,
+      });
+
+      await provider.saveDiscoveryState?.(discoveryState);
+      expect(await provider.discoveryState?.()).toStrictEqual(discoveryState);
+    });
+
+    it('should propagate store save failures', async () => {
+      const failingDiscoveryStateStore: OAuthDiscoveryStateStore = {
+        get: async () => undefined,
+        save: async () => {
+          throw new Error('discovery state store write failed');
+        },
+      };
+
+      const provider = new BaseOAuthClientProvider({
+        token_endpoint_auth_method: "client_secret_basic",
+      }, undefined, {
+        discoveryStateStore: failingDiscoveryStateStore,
+      });
+
+      await expect(provider.saveDiscoveryState?.(discoveryState)).rejects.toThrow(
+        'discovery state store write failed'
+      );
     });
 
   });

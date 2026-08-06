@@ -30,6 +30,14 @@
     "@keycardai/oauth": "workspace:*",
     "@keycardai/mcp": "workspace:^"
   },
+  "peerDependencies": {
+    "@modelcontextprotocol/client": "^2.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@modelcontextprotocol/client": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "typescript": "^5.8.3"
   }

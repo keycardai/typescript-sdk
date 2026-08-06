@@ -2,8 +2,8 @@
  * Information about a validated access token, provided to request handlers.
  *
  * Structurally compatible with the official MCP SDK's `AuthInfo`
- * (`@modelcontextprotocol/sdk/server/auth/types.js`): values of either type
- * are interchangeable in both directions via structural typing.
+ * (`@modelcontextprotocol/server`): values of either type are interchangeable
+ * in both directions via structural typing.
  */
 export interface AuthInfo {
   /**
@@ -43,8 +43,8 @@ export interface AuthInfo {
  * Verifies bearer access tokens and returns information about them.
  *
  * Structurally compatible with the official MCP SDK's `OAuthTokenVerifier`
- * (`@modelcontextprotocol/sdk/server/auth/provider.js`): implementations of
- * either interface are interchangeable via structural typing.
+ * (`@modelcontextprotocol/server`): implementations of either interface are
+ * interchangeable via structural typing.
  */
 export interface OAuthTokenVerifier {
   /**
@@ -57,10 +57,10 @@ export interface OAuthTokenVerifier {
  * RFC 9728 OAuth Protected Resource Metadata.
  *
  * Structurally compatible with the official MCP SDK's
- * `OAuthProtectedResourceMetadata` (`@modelcontextprotocol/sdk/shared/auth.js`):
- * values of either type are interchangeable in both directions via structural
- * typing. The index signature mirrors the SDK schema's passthrough of
- * unrecognized metadata fields.
+ * `OAuthProtectedResourceMetadata` (`@modelcontextprotocol/server`): values of
+ * either type are interchangeable in both directions via structural typing.
+ * The index signature mirrors the SDK schema's passthrough of unrecognized
+ * metadata fields.
  */
 export interface OAuthProtectedResourceMetadata {
   resource: string;
