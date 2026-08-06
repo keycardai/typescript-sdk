@@ -1,6 +1,6 @@
 {
   "name": "@keycardai/sdk",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "[Preview] Keycard TypeScript SDK — Aggregate package re-exporting from @keycardai/oauth and @keycardai/mcp",
   "license": "MIT",
   "repository": {
