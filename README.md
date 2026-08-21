@@ -1,9 +1,5 @@
 # Keycard TypeScript SDK
 
-> **Preview.** This SDK has not reached parity with the Keycard Python
-> SDK. APIs may change between minor versions. The preview label will
-> be removed once feature parity is reached.
-
 A collection of TypeScript packages for Keycard services, organized as a pnpm workspace.
 
 ## Requirements
@@ -332,7 +328,6 @@ packages/
 
 ### Current Limitations
 
-- **Alpha Status**: All packages are in early development (`0.x.y`). APIs may change between minor versions.
 - **Express Only**: Server-side middleware targets Express 5. Other frameworks (Fastify, Koa, Hono) are not supported yet.
 - **MCP Protocol Version**: Requires `@modelcontextprotocol/sdk@^1.15.0` as a peer dependency. Compatible with any 1.x release from 1.15.0 onward.
 

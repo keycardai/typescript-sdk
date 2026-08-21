@@ -1,7 +1,5 @@
 # @keycardai/a2a
 
-> **Preview.** This SDK has not reached parity with the Keycard Python SDK. APIs may change between minor versions.
-
 Keycard auth integration for the [Agent-to-Agent (A2A) protocol](https://google.github.io/A2A). Wraps [`@a2a-js/sdk`](https://github.com/a2aproject/a2a-js) the same way Python's `keycardai-a2a` wraps `a2a-sdk 1.x` — adds Keycard auth on top of the existing SDK's routing, executor, and task store infrastructure.
 
 Python equivalent: [`keycardai-a2a`](https://github.com/keycardai/python-sdk/tree/main/packages/a2a).
