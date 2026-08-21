@@ -1,7 +1,5 @@
 # @keycardai/express
 
-> **Preview.** This SDK has not reached parity with the Keycard Python SDK. APIs may change between minor versions.
-
 Keycard auth middleware for Express. Wraps Express's standard middleware idioms for protecting HTTP APIs with Keycard: bearer token validation (RFC 6750), delegated token exchange (RFC 8693), and OAuth discovery routes (RFC 9728 + RFC 8414).
 
 ## Installation
