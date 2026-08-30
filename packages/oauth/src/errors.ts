@@ -34,6 +34,30 @@ export class InsufficientScopeError extends OAuthError {
   }
 }
 
+/**
+ * The authorization server returned an `error` on the redirect instead of a
+ * code: the user denied consent, or the request was rejected
+ * (RFC 6749 §4.1.2.1). No token request is made.
+ */
+export class AuthorizationDeniedError extends OAuthError {
+  constructor(errorCode: string, public readonly errorDescription?: string, errorUri?: string) {
+    super(errorCode, errorDescription ?? `Authorization denied: ${errorCode}`, errorUri);
+    this.name = "AuthorizationDeniedError";
+  }
+}
+
+/**
+ * The `state` on the callback is absent or does not match the value stored at
+ * the begin step (RFC 6749 §10.12). The flow is rejected before any token
+ * request.
+ */
+export class StateMismatchError extends Error {
+  constructor(message = "State mismatch in authorization callback: possible CSRF attack") {
+    super(message);
+    this.name = "StateMismatchError";
+  }
+}
+
 export type ErrorDetail = {
   message: string;
   code?: string;

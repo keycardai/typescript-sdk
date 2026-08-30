@@ -10,6 +10,14 @@ const OAuthAuthorizationServerMetadataSchema = z.object({
   grant_types_supported: z.array(z.string()).optional(),
   response_types_supported: z.array(z.string()).optional(),
   token_endpoint_auth_methods_supported: z.array(z.string()).optional(),
+  code_challenge_methods_supported: z.array(z.string()).optional(),
+  scopes_supported: z.array(z.string()).optional(),
+  // OpenID Connect Discovery 1.0 §3
+  userinfo_endpoint: z.string().optional(),
+  end_session_endpoint: z.string().optional(),
+  subject_types_supported: z.array(z.string()).optional(),
+  id_token_signing_alg_values_supported: z.array(z.string()).optional(),
+  claims_supported: z.array(z.string()).optional(),
 }).passthrough();
 
 export type OAuthAuthorizationServerMetadata = z.infer<typeof OAuthAuthorizationServerMetadataSchema>;

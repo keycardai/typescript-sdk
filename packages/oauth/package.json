@@ -94,6 +94,16 @@
       "import": "./dist/esm/pkce.js",
       "require": "./dist/cjs/pkce.js",
       "types": "./dist/esm/pkce.d.ts"
+    },
+    "./webApp": {
+      "import": "./dist/esm/webApp.js",
+      "require": "./dist/cjs/webApp.js",
+      "types": "./dist/esm/webApp.d.ts"
+    },
+    "./userinfo": {
+      "import": "./dist/esm/userinfo.js",
+      "require": "./dist/cjs/userinfo.js",
+      "types": "./dist/esm/userinfo.d.ts"
     }
   },
   "files": [

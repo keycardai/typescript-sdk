@@ -17,6 +17,8 @@ export {
   JWKSUriValidationError,
   JWKSFetchError,
   JWKSKeyNotFoundError,
+  AuthorizationDeniedError,
+  StateMismatchError,
 } from "./errors.js";
 export { JWTSigner } from "./jwt/signer.js";
 export type { JWTClaims } from "./jwt/signer.js";
@@ -65,6 +67,14 @@ export type {
   AuthorizeUrlParams,
   AuthenticateOptions,
 } from "./pkce.js";
+export { beginAuthorization, completeAuthorization } from "./webApp.js";
+export type {
+  BeginAuthorizationOptions,
+  CompleteAuthorizationOptions,
+  AuthorizationRedirect,
+} from "./webApp.js";
+export { fetchUserInfo } from "./userinfo.js";
+export type { UserInfoResponse, FetchUserInfoOptions } from "./userinfo.js";
 export { resolveIssuerFromChallenge, authenticateFromChallenge } from "./challenge.js";
 export type {
   ResolveIssuerFromChallengeOptions,

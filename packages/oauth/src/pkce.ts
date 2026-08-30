@@ -1,5 +1,5 @@
 import base64url from "./base64url.js";
-import { fetchAuthorizationServerMetadata } from "./discovery.js";
+import { fetchAuthorizationServerMetadata, type OAuthAuthorizationServerMetadata } from "./discovery.js";
 import { OAuthError } from "./errors.js";
 import { deserializeTokenResponse, type TokenResponse } from "./tokenExchange.js";
 
@@ -75,6 +75,8 @@ export interface ExchangeAuthorizationCodeOptions {
   clientSecret?: string;
   /** RFC 8707 resource indicator. When set, restricts the issued token's audience to this resource. */
   resource?: string;
+  /** Pre-discovered metadata. When set, no discovery request is made. */
+  metadata?: OAuthAuthorizationServerMetadata;
   signal?: AbortSignal;
 }
 
@@ -89,7 +91,7 @@ export async function exchangeAuthorizationCode(
   code: string,
   options: ExchangeAuthorizationCodeOptions,
 ): Promise<TokenResponse> {
-  const metadata = await fetchAuthorizationServerMetadata(issuer, {
+  const metadata = options.metadata ?? await fetchAuthorizationServerMetadata(issuer, {
     signal: options.signal,
   });
   if (!metadata.token_endpoint) {
@@ -167,6 +169,8 @@ export interface AuthorizeUrlParams {
   scope?: string;
   /** RFC 8707 resource indicator. */
   resource?: string;
+  /** RFC 8707 resource indicators; each entry becomes its own `resource` parameter. */
+  resources?: readonly string[];
 }
 
 /**
@@ -187,6 +191,9 @@ export function buildAuthorizeUrl(
   if (params.state) url.searchParams.set("state", params.state);
   if (params.scope) url.searchParams.set("scope", params.scope);
   if (params.resource) url.searchParams.set("resource", params.resource);
+  for (const resource of params.resources ?? []) {
+    url.searchParams.append("resource", resource);
+  }
   return url.toString();
 }
 
