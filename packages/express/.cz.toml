@@ -10,3 +10,22 @@ major_version_zero = true
 
 [tool.commitizen.customize]
 changelog_pattern = "^(feat|fix|refactor|perf|test|build|ci|revert)\\(express\\)(!)?:"
+# Increment detection is scope-local: commits for other packages match
+# nothing here, so they cannot move this package's version.
+bump_pattern = "^((BREAKING[\\-\\ ]CHANGE|feat|fix|refactor|perf)\\(express\\)!?):"
+
+[tool.commitizen.customize.bump_map]
+"^.+!$" = "MAJOR"
+"^BREAKING[\\-\\ ]CHANGE" = "MAJOR"
+"^feat" = "MINOR"
+"^fix" = "PATCH"
+"^refactor" = "PATCH"
+"^perf" = "PATCH"
+
+[tool.commitizen.customize.bump_map_major_version_zero]
+"^.+!$" = "MINOR"
+"^BREAKING[\\-\\ ]CHANGE" = "MINOR"
+"^feat" = "MINOR"
+"^fix" = "PATCH"
+"^refactor" = "PATCH"
+"^perf" = "PATCH"

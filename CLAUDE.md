@@ -17,6 +17,11 @@ Types: `docs`, `feat`, `fix`, `refactor`, `test`, `chore`
 
 Scopes: `oauth`, `mcp`, `cloudflare`, `sdk`, `deps`, `docs`
 
+Each package's version increment is derived only from commits carrying its own
+scope. Mark a breaking change on the subject line (`feat(mcp)!: ...`) or scope
+the footer (`BREAKING CHANGE(mcp): ...`); an unscoped `BREAKING CHANGE:` footer
+does not cut a major.
+
 ## Build Order
 
 `@keycardai/oauth` must build before `@keycardai/mcp` and `@keycardai/cloudflare` (dependency).
