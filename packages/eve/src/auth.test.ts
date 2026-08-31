@@ -72,6 +72,18 @@ describe("keycardAuth", () => {
     });
   });
 
+  it("recognizes zone tokens when zoneUrl carries a trailing slash", async () => {
+    const token = validJwt(3600, { iss: ZONE });
+    const auth = keycardAuth({
+      zoneUrl: `${ZONE}/`,
+      verify: fakeVerifier(token, { iss: ZONE, sub: "user-1" }),
+    });
+
+    const result = await walk(bearerRequest(token), [auth, localDev]);
+
+    expect(result).toMatchObject({ authenticator: "keycard", principalId: "user-1" });
+  });
+
   it("returns null for a caller the zone did not issue, so the walk continues", async () => {
     const auth = keycardAuth({
       zoneUrl: ZONE,

@@ -196,7 +196,9 @@ supplies auth functions and auth definitions, and eve does the rest.
 import { fakeZoneClient, userPrincipal, validJwt } from "@keycardai/eve/testing";
 import { Keycard, memorySubjectTokenStore } from "@keycardai/eve";
 
-const client = fakeZoneClient({ failResources: ["https://calendar.example.com"] });
+const client = fakeZoneClient({
+  failResources: { "https://calendar.example.com": new Error("exchange refused") },
+});
 const subjectTokens = memorySubjectTokenStore();
 subjectTokens.set("https://zone.example.com|user-1", validJwt(3600));
 

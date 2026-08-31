@@ -74,7 +74,7 @@ importers:
   packages/eve:
     dependencies:
       '@keycardai/oauth':
-        specifier: workspace:^0.22.0
+        specifier: workspace:*
         version: link:../oauth
     devDependencies:
       '@jest/globals':

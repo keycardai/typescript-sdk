@@ -94,7 +94,9 @@ export function keycardAuth(options: KeycardAuthOptions): AuthFn<Request> {
     throw new Error("keycardAuth requires zoneUrl or verify");
   }
 
-  const issuer = options.zoneUrl;
+  // Zone tokens carry no trailing slash in `iss`; a slash on the configured
+  // zoneUrl would otherwise make every zone token unrecognized.
+  const issuer = options.zoneUrl?.replace(/\/+$/, "");
   const principalType = options.principalType ?? "user";
   const retention = options.retainSubjectToken ?? "memory";
   const store = options.subjectTokens ?? defaultSubjectTokenStore;
