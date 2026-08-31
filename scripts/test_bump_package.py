@@ -1,3 +1,4 @@
+import json
 import unittest
 from unittest.mock import patch
 
@@ -80,3 +81,39 @@ class BumpPackageTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RefusedMergeTests(unittest.TestCase):
+    """A refused direct merge must never move refs around branch policy."""
+
+    @patch("bump_package.time.sleep", lambda _s: None)
+    @patch("bump_package.run_command")
+    def test_refused_merge_never_patches_the_target_ref(self, run_command) -> None:
+        pr_view = json.dumps(
+            {
+                "state": "OPEN",
+                "headRefOid": "a" * 40,
+                "statusCheckRollup": [{"status": "COMPLETED", "conclusion": "SUCCESS"}],
+            }
+        )
+
+        def fake(command, *args, **kwargs):
+            if command[:3] == ["gh", "pr", "view"]:
+                return 0, pr_view, ""
+            if command[:3] == ["gh", "pr", "merge"]:
+                return 1, "", "refused by base branch policy"
+            return 0, "", ""
+
+        run_command.side_effect = fake
+        sha = bump_package.wait_for_pr_merge(
+            repo="keycardai/typescript-sdk",
+            pr_number=1,
+            target_branch="main",
+            timeout_seconds=1,
+        )
+        self.assertIsNone(sha)
+        for call in run_command.call_args_list:
+            command = call.args[0]
+            self.assertNotIn("PATCH", command)
+            joined = " ".join(command)
+            self.assertNotIn("git/refs", joined)
