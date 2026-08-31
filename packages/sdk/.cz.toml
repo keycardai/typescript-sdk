@@ -14,7 +14,7 @@ major_version_zero = false
 changelog_pattern = "^(feat|fix|refactor|perf|test|build|ci|revert)\\(sdk\\)(!)?:"
 # Increment detection is scope-local: commits for other packages match
 # nothing here, so they cannot move this package's version.
-bump_pattern = "^((BREAKING[\\-\\ ]CHANGE|feat|fix|refactor|perf)\\(sdk\\)!?):"
+bump_pattern = "^((BREAKING[\\-\\ ]CHANGE|feat|fix|refactor|perf|revert)\\(sdk\\)!?):"
 
 [tool.commitizen.customize.bump_map]
 "^.+!$" = "MAJOR"
@@ -23,6 +23,7 @@ bump_pattern = "^((BREAKING[\\-\\ ]CHANGE|feat|fix|refactor|perf)\\(sdk\\)!?):"
 "^fix" = "PATCH"
 "^refactor" = "PATCH"
 "^perf" = "PATCH"
+"^revert" = "PATCH"
 
 [tool.commitizen.customize.bump_map_major_version_zero]
 "^.+!$" = "MINOR"
@@ -31,3 +32,4 @@ bump_pattern = "^((BREAKING[\\-\\ ]CHANGE|feat|fix|refactor|perf)\\(sdk\\)!?):"
 "^fix" = "PATCH"
 "^refactor" = "PATCH"
 "^perf" = "PATCH"
+"^revert" = "PATCH"

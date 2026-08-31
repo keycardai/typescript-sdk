@@ -15,7 +15,7 @@ Follow conventional commits: `type(scope): description`
 
 Types: `docs`, `feat`, `fix`, `refactor`, `test`, `chore`
 
-Scopes: `oauth`, `mcp`, `cloudflare`, `sdk`, `deps`, `docs`
+Scopes: `oauth`, `mcp`, `cloudflare`, `sdk`, `express`, `a2a`, `pi-mono`, `deps`, `docs`
 
 Each package's version increment is derived only from commits carrying its own
 scope. Mark a breaking change on the subject line (`feat(mcp)!: ...`) or scope

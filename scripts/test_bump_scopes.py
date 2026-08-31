@@ -54,21 +54,28 @@ class ScopedBumpHarness(unittest.TestCase):
         )
         return result.stdout
 
-    def dry_run_version(self, package_dir: str, commits: list[str]) -> str:
+    def dry_run_version(
+        self, package_dir: str, commits: list[str], base_version: str = "1.2.0"
+    ) -> str:
         """Return the version ``cz bump --dry-run`` derives for ``commits``.
 
-        The synthetic repo starts at the package's currently configured
-        version, tagged with the package's real ``tag_format``, so cz only
+        The synthetic repo is pinned to ``base_version`` (the copied config's
+        version line is rewritten), tagged with the package's real
+        ``tag_format``, so assertions never track real releases and cz only
         considers the commits added afterwards.
         """
         config = cz_config(package_dir)
-        version = config["version"]
+        version = base_version
         tag = config["tag_format"].replace("${version}", version)
 
         workdir = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, workdir, ignore_errors=True)
 
-        shutil.copy(REPO_ROOT / package_dir / ".cz.toml", workdir / ".cz.toml")
+        source_config = (REPO_ROOT / package_dir / ".cz.toml").read_text()
+        pinned_config = re.sub(
+            r'(?m)^version = ".*"$', f'version = "{version}"', source_config
+        )
+        (workdir / ".cz.toml").write_text(pinned_config)
         (workdir / "package.json").write_text(
             json.dumps({"name": package_dir, "version": version}) + "\n"
         )
@@ -107,7 +114,7 @@ class ForeignBreakingCommitTests(ScopedBumpHarness):
                 "fix(oauth): tolerate empty scope strings",
             ],
         )
-        self.assertEqual(version, "0.20.1")
+        self.assertEqual(version, "1.2.1")
 
     def test_foreign_breaking_change_footer_does_not_major_bump_mcp(self) -> None:
         """The escalation must not leak through BREAKING CHANGE footers either."""
@@ -118,7 +125,7 @@ class ForeignBreakingCommitTests(ScopedBumpHarness):
                 "fix(mcp): retry the metadata probe",
             ],
         )
-        self.assertEqual(version, "2.0.1")
+        self.assertEqual(version, "1.2.1")
 
     def test_foreign_commits_alone_bump_nothing(self) -> None:
         self.assert_no_bump(
@@ -139,14 +146,14 @@ class ScopedIncrementTests(ScopedBumpHarness):
                 "feat(mcp)!: require the new client contract",
             ],
         )
-        self.assertEqual(version, "3.0.0")
+        self.assertEqual(version, "2.0.0")
 
     def test_own_scoped_breaking_footer_cuts_a_major(self) -> None:
         version = self.dry_run_version(
             "packages/mcp",
             ["fix(mcp): tighten validation\n\nBREAKING CHANGE(mcp): renamed the export"],
         )
-        self.assertEqual(version, "3.0.0")
+        self.assertEqual(version, "2.0.0")
 
     def test_own_feat_is_a_minor(self) -> None:
         version = self.dry_run_version(
@@ -156,20 +163,20 @@ class ScopedIncrementTests(ScopedBumpHarness):
                 "feat(oauth): add device authorization support",
             ],
         )
-        self.assertEqual(version, "0.21.0")
+        self.assertEqual(version, "1.3.0")
 
     def test_own_refactor_and_perf_are_patches(self) -> None:
         self.assertEqual(
             self.dry_run_version(
                 "packages/express", ["refactor(express): split the handler module"]
             ),
-            "0.9.1",
+            "1.2.1",
         )
         self.assertEqual(
             self.dry_run_version(
                 "packages/express", ["perf(express): cache the JWKS lookup"]
             ),
-            "0.9.1",
+            "1.2.1",
         )
 
     def test_major_version_zero_package_demotes_its_own_breaking_commit(self) -> None:
@@ -180,6 +187,7 @@ class ScopedIncrementTests(ScopedBumpHarness):
                 "feat(mcp)!: drop the legacy transport",
                 "feat(a2a)!: rename the task envelope",
             ],
+            base_version="0.3.0",
         )
         self.assertEqual(version, "0.4.0")
 

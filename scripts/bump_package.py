@@ -514,11 +514,11 @@ def wait_for_pr_merge(
             return None
 
         if state == "OPEN" and direct_merge_attempts < 3 and checks_green(data):
-            # Auto-merge waits for requirements the app is entitled to bypass
-            # (required reviews), and the merge API does not exercise ruleset
-            # bypass either; ref updates do. Try the merge for the clean PR
-            # timeline, then fall back to fast-forwarding the target branch,
-            # which GitHub records as merging the PR.
+            # Try the squash merge as the bypass actor for the clean PR
+            # timeline. When branch policy refuses it, the bump waits for a
+            # real merge: force-moving the target ref around policy is how
+            # python-sdk's 3.0.0 mis-release landed and tagged (its PR #250),
+            # so no ref surgery here, ever.
             direct_merge_attempts += 1
             exit_code, _, stderr = run_command(
                 ["gh", "pr", "merge", str(pr_number), "--squash"]
@@ -526,35 +526,18 @@ def wait_for_pr_merge(
             if exit_code == 0:
                 print(f"Merged PR #{pr_number} directly as the bypass actor.")
             else:
-                print(f"Direct merge refused: {stderr.strip()[:200]}")
-                head_sha = data.get("headRefOid")
-                if head_sha:
-                    exit_code, _, stderr = run_command(
-                        [
-                            "gh",
-                            "api",
-                            "-X",
-                            "PATCH",
-                            f"repos/{repo}/git/refs/heads/{target_branch}",
-                            "-f",
-                            f"sha={head_sha}",
-                        ]
-                    )
-                    if exit_code == 0:
-                        print(
-                            f"Fast-forwarded {target_branch} to {head_sha[:8]}; "
-                            f"PR #{pr_number} will be marked merged."
-                        )
-                    else:
-                        print(
-                            f"Fast-forward attempt {direct_merge_attempts} failed "
-                            f"({target_branch} may have moved); auto-merge stays armed: "
-                            f"{stderr.strip()[:200]}"
-                        )
+                print(
+                    f"Direct merge refused: {stderr.strip()[:200]}\n"
+                    "Auto-merge stays armed; the bump lands when the PR "
+                    "meets branch policy."
+                )
 
         time.sleep(30)
 
-    print(f"Timeout waiting for PR #{pr_number} to merge.")
+    print(
+        f"Timeout waiting for PR #{pr_number} to merge. "
+        f"Merge it to release: https://github.com/{repo}/pull/{pr_number}"
+    )
     return None
 
 
