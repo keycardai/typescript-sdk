@@ -12,6 +12,13 @@ export interface ClientCredentialsRequest {
   scope?: string;
   clientAssertion?: string;
   clientAssertionType?: string;
+  /**
+   * The client identifier. Accompanies a jwt-bearer `clientAssertion` when the
+   * zone resolves the application credential by application ID rather than by
+   * the assertion subject. Not needed when the client authenticates at the HTTP
+   * layer, such as Basic auth.
+   */
+  clientId?: string;
 }
 
 export interface ClientCredentialsClientOptions {
@@ -43,6 +50,7 @@ function serializeRequest(request: ClientCredentialsRequest): URLSearchParams {
   if (request.scope) params.set("scope", request.scope);
   if (request.clientAssertion) params.set("client_assertion", request.clientAssertion);
   if (request.clientAssertionType) params.set("client_assertion_type", request.clientAssertionType);
+  if (request.clientId) params.set("client_id", request.clientId);
 
   return params;
 }

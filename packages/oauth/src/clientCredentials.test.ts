@@ -1,7 +1,9 @@
 import { jest } from '@jest/globals';
-import { ClientCredentialsClient } from './clientCredentials.js';
+import { ClientCredentialsClient, type ClientCredentialsRequest } from './clientCredentials.js';
+import type { ApplicationCredential } from './credentials.js';
 import { OAuthError } from './errors.js';
 import { ClientSecret } from './server/clientSecret.js';
+import { WorkloadIdentity } from './server/workloadIdentity.js';
 
 const ISSUER = 'https://auth.example.com';
 const TOKEN_ENDPOINT = 'https://auth.example.com/token';
@@ -192,5 +194,76 @@ describe('ClientCredentialsClient.requestToken', () => {
 
     const client = new ClientCredentialsClient(ISSUER);
     await expect(client.requestToken()).rejects.toThrow(/does not advertise a token_endpoint/);
+  });
+
+  describe('client authentication lifted from an application credential', () => {
+    /**
+     * How a caller carries an assertion credential's proof into the grant:
+     * client credentials has no subject, so only the client-auth fields of a
+     * prepared token-exchange request are read.
+     */
+    async function clientAuthFields(
+      credential: ApplicationCredential,
+    ): Promise<Partial<ClientCredentialsRequest>> {
+      const prepared = await credential.prepareTokenExchangeRequest(
+        'client-credentials',
+        'https://api.example.com',
+      );
+      if (!prepared.clientAssertion) return {};
+      return {
+        clientAssertion: prepared.clientAssertion,
+        clientAssertionType: prepared.clientAssertionType,
+        clientId: prepared.clientId,
+      };
+    }
+
+    it('sends client_id alongside the assertion for a federation-rule WorkloadIdentity', async () => {
+      const credential = new WorkloadIdentity(async () => 'workload-jwt', {
+        clientId: 'app-123',
+      });
+      const client = new ClientCredentialsClient(ISSUER, { credential });
+
+      await client.requestToken({
+        resource: 'https://api.example.com',
+        ...(await clientAuthFields(credential)),
+      });
+
+      const params = tokenCallBody();
+      expect(params.get('client_assertion')).toBe('workload-jwt');
+      expect(params.get('client_assertion_type')).toBe(
+        'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',
+      );
+      expect(params.get('client_id')).toBe('app-123');
+      expect(tokenCallHeaders()['Authorization']).toBeUndefined();
+    });
+
+    it('omits client_id for a subject-resolved WorkloadIdentity', async () => {
+      const credential = new WorkloadIdentity(async () => 'workload-jwt');
+      const client = new ClientCredentialsClient(ISSUER, { credential });
+
+      await client.requestToken({
+        resource: 'https://api.example.com',
+        ...(await clientAuthFields(credential)),
+      });
+
+      const params = tokenCallBody();
+      expect(params.get('client_assertion')).toBe('workload-jwt');
+      expect(params.has('client_id')).toBe(false);
+    });
+
+    it('omits client_id for a ClientSecret, which authenticates at the HTTP layer', async () => {
+      const credential = new ClientSecret('alice', 'shh');
+      const client = new ClientCredentialsClient(ISSUER, { credential });
+
+      await client.requestToken({
+        resource: 'https://api.example.com',
+        ...(await clientAuthFields(credential)),
+      });
+
+      const params = tokenCallBody();
+      expect(params.has('client_assertion')).toBe(false);
+      expect(params.has('client_id')).toBe(false);
+      expect(tokenCallHeaders()['Authorization']).toBe(`Basic ${btoa('alice:shh')}`);
+    });
   });
 });
