@@ -105,7 +105,7 @@ importers:
   packages/langchain:
     dependencies:
       '@keycardai/oauth':
-        specifier: workspace:*
+        specifier: workspace:^0.22.0
         version: link:../oauth
       zod:
         specifier: ^3.25.74
