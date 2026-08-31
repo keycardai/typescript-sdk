@@ -318,15 +318,6 @@ succeeds. Pass `resourceTokens` when the test should assert which resource a
 tool reads. `resourceErrors` and `errorMessage` cover the failure paths, and
 `overrideAccessContext` takes a hand-built `AccessContext` for full control.
 
-## Known divergence
-
-`Access.asSelf()` with a federation-rule `WorkloadIdentity` does not yet send
-the `client_id` form parameter alongside the jwt-bearer assertion, because
-`@keycardai/oauth` 0.21.0's client-credentials request has no field for it.
-Zones that resolve the credential by application ID (federation rules) cannot
-resolve such assertions until the oauth package mirrors Python's ECO-306
-change. Subject-resolved (legacy) token credentials are unaffected.
-
 ## Contract parity with Python
 
 Same contract, idiomatic expression on each side. Concepts, payload shapes,
