@@ -361,6 +361,21 @@ describe("configuration", () => {
       clientAssertionType: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
     });
   });
+
+  it("carries the client id of a federation-rule credential into the grant", async () => {
+    const client = recordingZoneClient();
+    await runToolCall(
+      { client, applicationCredential: assertionCredential("app-123") },
+      Access.asSelf(),
+    );
+
+    expect(client.clientCredentials[0]).toEqual({
+      resource: CALENDAR,
+      clientAssertion: `assertion:${CALENDAR}`,
+      clientAssertionType: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+      clientId: "app-123",
+    });
+  });
 });
 
 describe("tool schema", () => {
@@ -437,9 +452,12 @@ async function runToolCallReading(resource: string): Promise<unknown> {
 
 /**
  * A credential whose proof rides in the request body rather than the
- * Authorization header, as file- and platform-backed credentials do.
+ * Authorization header, as file- and platform-backed credentials do. A
+ * `clientId` marks the federation-rule case, where the zone resolves the
+ * application credential by application ID rather than by the assertion
+ * subject.
  */
-function assertionCredential(): ApplicationCredential {
+function assertionCredential(clientId?: string): ApplicationCredential {
   return {
     getAuth: () => null,
     async prepareTokenExchangeRequest(
@@ -452,6 +470,7 @@ function assertionCredential(): ApplicationCredential {
         clientAssertion: `assertion:${resource}`,
         clientAssertionType:
           "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+        ...(clientId ? { clientId } : {}),
       };
     },
   };

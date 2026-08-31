@@ -389,10 +389,12 @@ class Grant {
       resource,
     );
     if (!prepared.clientAssertion) return {};
-    return {
+    const fields: Partial<ClientCredentialsRequest> = {
       clientAssertion: prepared.clientAssertion,
       clientAssertionType: prepared.clientAssertionType,
     };
+    if (prepared.clientId) fields.clientId = prepared.clientId;
+    return fields;
   }
 
   /**
