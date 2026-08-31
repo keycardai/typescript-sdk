@@ -1,6 +1,6 @@
 {
   "name": "@keycardai/langchain",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "[Preview] Keycard grant middleware for LangChain agents: delegated access at the tool-call boundary, per-run identity, and LangGraph interrupts for sign-in and consent",
   "license": "MIT",
   "repository": {
