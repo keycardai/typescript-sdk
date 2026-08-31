@@ -1,3 +1,13 @@
+## 0.22.0-keycardai-oauth (2026-08-31)
+
+
+- feat(oauth): send client_id on the client-credentials grant (#159)
+- The jwt-bearer assertion of a federation-rule WorkloadIdentity needs the
+client_id form parameter for the zone to resolve the credential by
+application ID.
+- Co-authored-by: devin-ai-keycard <devin-ai@keycard.ai>
+Co-authored-by: Larry Osakwe <larry@keycard.ai>
+
 ## 0.21.0-keycardai-oauth (2026-08-31)
 
 
