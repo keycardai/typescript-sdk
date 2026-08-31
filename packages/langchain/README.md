@@ -9,7 +9,7 @@ not write an OAuth flow.
 
 This is the TypeScript half of a cross-language package. It carries the same
 contract as Python's [`keycardai-langchain`](https://pypi.org/project/keycardai-langchain/)
-— same concepts, same interrupt payloads, same behavior — spelled the way
+(same concepts, same interrupt payloads, same behavior) spelled the way
 TypeScript spells things. The [parity table](#contract-parity-with-python) maps
 one to the other.
 
@@ -119,7 +119,7 @@ await agent.invoke(
 ### As itself: a background agent
 
 No user in the loop: a scheduled digest, a queue worker, a monitor. The agent
-authenticates as its own application, and never interrupts — there is no user
+authenticates as its own application, and never interrupts: there is no user
 to send to a sign-in page.
 
 ```typescript
@@ -295,7 +295,7 @@ caller's inbound token.
 The middleware builds one zone client and keeps it: the underlying
 `@keycardai/oauth` clients cache the zone's token endpoint after their first
 call, so a tool call pays neither client construction nor rediscovery. Create
-the middleware once at module scope and share it across runs and users —
+the middleware once at module scope and share it across runs and users;
 identity rides the run, not the middleware.
 
 ## Testing
@@ -317,6 +317,15 @@ convenient but cannot catch a mistyped resource URL, since every lookup
 succeeds. Pass `resourceTokens` when the test should assert which resource a
 tool reads. `resourceErrors` and `errorMessage` cover the failure paths, and
 `overrideAccessContext` takes a hand-built `AccessContext` for full control.
+
+## Known divergence
+
+`Access.asSelf()` with a federation-rule `WorkloadIdentity` does not yet send
+the `client_id` form parameter alongside the jwt-bearer assertion, because
+`@keycardai/oauth` 0.21.0's client-credentials request has no field for it.
+Zones that resolve the credential by application ID (federation rules) cannot
+resolve such assertions until the oauth package mirrors Python's ECO-306
+change. Subject-resolved (legacy) token credentials are unaffected.
 
 ## Contract parity with Python
 
