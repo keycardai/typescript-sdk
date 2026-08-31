@@ -1,3 +1,11 @@
+## 0.21.0-keycardai-oauth (2026-08-31)
+
+
+- feat(oauth): web-app authorization flow with multi-resource begin and UserInfo (#155)
+- Adds beginAuthorization/completeAuthorization and fetchUserInfo to @keycardai/oauth, plus typed OIDC fields on discovered metadata.
+- Co-authored-by: devin-ai-keycard <devin-ai@keycard.ai>
+Co-authored-by: Larry Osakwe <larry@keycard.ai>
+
 ## 0.20.0-keycardai-oauth (2026-07-16)
 
 
