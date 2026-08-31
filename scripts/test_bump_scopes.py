@@ -191,6 +191,23 @@ class ScopedIncrementTests(ScopedBumpHarness):
         )
         self.assertEqual(version, "0.4.0")
 
+    def test_langchain_bumps_only_on_its_own_scope(self) -> None:
+        """The newest package's first automated bump, from the hand-published 0.1.0."""
+        version = self.dry_run_version(
+            "packages/langchain",
+            [
+                "feat(oauth)!: drop deprecated helpers",
+                "feat(langchain): add per-tool scopes",
+            ],
+            base_version="0.1.0",
+        )
+        self.assertEqual(version, "0.2.0")
+
+        self.assert_no_bump(
+            "packages/langchain",
+            ["feat(oauth)!: drop deprecated helpers", "fix(mcp): retry the probe"],
+        )
+
 
 class ConfigShapeTests(unittest.TestCase):
     def test_every_package_scopes_its_bump_classifier(self) -> None:
