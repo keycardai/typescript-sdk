@@ -208,6 +208,32 @@ class ScopedIncrementTests(ScopedBumpHarness):
             ["feat(oauth)!: drop deprecated helpers", "fix(mcp): retry the probe"],
         )
 
+    def test_eve_bumps_only_on_its_own_scope(self) -> None:
+        """The eve package's first automated bump, from the hand-published 0.1.0."""
+        version = self.dry_run_version(
+            "packages/eve",
+            [
+                "feat(langchain): add per-tool scopes",
+                "feat(eve): add interactive authorization",
+            ],
+            base_version="0.1.0",
+        )
+        self.assertEqual(version, "0.2.0")
+
+        self.assertEqual(
+            self.dry_run_version(
+                "packages/eve",
+                ["fix(eve): keep a denied consent from re-prompting"],
+                base_version="0.1.0",
+            ),
+            "0.1.1",
+        )
+
+        self.assert_no_bump(
+            "packages/eve",
+            ["feat(langchain)!: rename the middleware", "fix(oauth): tolerate empty scopes"],
+        )
+
 
 class ConfigShapeTests(unittest.TestCase):
     def test_every_package_scopes_its_bump_classifier(self) -> None:

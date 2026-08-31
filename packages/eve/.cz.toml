@@ -1,0 +1,33 @@
+[tool.commitizen]
+name = "cz_customize"
+version = "0.1.0"
+version_files = ["package.json:version"]
+tag_format = "${version}-keycardai-eve"
+ignored_tag_formats = ["${version}-*"]
+update_changelog_on_bump = true
+bump_message = "bump: keycardai-eve $current_version \u2192 $new_version"
+major_version_zero = true
+
+[tool.commitizen.customize]
+changelog_pattern = "^(feat|fix|refactor|perf|test|build|ci|revert)\\(eve\\)(!)?:"
+# Increment detection is scope-local: commits for other packages match
+# nothing here, so they cannot move this package's version.
+bump_pattern = "^((BREAKING[\\-\\ ]CHANGE|feat|fix|refactor|perf|revert)\\(eve\\)!?):"
+
+[tool.commitizen.customize.bump_map]
+"^.+!$" = "MAJOR"
+"^BREAKING[\\-\\ ]CHANGE" = "MAJOR"
+"^feat" = "MINOR"
+"^fix" = "PATCH"
+"^refactor" = "PATCH"
+"^perf" = "PATCH"
+"^revert" = "PATCH"
+
+[tool.commitizen.customize.bump_map_major_version_zero]
+"^.+!$" = "MINOR"
+"^BREAKING[\\-\\ ]CHANGE" = "MINOR"
+"^feat" = "MINOR"
+"^fix" = "PATCH"
+"^refactor" = "PATCH"
+"^perf" = "PATCH"
+"^revert" = "PATCH"

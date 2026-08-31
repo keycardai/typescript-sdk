@@ -22,6 +22,7 @@ on:
       - "*-keycardai-express"
       - "*-keycardai-a2a"
       - "*-keycardai-langchain"
+      - "*-keycardai-eve"
       - "*-keycardai-pi-mono"
       - "*-keycardai-sdk"
 
@@ -75,6 +76,9 @@ jobs:
           elif [[ "$TAG" == *-keycardai-langchain ]]; then
             echo "name=@keycardai/langchain" >> $GITHUB_OUTPUT
             echo "dir=packages/langchain" >> $GITHUB_OUTPUT
+          elif [[ "$TAG" == *-keycardai-eve ]]; then
+            echo "name=@keycardai/eve" >> $GITHUB_OUTPUT
+            echo "dir=packages/eve" >> $GITHUB_OUTPUT
           elif [[ "$TAG" == *-keycardai-pi-mono ]]; then
             echo "name=@keycardai/pi-mono" >> $GITHUB_OUTPUT
             echo "dir=packages/pi-mono" >> $GITHUB_OUTPUT
