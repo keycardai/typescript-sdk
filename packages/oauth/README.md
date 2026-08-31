@@ -187,6 +187,54 @@ the full browser-launch and loopback-callback flow and **requires Node.js** — 
 dynamic imports of `node:http` and `node:child_process` and will throw a runtime error
 if called in a non-Node environment.
 
+### Web-App Authorization-Code Flow
+
+For servers that own a registered redirect URI and receive the callback on their
+own route. The SDK keeps no state between the two calls: store `state` and
+`codeVerifier` in the user's session (or a signed cookie) alongside the request.
+
+```typescript
+import { beginAuthorization, completeAuthorization } from "@keycardai/oauth/webApp";
+
+// GET /login
+const flow = await beginAuthorization("https://your-zone.keycard.cloud", {
+  clientId: "my-client",
+  redirectUri: "https://app.example.com/callback",
+  scopes: ["openid", "email"],
+  // one RFC 8707 `resource` parameter per entry
+  resources: ["https://api.example.com", "https://files.example.com"],
+});
+session.set({ state: flow.state, codeVerifier: flow.codeVerifier, resources: flow.resources });
+redirect(flow.url);
+
+// GET /callback
+const tokens = await completeAuthorization("https://your-zone.keycard.cloud", {
+  callbackParams: new URL(request.url).searchParams,
+  state: session.get("state"),
+  codeVerifier: session.get("codeVerifier"),
+  clientId: "my-client",
+  redirectUri: "https://app.example.com/callback",
+});
+```
+
+The authorization server binds the requested resources into the authorization
+code at authorize time, so completion sends no `resource` parameter. A callback
+carrying `error` throws `AuthorizationDeniedError` and a missing or non-matching
+`state` throws `StateMismatchError`, both before any token request.
+
+### UserInfo (OIDC Core 1.0 §5.3)
+
+```typescript
+import { fetchUserInfo } from "@keycardai/oauth/userinfo";
+
+const user = await fetchUserInfo("https://your-zone.keycard.cloud", accessToken);
+user.sub;            // typed subject
+user.claims.email;   // full claims document, unfiltered
+```
+
+Zone access tokens are authorization-only, so identity claims live behind the
+issuer's `userinfo_endpoint`. Pass `{ metadata }` to skip discovery.
+
 ## API Overview
 
 ### JWKS Key Management
@@ -225,6 +273,16 @@ if called in a non-Node environment.
 | `exchangeAuthorizationCode` | `@keycardai/oauth/pkce` | Exchanges an authorization code with code_verifier at the token endpoint |
 | `authenticate` | `@keycardai/oauth/pkce` | Full browser-launch and loopback-callback flow. **Node.js only** |
 | `Pkce` (type) | `@keycardai/oauth/pkce` | `{ codeVerifier, codeChallenge, codeChallengeMethod }` |
+| `beginAuthorization` | `@keycardai/oauth/webApp` | Web-app flow: builds the authorize URL and returns `{ url, state, codeVerifier, resources }` |
+| `completeAuthorization` | `@keycardai/oauth/webApp` | Web-app flow: validates the callback and exchanges the code |
+| `AuthorizationRedirect` (type) | `@keycardai/oauth/webApp` | Begin-step result the application stores until the callback |
+
+### UserInfo (OIDC Core 1.0)
+
+| Export | Import Path | Description |
+|---|---|---|
+| `fetchUserInfo` | `@keycardai/oauth/userinfo` | Fetches the signed-in user's claims from the discovered `userinfo_endpoint` |
+| `UserInfoResponse` (type) | `@keycardai/oauth/userinfo` | `{ sub, claims }` — all returned claims, unfiltered |
 
 ### Server-tier Primitives
 
@@ -253,6 +311,8 @@ if called in a non-Node environment.
 | `InsufficientScopeError` | `@keycardai/oauth/errors` | Missing required scopes |
 | `ResourceAccessError` | `@keycardai/oauth/errors` | Thrown by `AccessContext.access()` on missing or failed resource |
 | `AuthProviderConfigurationError` | `@keycardai/oauth/errors` | Configuration guard for auth providers |
+| `AuthorizationDeniedError` | `@keycardai/oauth/errors` | Web-app callback carried an OAuth `error` (e.g. `access_denied`) |
+| `StateMismatchError` | `@keycardai/oauth/errors` | Web-app callback `state` is absent or does not match the stored value |
 
 ### Utilities
 
