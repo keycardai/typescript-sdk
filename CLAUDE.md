@@ -8,6 +8,7 @@ This is a pnpm monorepo with the following packages:
 - `packages/mcp` (`@keycardai/mcp`) - MCP-specific OAuth integration
 - `packages/cloudflare` (`@keycardai/cloudflare`) - Keycard auth for Cloudflare Workers (depends on oauth, no Express)
 - `packages/langchain` (`@keycardai/langchain`) - Keycard access for LangChain 1.x agents (depends on oauth, no MCP)
+- `packages/eve` (`@keycardai/eve`) - Keycard route auth, connection auth, and interactive authorization for eve agents (depends on oauth, eve is a peer)
 - `packages/sdk` (`@keycardai/sdk`) - Aggregate package re-exporting from oauth + mcp
 
 ## Git Commits
@@ -16,7 +17,7 @@ Follow conventional commits: `type(scope): description`
 
 Types: `docs`, `feat`, `fix`, `refactor`, `test`, `chore`
 
-Scopes: `oauth`, `mcp`, `cloudflare`, `sdk`, `express`, `a2a`, `langchain`, `pi-mono`, `deps`, `docs`
+Scopes: `oauth`, `mcp`, `cloudflare`, `sdk`, `express`, `a2a`, `langchain`, `eve`, `pi-mono`, `deps`, `docs`
 
 Each package's version increment is derived only from commits carrying its own
 scope. Mark a breaking change on the subject line (`feat(mcp)!: ...`) or scope
