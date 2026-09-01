@@ -1,5 +1,6 @@
 import { createMiddleware } from "langchain";
 import { interrupt } from "@langchain/langgraph";
+import { ToolMessage } from "@langchain/core/messages";
 import {
   AccessContext,
   AuthProviderConfigurationError,
@@ -50,13 +51,14 @@ export interface KeycardGrantMiddlewareOptions {
    * When set, an ungranted resource pauses the run with an
    * `authorization_required` interrupt instead of recording a silent error.
    * The callable form receives the failed resource URLs. Requires a
-   * checkpointer.
+   * checkpointer unless `interruptOnAuth` is `false`.
    */
   authorizationUrl?: string | ((resources: string[]) => string);
   /**
    * When set, a run that carries no identity, or whose subject token has
    * already expired, pauses with a `sign_in_required` interrupt instead of
-   * recording an error. Requires a checkpointer.
+   * recording an error. Requires a checkpointer unless
+   * `interruptOnAuth` is `false`.
    */
   signInUrl?: string;
   /**
@@ -65,6 +67,15 @@ export interface KeycardGrantMiddlewareOptions {
    * on resume without a restart.
    */
   fallbackIdentity?: FallbackIdentity;
+  /**
+   * How an unmet authorization requirement reaches the user. `true` (the
+   * default) pauses the run with a LangGraph interrupt, which requires a
+   * checkpointer. `false` sends the same payload to the model as failed tool
+   * output instead, so the model relays the URL in its reply; the user
+   * authorizes out of band and their next turn retries the tool. No
+   * checkpointer involved, and no in-run resume.
+   */
+  interruptOnAuth?: boolean;
   /**
    * Injectable zone client (tests). When set, `zoneUrl` is unused and the
    * client is reused as-is.
@@ -100,6 +111,14 @@ export interface AuthorizationRequiredInterrupt {
 }
 
 export type KeycardInterrupt = SignInRequiredInterrupt | AuthorizationRequiredInterrupt;
+
+/** The interrupt fields carried by fallback tool output, for a model to relay. */
+interface AuthFallbackFields {
+  kind: KeycardInterrupt["type"];
+  reason: SignInRequiredInterrupt["reason"] | "consent_required";
+  url: string;
+  tool: string;
+}
 
 /**
  * A LangChain middleware that grants delegated access on every tool call,
@@ -214,11 +233,16 @@ function buildMiddleware(grant: Grant) {
       const context = request.runtime.context as KeycardIdentity | undefined;
 
       let access = await grant.acquire(context, toolName);
-      for (let attempt = 0; attempt < MAX_AUTHORIZATION_ATTEMPTS; attempt++) {
-        const payload = grant.pendingInterrupt(access, context);
-        if (payload === null) break;
-        interrupt(payload);
-        access = await grant.acquire(context, toolName);
+      if (grant.interruptOnAuth) {
+        for (let attempt = 0; attempt < MAX_AUTHORIZATION_ATTEMPTS; attempt++) {
+          const payload = grant.pendingInterrupt(access, context);
+          if (payload === null) break;
+          interrupt(payload);
+          access = await grant.acquire(context, toolName);
+        }
+      } else {
+        const fallback = grant.authFallbackMessage(access, context, request.toolCall);
+        if (fallback !== null) return fallback;
       }
 
       return runWithAccessContext(access, () => handler(request));
@@ -228,12 +252,16 @@ function buildMiddleware(grant: Grant) {
 
 /** Acquisition, interrupt routing, and resource selection for one middleware. */
 class Grant {
+  /** Whether an unmet authorization requirement pauses the run. */
+  readonly interruptOnAuth: boolean;
+
   #options: KeycardGrantMiddlewareOptions;
   #credential?: ApplicationCredential;
   #client?: ZoneClient;
 
   constructor(options: KeycardGrantMiddlewareOptions) {
     this.#options = options;
+    this.interruptOnAuth = options.interruptOnAuth ?? true;
     if (options.applicationCredential) {
       this.#credential = options.applicationCredential;
     } else if (options.clientId && options.clientSecret) {
@@ -448,6 +476,60 @@ class Grant {
       };
     }
     return null;
+  }
+
+  /**
+   * The interrupt payload reduced to the fields tool output carries.
+   *
+   * `reason` is already on a `sign_in_required` payload; a consent payload has
+   * one implicit kind of failure, so it reads as `consent_required`.
+   */
+  #authFallbackFields(payload: KeycardInterrupt, toolName: string): AuthFallbackFields {
+    return payload.type === "sign_in_required"
+      ? {
+          kind: payload.type,
+          reason: payload.reason,
+          url: payload.sign_in_url,
+          tool: toolName,
+        }
+      : {
+          kind: payload.type,
+          reason: "consent_required",
+          url: payload.authorization_url,
+          tool: toolName,
+        };
+  }
+
+  /**
+   * Failed tool output standing in for the interrupt, or `null` if none is due.
+   *
+   * Written for a model that must hand the URL to the user: the URL sits on its
+   * own line, and the instruction is to reproduce it verbatim, because a
+   * paraphrased or shortened authorization URL does not authorize anything.
+   */
+  authFallbackMessage(
+    access: AccessContext,
+    context: KeycardIdentity | undefined,
+    toolCall: { name: string; id?: string },
+  ): ToolMessage | null {
+    const payload = this.pendingInterrupt(access, context);
+    if (payload === null) return null;
+
+    const fields = this.#authFallbackFields(payload, toolCall.name);
+    const action = fields.kind === "sign_in_required" ? "sign in" : "grant this access";
+    return new ToolMessage({
+      content:
+        `${fields.kind}: the tool ${fields.tool} cannot run yet ` +
+        `(reason: ${fields.reason}).\n` +
+        `${fields.url}\n` +
+        `Tell the user to open the URL above to ${action}. Copy it into your ` +
+        "reply exactly as written, character for character: do not shorten it, " +
+        "rewrite it, wrap it in other text, or describe it in words. Then ask " +
+        `the user to tell you once they are done, and call ${fields.tool} again.`,
+      name: fields.tool,
+      tool_call_id: toolCall.id ?? "",
+      status: "error",
+    });
   }
 
   /** The escape hatch: acquire and install a context outside an agent run. */
