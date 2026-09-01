@@ -265,13 +265,17 @@ function stamp(user: HandlerUser, value: unknown): AuthFilters<string> {
  * without these handlers any valid caller can read and resume any other
  * caller's thread. Installs, on the passed `Auth` object:
  *
- * - owner metadata stamped on thread and run creation, taken from the verified
- *   identity and never from the request body,
- * - thread reads, updates, searches and deletes filtered by that owner, which
- *   is also what stops a cross-owner resume,
- * - store namespaces prefixed with a digest of the owner, injected even when
- *   the request carries no namespace at all, so a prefix-less
- *   `list_namespaces` cannot enumerate other callers,
+ * - owner metadata stamped on thread creation, run creation and thread
+ *   updates, taken from the verified identity and never from the request
+ *   body, so an update cannot reassign ownership either,
+ * - thread reads, searches and deletes filtered by that owner, which is also
+ *   what stops a cross-owner resume,
+ * - store namespaces prefixed in place with a digest of the owner, so puts,
+ *   gets, deletes, searches and prefixed namespace listings all run inside
+ *   the caller's own subtree,
+ * - a prefix-less `list_namespaces` denied outright: the server queries it in
+ *   a way no owner scope can reach, so enumeration is unsupported rather than
+ *   unscoped,
  * - assistant reads and searches left open to any authenticated caller, so a
  *   chat client can fetch the graph schema, while creating or mutating an
  *   assistant is denied,
@@ -286,22 +290,48 @@ export function installOwnerAuthorization<T extends Auth<never, never, never>>(
 ): T {
   const target = auth as unknown as Auth;
 
-  target.on(["threads:create", "threads:create_run"], ({ user, value }) =>
-    stamp(user, value),
+  // threads:update is stamped too: the server merges the update's metadata
+  // into the thread, so without the stamp a caller could hand their own
+  // thread to another identity (or lock themselves out) by writing
+  // `metadata.owner` in the body.
+  target.on(
+    ["threads:create", "threads:create_run", "threads:update"],
+    ({ user, value }) => stamp(user, value),
   );
 
   target.on("threads", ({ user }) => ({ [OWNER_KEY]: owner(user) }));
 
-  target.on("store", ({ user, value }) => {
+  // Store events split by how the server consumes the mutated value. put, get
+  // and delete read `value.namespace` back and operate on it, so any write to
+  // the field reaches them. search and a prefixed list_namespaces query the
+  // request's own payload, and `value.namespace` IS that payload array (the
+  // server passes it by reference), so prepending in place is what puts the
+  // owner segment on the queried prefix. That positional scoping is the
+  // isolation: every query runs inside the caller's own subtree, which is
+  // also how the Python runtime behaves. The returned containment filter is a
+  // second layer only, never sufficient by itself: namespace labels are
+  // caller-chosen, so any caller can store items whose namespace merely
+  // contains another caller's (publicly computable) segment, and a
+  // containment match would surface those in the victim's results.
+  target.on("store", ({ action, user, value }) => {
     const segment = ownerSegment(owner(user));
     const item = value as { namespace?: string[] | null };
-    // Two halves, because the JS server treats the two directions differently.
-    // The mutated namespace is what put, get and delete operate on, so this
-    // rewrite is what confines writes and reads to the caller's own subtree.
-    // Search and list_namespaces run against the request's own namespace and
-    // apply the returned filter to each candidate instead, so the filter is
-    // what scopes them, including a prefix-less listing.
-    item.namespace = [segment, ...(item.namespace ?? [])];
+    if (Array.isArray(item.namespace)) {
+      item.namespace.unshift(segment);
+    } else if (action === "put" || action === "get" || action === "delete") {
+      // These read the value back, so a fresh array reaches the operation.
+      item.namespace = [segment];
+    } else {
+      // A prefix-less list_namespaces: the server queries with no prefix and
+      // ignores the mutated value, and the only expressible filter is the
+      // forgeable containment match, so no owner scope can reach the query.
+      // Denied rather than unscoped; callers reach their own data through
+      // scoped search and get.
+      throw new HTTPException(403, {
+        message:
+          "Namespace enumeration without a prefix is not supported on this deployment",
+      });
+    }
     return { namespace: { $contains: segment } };
   });
 

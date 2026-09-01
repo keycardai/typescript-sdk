@@ -56,16 +56,20 @@ The same two routes with a valid bearer:
 /threads                           -> 200
 ```
 
-`GET /info` is the only unauthenticated route, and it exposes versions and
-feature flags only.
+Two routes skip the hook. `GET /info` exposes versions and feature flags
+without a bearer. `GET /ui/*` is also skipped, in the server's auth middleware
+itself (`@langchain/langgraph-api/dist/auth/custom.mjs` returns `next()` for
+`GET` requests under `/ui` before the hook runs); the 404 above is a route
+miss on an app with no UI assets, not a challenge, and a deployment that
+registers generative UI assets serves them unauthenticated.
 
-Implication: the hook covers the whole surface a caller can reach, including
-health, docs and the OpenAPI document, so a client that probes `/ok` for
-liveness needs a bearer.
+Implication: the hook covers the whole data plane, including health, docs and
+the OpenAPI document, so a client that probes `/ok` for liveness needs a
+bearer. Put nothing sensitive in UI assets.
 
 Difference from Python: Python leaves `/ok`, `/info`, `/docs`,
 `/openapi.json`, `/metrics`, `GET /ui/*` and any `/noauth*` path
-unauthenticated. JS authenticates all of them except `/info`.
+unauthenticated. JS authenticates all of them except `/info` and `GET /ui/*`.
 
 ## 2. Rejection shape: what survives to the response
 
@@ -245,38 +249,67 @@ Same as Python, including the exact header and the identity string.
 
 The store auth events carry the namespace under a single `namespace` key, but
 the HTTP payloads behind them do not: `store:list_namespaces` arrives from a
-request field named `prefix`, and `store:search` from `namespace_prefix`. Put,
-get and delete operate on the mutated value, so rewriting `value.namespace`
-scopes them; search and namespace listing are scoped by the returned filter
-instead. Both halves are needed, confirmed against a running server:
+request field named `prefix`, and `store:search` from `namespace_prefix`. How
+the server consumes the handler's mutation then differs by action, and this is
+where the JS runtime departs from Python:
+
+- `put`, `get` and `delete` read `value.namespace` back and operate on it, so
+  any write to the field reaches them.
+- `search` and a prefixed `list_namespaces` query their own request payload
+  (`payload.namespace_prefix` / `payload.prefix` in
+  `@langchain/langgraph-api/dist/api/store.mjs`), ignoring a replaced
+  `value.namespace`. The event value holds the same array by reference,
+  though, so mutating the array in place is what reaches the query.
+- A prefix-less `list_namespaces` hands the handler a value the query never
+  reads at all. Only the returned filter applies there, and the sole array
+  operator, `$contains`, matches labels positionlessly: namespace labels are
+  caller-chosen, so any caller can store items whose namespace contains
+  another caller's segment (a truncated digest of a usually-public identity)
+  and land in that caller's filtered results. Measured: with a
+  containment-filter-only handler, user-b planting an item under
+  `["<user-a segment>"]` made it appear in user-a's searches and listings.
+
+Python is simpler: its server reads the mutated namespace back for every store
+action, search and listing included, so positional prefixing alone scopes
+everything there.
+
+Confirmed against a running server, with the in-place handler this package
+ships:
 
 ```text
-put by user-a            -> 204
-get by user-a            -> namespace ["fc95297aa4f56781","notes"]
-get by user-b            -> null
-search by user-b         -> {"items":[]}
-search by user-a         -> user-a item only
-list_namespaces by user-b (no prefix) -> {"namespaces":[]}
-list_namespaces by user-a (no prefix) -> owner-prefixed namespace only
+put by user-a at ["memories"]              -> 204, stored at [seg-a, "memories"]
+get by user-a  ["memories"]                -> the item, namespace [seg-a, "memories"]
+get by user-b  ["memories"]                -> null
+search by user-a, prefix ["memories"]      -> user-a item only
+search by user-b, prefix ["memories"]      -> {"items":[]}
+search by user-a, prefix []                -> user-a items only, planted items absent
+list_namespaces by user-a, prefix ["memories"] -> own namespaces only
+list_namespaces, no prefix (any caller)    -> 403
 ```
 
-Implication: a store handler must both rewrite the namespace and return a
-namespace filter, and it must inject the owner segment even when the request
-carries no namespace at all.
+Implication: a store handler must prepend the owner segment to the event's
+namespace array in place, never by replacement, so that searches and prefixed
+listings are scoped positionally, and it must deny a prefix-less
+`list_namespaces`, because no owner scope can reach that query and the
+containment filter is forgeable. The returned filter stays on as a second
+layer, not as the isolation.
 
-Same as Python, where `namespace_prefix` is the field the search payload
-carries.
+Difference from Python: the field names match, but Python's runtime honors the
+mutated prefix for search and listing, so it scopes a prefix-less enumeration
+where this package has to deny it.
 
 ## Build consequences for this package
 
 - `zoneAuthenticator` throws the SDK's `HTTPException` with an explicit
   `WWW-Authenticate` challenge, and converts any unexpected verifier failure
   into the same controlled 401.
-- `installOwnerAuthorization` stamps owners on `threads:create` and
-  `threads:create_run`, filters the `threads` resource, rewrites and filters
-  store namespaces with a sha256-derived dot-free owner segment, allows
-  assistant reads and searches, denies Studio users, and ends with a `*`
-  handler that denies, because dispatch fails open.
+- `installOwnerAuthorization` stamps owners on `threads:create`,
+  `threads:create_run` and `threads:update` (an update must not reassign
+  ownership from the body), filters the `threads` resource, prepends a
+  sha256-derived dot-free owner segment to store namespaces in place so every
+  reachable store query runs inside the caller's subtree, denies a prefix-less
+  `list_namespaces`, allows assistant reads and searches, denies Studio users,
+  and ends with a `*` handler that denies, because dispatch fails open.
 - The middleware's `identitySource: "auth_user"` reads
   `configurable.langgraph_auth_user`, taking identity and subject token only
   from the verified caller.

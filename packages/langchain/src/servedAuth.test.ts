@@ -229,6 +229,23 @@ describe("installOwnerAuthorization", () => {
     expect(isAuthMatching(thread.metadata, other as never)).toBe(false);
   });
 
+  it("stamps the owner on thread updates, so ownership cannot be given away", async () => {
+    const thread: { thread_id: string; metadata: Metadata } = {
+      thread_id: "t-1",
+      metadata: {},
+    };
+    await dispatch(user(ADA), "threads", "create", thread);
+    // The body names another identity; the stamp must overwrite it before the
+    // server merges the update into the thread's metadata.
+    const update = { thread_id: "t-1", metadata: { owner: GRACE } as Metadata };
+    const filters = await dispatch(user(ADA), "threads", "update", update);
+    expect(update.metadata.owner).toBe(ADA);
+    expect(filters).toEqual({ owner: ADA });
+    Object.assign(thread.metadata, update.metadata);
+    expect(isAuthMatching(thread.metadata, { owner: ADA } as never)).toBe(true);
+    expect(isAuthMatching(thread.metadata, { owner: GRACE } as never)).toBe(false);
+  });
+
   it("filters a cross-owner resume", async () => {
     const thread: { thread_id: string; metadata: Metadata } = {
       thread_id: "t-1",
@@ -275,12 +292,38 @@ describe("installOwnerAuthorization", () => {
     },
   );
 
-  it("scopes a namespace listing that carries no prefix at all", async () => {
-    const listing: { namespace?: string[] } = {};
-    const filters = await dispatch(user(ADA), "store", "list_namespaces", listing);
-    expect(listing.namespace).toHaveLength(1);
-    expect(listing.namespace![0]).not.toContain(".");
-    expect(filters).toEqual({ namespace: { $contains: listing.namespace![0] } });
+  it.each(["search", "list_namespaces"])(
+    "prepends the owner segment to store:%s in place, in the request's own array",
+    async (action) => {
+      // The server queries this exact array (the event value aliases the
+      // request payload), so the segment has to land in it, not in a
+      // replacement: positional prefixing is what keeps one caller's query
+      // inside their own subtree, and what a forged containment label
+      // cannot reach.
+      const prefix = ["memories"];
+      await dispatch(user(ADA), "store", action, { namespace: prefix });
+      expect(prefix).toHaveLength(2);
+      expect(prefix[1]).toBe("memories");
+      expect(prefix[0]).toMatch(/^[0-9a-f]+$/);
+    },
+  );
+
+  it("scopes a store delete that names no namespace", async () => {
+    const value: { namespace?: string[]; key: string } = { key: "k" };
+    const filters = await dispatch(user(ADA), "store", "delete", value);
+    expect(value.namespace).toHaveLength(1);
+    expect(value.namespace![0]).not.toContain(".");
+    expect(filters).toEqual({ namespace: { $contains: value.namespace![0] } });
+  });
+
+  it("denies a namespace listing that carries no prefix at all", async () => {
+    // The server queries a prefix-less listing without reading the mutated
+    // value back, and the only expressible filter matches forgeable labels,
+    // so the handler fails closed instead of scoping it.
+    const thrown = await rejection(
+      dispatch(user(ADA), "store", "list_namespaces", {}),
+    );
+    expect((thrown as { status: number }).status).toBe(403);
   });
 
   it.each([
@@ -333,7 +376,7 @@ async function servedRun(
   const readCalendar = tool(
     async () => {
       const access = getAccessContext();
-      if (access.hasError()) return `GLOBAL_ERROR: ${access.getError()?.errorCode}`;
+      if (access.hasError()) return `GLOBAL_ERROR: ${access.getError()?.code}`;
       return `TOKEN: ${access.access(RESOURCE).accessToken}`;
     },
     { name: "read_calendar", description: "read", schema: z.object({}) },
@@ -458,11 +501,12 @@ describe("the verified caller survives the server's normalization", () => {
   });
 
   it("turns a hook rejection into a response that keeps the challenge", async () => {
-    const auth = new Auth().authenticate(authenticator());
-    const handlers = (auth as unknown as AuthInternals)["~handlerCache"];
-    const thrown = (await rejection(
-      serverAuthenticate.call({ "~handlerCache": handlers }, request()),
-    )) as { status: number; getResponse: () => Response };
+    // Dispatches through the auth object beforeAll registered with the
+    // server, so the conversion under test is the server's own.
+    const thrown = (await rejection(serverAuthenticate(request()))) as {
+      status: number;
+      getResponse: () => Response;
+    };
     expect(thrown.status).toBe(401);
     const response = thrown.getResponse();
     expect(response.status).toBe(401);

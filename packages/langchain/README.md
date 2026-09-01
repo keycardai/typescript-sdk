@@ -226,11 +226,14 @@ since that would let an unauthenticated run act as somebody.
 `installOwnerAuthorization` covers what authentication alone does not:
 authentication says who is calling but grants no ownership, so without it any
 valid caller can read and resume any other caller's thread. It stamps the
-verified owner on thread and run creation (never taking it from the request
-body), filters reads, updates, searches and deletes by that owner, prefixes
-store namespaces with a digest of the owner, denies Studio users, and denies
-every unmatched resource and action pair, because LangGraph's authorization
-handlers otherwise fail open.
+verified owner on thread creation, run creation and thread updates (never
+taking it from the request body, so an update cannot reassign ownership),
+filters reads, searches and deletes by that owner, prefixes store namespaces
+in place with a digest of the owner so every store operation, including a
+prefixed search, runs inside the caller's own subtree, denies namespace
+enumeration without a prefix, denies Studio users, and denies every unmatched
+resource and action pair, because LangGraph's authorization handlers otherwise
+fail open.
 
 ### langgraph.json
 
@@ -253,9 +256,20 @@ path into the deployment.
 ### Operational notes
 
 The JS server runs the authentication hook on everything except `GET /info`,
-which serves versions and feature flags without a bearer. `/ok`, `/docs`,
-`/openapi.json` and `/metrics` all require one, so a liveness probe against
-`/ok` needs a token or should target `/info`.
+which serves versions and feature flags without a bearer, and `GET /ui/*`,
+which the server skips for UI asset requests (a 404 on `/ui/*` is a route
+miss, not a challenge; a deployment that registers generative UI assets serves
+them without a bearer). `/ok`, `/docs`, `/openapi.json` and `/metrics` all
+require one, so a liveness probe against `/ok` needs a token or should target
+`/info`.
+
+Store namespaces are owner-prefixed in place, so a caller's `put`, `get`,
+`delete`, `search` and prefixed `list_namespaces` all operate inside their own
+subtree with their usual namespaces; results come back with the owner segment
+as the first label. Listing namespaces without a prefix is denied (403): the
+JS server queries that listing in a way no owner scope can reach, so it is
+unsupported rather than unscoped. Find your own data with a scoped search
+instead.
 
 Verified identity is request-scoped, so concurrent callers never mix, and the
 JS CLI starts ten workers by default, so their runs really do overlap.
@@ -503,10 +517,17 @@ Deliberate differences, where the language leaves no honest choice:
   statuses. The JS server preserves the status and headers of the SDK
   exception, so the `WWW-Authenticate` challenge survives without reaching past
   the SDK.
-- **The unauthenticated surface is one route, not seven.** Python serves `/ok`,
-  `/info`, `/docs`, `/openapi.json`, `/metrics`, `GET /ui/*` and `/noauth*`
-  without the hook; the JS server runs the hook on all of them except
-  `GET /info`.
+- **The unauthenticated surface is two routes, not seven.** Python serves
+  `/ok`, `/info`, `/docs`, `/openapi.json`, `/metrics`, `GET /ui/*` and
+  `/noauth*` without the hook; the JS server runs the hook on all of them
+  except `GET /info` and `GET /ui/*`.
+- **Namespace enumeration without a prefix is denied, not scoped.** Both
+  runtimes hand the store handler a mutable namespace, and on both the owner
+  segment is prepended so queries run inside the caller's subtree. But the JS
+  server queries a prefix-less `list_namespaces` without reading the mutated
+  value back, and its only filter operator for namespaces matches labels by
+  containment, which caller-chosen labels can forge. Python scopes that
+  listing; the JS package fails closed and denies it.
 
 ## Not in this package
 
