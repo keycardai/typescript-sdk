@@ -15,10 +15,14 @@ import {
 import { runWithAccessContext } from "./accessStore.js";
 import { subjectTokenExpired } from "./expiry.js";
 import { hasPattern, keycardIdentitySchema, type KeycardIdentity } from "./identity.js";
+import { callerFromRuntime } from "./servedCaller.js";
 import { KeycardZoneClient, type ZoneClient } from "./zoneClient.js";
 
 /** Scopes requested from the zone, globally or per resource. */
 export type RequestScopes = string | string[] | Record<string, string | string[]>;
+
+/** Where the identity for a tool call comes from. */
+export type IdentitySource = "context" | "auth_user";
 
 /** Identity used when the runtime context carries none. */
 export type FallbackIdentity =
@@ -28,6 +32,16 @@ export type FallbackIdentity =
 export interface KeycardGrantMiddlewareOptions {
   /** Keycard zone URL (issuer). Required unless `client` is given. */
   zoneUrl?: string;
+  /**
+   * Where the identity for a tool call comes from. `"context"` (the default)
+   * reads the agent's runtime context, which the caller supplies per
+   * invocation. `"auth_user"` reads the verified caller the LangGraph server
+   * put on the run, for an agent served behind `@keycardai/langchain/serve`:
+   * identity and subject token then come only from a verified bearer, never
+   * from the request body, and a run with no verified caller resolves to no
+   * identity. Mutually exclusive with `fallbackIdentity`.
+   */
+  identitySource?: IdentitySource;
   /** Resource URLs granted for every tool call. */
   resources: string[];
   /**
@@ -200,6 +214,21 @@ export function keycardGrantMiddleware(
       "Pass applicationCredential or clientId/clientSecret, not both",
     );
   }
+  const identitySource = options.identitySource ?? "context";
+  if (identitySource !== "context" && identitySource !== "auth_user") {
+    throw new AuthProviderConfigurationError(
+      `identitySource must be "context" or "auth_user", got ${JSON.stringify(
+        options.identitySource,
+      )}`,
+    );
+  }
+  if (identitySource === "auth_user" && options.fallbackIdentity !== undefined) {
+    throw new AuthProviderConfigurationError(
+      'identitySource "auth_user" takes its identity from the verified caller ' +
+        "on the run, so fallbackIdentity would be a second, unverified source. " +
+        "Pass one or the other.",
+    );
+  }
 
   const grant = new Grant(options);
   const middleware = buildMiddleware(grant);
@@ -230,7 +259,7 @@ function buildMiddleware(grant: Grant) {
     contextSchema: keycardIdentitySchema,
     wrapToolCall: async (request, handler) => {
       const toolName = request.toolCall.name;
-      const context = request.runtime.context as KeycardIdentity | undefined;
+      const context = grant.callContext(request.runtime);
 
       let access = await grant.acquire(context, toolName);
       if (grant.interruptOnAuth) {
@@ -256,11 +285,13 @@ class Grant {
   readonly interruptOnAuth: boolean;
 
   #options: KeycardGrantMiddlewareOptions;
+  #identitySource: IdentitySource;
   #credential?: ApplicationCredential;
   #client?: ZoneClient;
 
   constructor(options: KeycardGrantMiddlewareOptions) {
     this.#options = options;
+    this.#identitySource = options.identitySource ?? "context";
     this.interruptOnAuth = options.interruptOnAuth ?? true;
     if (options.applicationCredential) {
       this.#credential = options.applicationCredential;
@@ -290,6 +321,9 @@ class Grant {
    * the `sign_in_required` interrupt) is picked up on resume.
    */
   #resolveIdentity(context: KeycardIdentity | undefined): KeycardIdentity | null {
+    if (this.#identitySource === "auth_user") {
+      return hasPattern(context) ? context! : null;
+    }
     if (hasPattern(context)) {
       return {
         subjectToken: context!.subjectToken,
@@ -300,6 +334,21 @@ class Grant {
     const fallback = this.#options.fallbackIdentity;
     const resolved = typeof fallback === "function" ? fallback() : fallback;
     return hasPattern(resolved) ? resolved! : null;
+  }
+
+  /**
+   * The identity this tool call runs under, before fallback resolution.
+   *
+   * Under `identitySource: "auth_user"` the runtime context is ignored
+   * entirely and the verified caller the server put on the run is the only
+   * source, so a caller cannot name an identity in the request body.
+   */
+  callContext(runtime: unknown): KeycardIdentity | undefined {
+    if (this.#identitySource !== "auth_user") {
+      return (runtime as { context?: KeycardIdentity } | undefined)?.context;
+    }
+    const caller = callerFromRuntime(runtime);
+    return caller === null ? undefined : { subjectToken: caller.subjectToken };
   }
 
   #resourcesFor(toolName: string): string[] {

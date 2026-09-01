@@ -41,6 +41,11 @@
  * - Borrowed from `@keycardai/oauth`: `AccessContext` (the per-call token
  *   container) and `ResourceAccessError` (thrown only by
  *   `AccessContext.access`), re-exported so callers need one import.
+ *
+ * An agent served by LangGraph can authenticate its own callers per request,
+ * with `@keycardai/langchain/serve` and `identitySource: "auth_user"`. That
+ * surface lives on a subpath because it needs `@langchain/langgraph-sdk`, an
+ * optional peer.
  */
 
 export { Access } from "./access.js";
@@ -50,6 +55,7 @@ export type {
   AuthorizationRequiredInterrupt,
   FallbackIdentity,
   GrantOptions,
+  IdentitySource,
   KeycardGrantMiddleware,
   KeycardGrantMiddlewareOptions,
   KeycardInterrupt,
@@ -58,6 +64,8 @@ export type {
 } from "./middleware.js";
 export { keycardIdentitySchema } from "./identity.js";
 export type { KeycardIdentity } from "./identity.js";
+export { callerFromRuntime } from "./servedCaller.js";
+export type { ServedCaller } from "./servedCaller.js";
 export { KeycardZoneClient } from "./zoneClient.js";
 export type { ZoneClient } from "./zoneClient.js";
 

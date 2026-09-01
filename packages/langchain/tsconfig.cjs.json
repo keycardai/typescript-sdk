@@ -3,7 +3,12 @@
   "compilerOptions": {
     "module": "commonjs",
     "moduleResolution": "node",
-    "outDir": "./dist/cjs"
+    "outDir": "./dist/cjs",
+    "paths": {
+      "@langchain/langgraph-sdk/auth": [
+        "./node_modules/@langchain/langgraph-sdk/dist/auth/index.d.ts"
+      ]
+    }
   },
   "exclude": ["**/*.test.ts", "src/testUtils.ts"]
 }
