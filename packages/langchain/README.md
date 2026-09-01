@@ -169,6 +169,106 @@ const keycard = keycardGrantMiddleware({
 });
 ```
 
+## Serving many callers: per-caller authentication
+
+The patterns above answer "what does this run act as". A deployed agent has a
+second question: who is calling. Without an answer, one deployment holds one
+identity, so the last caller to sign in acts for everybody.
+
+`@keycardai/langchain/serve` closes that half for a LangGraph JS server. It
+verifies each caller's own zone-issued bearer per request, hands the run that
+identity plus the raw bearer, and scopes threads, runs and store items to their
+owner. The subpath is separate because it imports `@langchain/langgraph-sdk`,
+which only a served agent needs:
+
+```bash
+npm install @keycardai/langchain @langchain/langgraph-sdk
+```
+
+`src/auth.ts` in your app:
+
+```typescript
+import { Auth } from "@langchain/langgraph-sdk/auth";
+import {
+  installOwnerAuthorization,
+  zoneAuthenticator,
+} from "@keycardai/langchain/serve";
+
+export const auth = installOwnerAuthorization(
+  new Auth().authenticate(
+    zoneAuthenticator({
+      zoneUrl: "https://your-zone.keycard.cloud",
+      resource: "https://your-agent.example",
+    }),
+  ),
+);
+```
+
+Then point the middleware at the caller the server verified, instead of at
+per-run context:
+
+```typescript
+const keycard = keycardGrantMiddleware({
+  zoneUrl: "https://your-zone.keycard.cloud",
+  resources: [CALENDAR],
+  identitySource: "auth_user",
+});
+```
+
+`identitySource: "auth_user"` reads the verified caller from
+`config.configurable.langgraph_auth_user`, which the server populates per
+request. Nothing in the request body can name an identity, and no identity
+state is shared between callers. A run that reaches the middleware without a
+verified caller resolves to no identity, which is the usual missing-identity
+error or sign-in interrupt. It cannot be combined with `fallbackIdentity`,
+since that would let an unauthenticated run act as somebody.
+
+`installOwnerAuthorization` covers what authentication alone does not:
+authentication says who is calling but grants no ownership, so without it any
+valid caller can read and resume any other caller's thread. It stamps the
+verified owner on thread and run creation (never taking it from the request
+body), filters reads, updates, searches and deletes by that owner, prefixes
+store namespaces with a digest of the owner, denies Studio users, and denies
+every unmatched resource and action pair, because LangGraph's authorization
+handlers otherwise fail open.
+
+### langgraph.json
+
+```json
+{
+  "node_version": "20",
+  "graphs": { "agent": "./src/graph.ts:graph" },
+  "auth": {
+    "path": "./src/auth.ts:auth",
+    "disable_studio_auth": true
+  }
+}
+```
+
+`disable_studio_auth: true` is required, not optional. With it unset, a request
+carrying the `x-auth-scheme: langsmith` header skips your hook entirely and
+arrives as the built-in `langgraph-studio-user`, which is an unauthenticated
+path into the deployment.
+
+### Operational notes
+
+The JS server runs the authentication hook on everything except `GET /info`,
+which serves versions and feature flags without a bearer. `/ok`, `/docs`,
+`/openapi.json` and `/metrics` all require one, so a liveness probe against
+`/ok` needs a token or should target `/info`.
+
+Verified identity is request-scoped, so concurrent callers never mix, and the
+JS CLI starts ten workers by default, so their runs really do overlap.
+
+Resuming an interrupt re-runs the hook, and the resumed node executes under the
+resumer's identity, not the identity that parked it. Thread ownership is what
+keeps a resume with its owner, which is another reason
+`installOwnerAuthorization` is not optional.
+
+[`docs/langgraph-js-auth-probe.md`](./docs/langgraph-js-auth-probe.md) records
+the measurements behind each of these statements, and where the JS runtime
+differs from Python's.
+
 ## Errors are data, not exceptions
 
 A missing grant is normal operation in a brokered setup, so the `AccessContext`
@@ -379,6 +479,10 @@ defaults, and behaviors are identical; the spelling follows each language.
 | Interrupt payloads | `sign_in_required` / `authorization_required`, snake_case fields | identical, snake_case fields preserved |
 | Attempt cap | 3 acquisition attempts per tool call | 3 acquisition attempts per tool call |
 | Checkpointer-less delivery | `interrupt_on_auth=` (default `True`) | `interruptOnAuth:` (default `true`) |
+| Served-agent authenticate | `zone_authenticator(zone_url=, resource=)` | `zoneAuthenticator({ zoneUrl, resource })` |
+| Served-agent ownership | `install_owner_authorization(auth)` | `installOwnerAuthorization(auth)` |
+| Served-agent identity mode | `identity_source="auth_user"` | `identitySource: "auth_user"` |
+| Served-agent import | `keycardai.langchain.auth` (`serve` extra) | `@keycardai/langchain/serve` subpath |
 
 Deliberate differences, where the language leaves no honest choice:
 
@@ -394,6 +498,15 @@ Deliberate differences, where the language leaves no honest choice:
 - **`Access` is a namespace of factories, not a class.** It cannot be
   constructed on either side; TypeScript expresses that as a frozen object
   rather than a class with a private constructor.
+- **Rejections use the LangGraph SDK's own `HTTPException`.** Python has to
+  raise Starlette's, because the Python SDK exception drops headers and coerces
+  statuses. The JS server preserves the status and headers of the SDK
+  exception, so the `WWW-Authenticate` challenge survives without reaching past
+  the SDK.
+- **The unauthenticated surface is one route, not seven.** Python serves `/ok`,
+  `/info`, `/docs`, `/openapi.json`, `/metrics`, `GET /ui/*` and `/noauth*`
+  without the hook; the JS server runs the hook on all of them except
+  `GET /info`.
 
 ## Not in this package
 
