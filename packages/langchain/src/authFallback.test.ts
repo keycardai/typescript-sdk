@@ -62,8 +62,8 @@ async function fallbackRun(
     middleware: [
       keycardGrantMiddleware({
         resources: [CALENDAR],
-        interruptOnAuth: false,
         ...options,
+        interruptOnAuth: false,
       }),
     ],
   });
@@ -110,6 +110,7 @@ describe("sign-in without a checkpointer", () => {
 
     expect(run.interrupts).toHaveLength(0);
     expect(run.message.status).toBe("error");
+    expect(run.message.tool_call_id).toBe("call-1");
     expect(fallbackFields(run.message)).toEqual({
       kind: "sign_in_required",
       reason: "missing_identity",

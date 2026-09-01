@@ -274,9 +274,8 @@ belongs in the conversation instead of in a paused-run UI. Keep the default when
 you run with a checkpointer: a pause is stricter, since the model never gets a
 turn between the failure and the retry.
 
-The README already frames this package as carrying the Python contract, and
-Python's `interrupt_on_auth=False` renders the same payload, so this closes a
-divergence rather than adding one.
+Python's `interrupt_on_auth=False` renders the same payload, so the two
+middlewares behave identically here.
 
 ## Using tools outside the agent
 
