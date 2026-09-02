@@ -826,7 +826,11 @@ def create_and_push_tag(repo: str, tag: str, sha: str) -> bool:
         ]
     )
     if exit_code != 0:
-        if "Reference already exists" in stderr or "HTTP 422" in stderr:
+        # Only a genuine duplicate is tolerable. A bare 422 can also mean the
+        # refs API has not seen the just-merged SHA yet; treating that as
+        # success would report a release that never happened, and the branch
+        # cleanup below it would then delete the recovery path.
+        if "Reference already exists" in stderr:
             print(f"Tag {tag} already exists; publish already triggered.")
             return True
         print(f"Failed to create tag: {stderr}")

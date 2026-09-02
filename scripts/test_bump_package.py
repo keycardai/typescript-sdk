@@ -525,3 +525,42 @@ class BranchLifecycleTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TagPushTests(unittest.TestCase):
+    """Only a genuine duplicate tag is tolerable; any other refs failure must
+    fail the run so the bump branch survives for tag recovery."""
+
+    @patch("bump_package.run_command")
+    def test_duplicate_tag_is_tolerated(self, run_command) -> None:
+        run_command.return_value = (1, "", "HTTP 422: Reference already exists")
+        self.assertTrue(bump_package.create_and_push_tag(REPO, "1.0.1-keycardai-mcp", HEAD))
+
+    @patch("bump_package.run_command")
+    def test_non_duplicate_422_fails_the_tag_push(self, run_command) -> None:
+        run_command.return_value = (
+            1,
+            "",
+            "HTTP 422: Validation Failed (Object does not exist)",
+        )
+        self.assertFalse(bump_package.create_and_push_tag(REPO, "1.0.1-keycardai-mcp", HEAD))
+
+    @patch("bump_package.delete_remote_branch")
+    @patch("bump_package.create_and_push_tag", return_value=False)
+    @patch("bump_package.merge_bump_pr", return_value=HEAD)
+    @patch("bump_package.create_bump_pr", return_value=1)
+    @patch("bump_package.create_signed_commit_on_branch", return_value=True)
+    @patch("bump_package.create_remote_branch", return_value=True)
+    @patch("bump_package.get_modified_files", return_value=["packages/mcp/package.json"])
+    @patch("bump_package.get_branch_sha", return_value=BASE)
+    @patch("bump_package.cz_bump_files_only", return_value="1.0.1")
+    @patch("bump_package.recover_untagged_bump", return_value=None)
+    @patch("bump_package.get_repo_slug", return_value=REPO)
+    @patch("bump_package.pull_branch", return_value=True)
+    @patch("bump_package.configure_git")
+    @patch("bump_package.Path.exists", return_value=True)
+    def test_branch_survives_a_failed_tag_push(self, *mocks) -> None:
+        delete_remote_branch = mocks[-1]
+
+        self.assertFalse(bump_package.bump_package("keycardai-mcp", "packages/mcp"))
+        delete_remote_branch.assert_not_called()
