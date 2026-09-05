@@ -1,3 +1,9 @@
+## 0.24.0-keycardai-oauth (2026-09-05)
+
+
+- feat(oauth): token-endpoint discovery failures are not sticky
+- Implements keycard-sdk-spec's metadata-failures-are-not-sticky contract for the TS token clients, mirroring go-sdk #45 (ECO-366). TokenExchangeClient and ClientCredentialsClient stored the discovery promise before it settled and never cleared it on rejection, so one transient failure rejected every later call for the client's lifetime. Both now share a TokenEndpointResolver: success cached for discoveryTtlMs (1 hour default), deterministic failures (4xx except 429, issuer mismatch, malformed metadata, missing token_endpoint) remembered for at most negativeTtlMs (1 minute default, capped by discoveryTtlMs, 0 disables), transients never cached. The shared fetch is bounded by an internal timeout, never a caller's signal. Discovery failures surface as TokenEndpointDiscoveryError carrying retryable, converging with the ECO-360 classification work.
+
 ## 0.23.0-keycardai-oauth (2026-09-05)
 
 
