@@ -37,6 +37,7 @@ export async function fetchAuthorizationServerMetadata(
   if (!response.ok) {
     throw new HTTPError(
       `Failed to fetch OAuth authorization server metadata for "${issuer}" (HTTP ${response.status})`,
+      response.status,
     );
   }
 

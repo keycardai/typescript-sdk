@@ -1,7 +1,7 @@
-import { fetchAuthorizationServerMetadata } from "./discovery.js";
 import { OAuthError } from "./errors.js";
 import type { ApplicationCredential } from "./credentials.js";
 import { buildSubstituteUserToken } from "./jwt/substituteUser.js";
+import { TokenEndpointResolver, type TokenEndpointCacheOptions } from "./tokenEndpoint.js";
 
 // =============================================================================
 // Token Exchange Types (RFC 8693)
@@ -48,7 +48,7 @@ export interface TokenResponse {
   idToken?: string;
 }
 
-export interface TokenExchangeClientOptions {
+export interface TokenExchangeClientOptions extends TokenEndpointCacheOptions {
   clientId?: string;
   clientSecret?: string;
   /**
@@ -128,21 +128,21 @@ export class TokenExchangeClient {
   #clientId?: string;
   #clientSecret?: string;
   #credential?: ApplicationCredential;
-  #tokenEndpoint?: string;
-  #discoveryPromise?: Promise<string>;
+  #tokenEndpoint: TokenEndpointResolver;
 
   constructor(issuer: string, options?: TokenExchangeClientOptions) {
     this.#issuer = issuer;
     this.#clientId = options?.clientId;
     this.#clientSecret = options?.clientSecret;
     this.#credential = options?.credential;
+    this.#tokenEndpoint = new TokenEndpointResolver(issuer, options);
   }
 
   async exchangeToken(
     request: TokenExchangeRequest,
     options?: ExchangeOptions,
   ): Promise<TokenResponse> {
-    const tokenEndpoint = await this.#getTokenEndpoint();
+    const tokenEndpoint = await this.#tokenEndpoint.resolve();
     const body = serializeRequest(request);
 
     const headers: Record<string, string> = {
@@ -221,30 +221,11 @@ export class TokenExchangeClient {
 
   /**
    * Resolve the authorization server's token endpoint (discovered from metadata
-   * and cached). Exposed so a caller can build a credential assertion whose
-   * `aud` is the token endpoint before invoking {@link exchangeToken}.
+   * and cached for `discoveryTtlMs`). Exposed so a caller can build a credential
+   * assertion whose `aud` is the token endpoint before invoking {@link exchangeToken}.
+   * Throws {@link TokenEndpointDiscoveryError} when discovery fails.
    */
   async getTokenEndpoint(): Promise<string> {
-    return this.#getTokenEndpoint();
-  }
-
-  async #getTokenEndpoint(): Promise<string> {
-    if (this.#tokenEndpoint) {
-      return this.#tokenEndpoint;
-    }
-
-    // Promise-based lock: only one concurrent discovery
-    if (!this.#discoveryPromise) {
-      this.#discoveryPromise = (async () => {
-        const metadata = await fetchAuthorizationServerMetadata(this.#issuer);
-        if (!metadata.token_endpoint) {
-          throw new Error(`Authorization server "${this.#issuer}" does not advertise a token_endpoint`);
-        }
-        this.#tokenEndpoint = metadata.token_endpoint;
-        return this.#tokenEndpoint;
-      })();
-    }
-
-    return this.#discoveryPromise;
+    return this.#tokenEndpoint.resolve();
   }
 }

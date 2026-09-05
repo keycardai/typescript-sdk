@@ -1,6 +1,8 @@
 export class HTTPError extends Error {
   constructor(
-    message: string
+    message: string,
+    /** HTTP status of the failed response, when one was received. */
+    public readonly status?: number,
   ) {
     super(message);
   }
@@ -159,6 +161,25 @@ export class JWKSFetchError extends JWKSError {
   constructor(message: string) {
     super(message);
     this.name = "JWKSFetchError";
+  }
+}
+
+/**
+ * Token-endpoint discovery failed, or the metadata omitted `token_endpoint`.
+ * `retryable` follows the base Retryability rule for metadata: `true` for a
+ * transient failure (network error, timeout, HTTP 5xx or 429), `false` for a
+ * deterministic one (other 4xx, issuer mismatch, malformed metadata, missing
+ * `token_endpoint`). `cause` carries the underlying error when there is one.
+ */
+export class TokenEndpointDiscoveryError extends Error {
+  readonly retryable: boolean;
+  readonly cause?: unknown;
+
+  constructor(message: string, options: { retryable: boolean; cause?: unknown }) {
+    super(message);
+    this.name = "TokenEndpointDiscoveryError";
+    this.retryable = options.retryable;
+    this.cause = options.cause;
   }
 }
 

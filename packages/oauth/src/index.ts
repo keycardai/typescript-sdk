@@ -19,7 +19,9 @@ export {
   JWKSKeyNotFoundError,
   AuthorizationDeniedError,
   StateMismatchError,
+  TokenEndpointDiscoveryError,
 } from "./errors.js";
+export type { TokenEndpointCacheOptions } from "./tokenEndpoint.js";
 export { JWTSigner } from "./jwt/signer.js";
 export type { JWTClaims } from "./jwt/signer.js";
 export { JWTVerifier } from "./jwt/verifier.js";
