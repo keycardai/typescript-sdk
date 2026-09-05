@@ -1,3 +1,9 @@
+## 0.23.0-keycardai-oauth (2026-09-05)
+
+
+- feat(oauth): expose the caller identity claims on the auth context
+- AccessToken gains sub, subProfile, and keycardAppId, populated by TokenVerifier from the verified claims; @keycardai/express inherits them on req.auth with no source change, and @keycardai/cloudflare's AuthInfo carries subProfile and keycardAppId beside its existing subject. Implements the field set from keycard-sdk-spec specs/server-bearer-auth/bearer-token-verification-middleware.md (unit row 4), ruby-sdk #24 as the conforming reference. The Keycard claims are optional and undefined on tokens from other issuers, so non-Keycard tokens still verify.
+
 ## 0.22.0-keycardai-oauth (2026-08-31)
 
 
