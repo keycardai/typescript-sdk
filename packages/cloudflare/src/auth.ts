@@ -79,6 +79,8 @@ export async function verifyBearerToken(
       clientId: typeof claims.client_id === "string" ? claims.client_id : "",
       scopes: typeof claims.scope === "string" ? claims.scope.split(" ").filter(Boolean) : [],
       subject: typeof claims.sub === "string" ? claims.sub : undefined,
+      subProfile: typeof claims.sub_profile === "string" ? claims.sub_profile : undefined,
+      keycardAppId: typeof claims.keycard_app_id === "string" ? claims.keycard_app_id : undefined,
     };
 
     if (typeof claims.aud === "string") {

@@ -91,6 +91,58 @@ describe('TokenVerifier', () => {
     expect(result!.resource).toBe('https://api.example.com');
   });
 
+  it('exposes the caller identity claims from a Keycard token', async () => {
+    const [pub, priv] = await Promise.all([importPublicKey(), importPrivateKey()]);
+    const claims: JWTClaims = {
+      iss: ISSUER,
+      sub: 'alice@example.com',
+      sub_profile: 'user',
+      keycard_app_id: 'app-456',
+      client_id: 'cred-123',
+      scope: 'read',
+      iat: nowSec(),
+      exp: nowSec() + 60,
+      aud: 'https://api.example.com',
+    };
+    const token = await signWith(claims, priv);
+    const verifier = new TokenVerifier({
+      issuer: ISSUER,
+      keyring: makeKeyring(pub),
+      audience: 'https://api.example.com',
+    });
+    const result = await verifier.verifyToken(token);
+    expect(result).not.toBeNull();
+    expect(result!.clientId).toBe('cred-123');
+    expect(result!.sub).toBe('alice@example.com');
+    expect(result!.subProfile).toBe('user');
+    expect(result!.keycardAppId).toBe('app-456');
+  });
+
+  it('leaves the Keycard identity claims undefined when the token lacks them', async () => {
+    const [pub, priv] = await Promise.all([importPublicKey(), importPrivateKey()]);
+    const claims: JWTClaims = {
+      iss: ISSUER,
+      sub: 'some-subject',
+      client_id: 'service-x',
+      scope: 'read',
+      iat: nowSec(),
+      exp: nowSec() + 60,
+      aud: 'https://api.example.com',
+    };
+    const token = await signWith(claims, priv);
+    const verifier = new TokenVerifier({
+      issuer: ISSUER,
+      keyring: makeKeyring(pub),
+      audience: 'https://api.example.com',
+    });
+    const result = await verifier.verifyToken(token);
+    expect(result).not.toBeNull();
+    expect(result!.clientId).toBe('service-x');
+    expect(result!.sub).toBe('some-subject');
+    expect(result!.subProfile).toBeUndefined();
+    expect(result!.keycardAppId).toBeUndefined();
+  });
+
   it('returns null on invalid signature', async () => {
     const [pub, priv] = await Promise.all([importPublicKey(), importPrivateKey()]);
     const validClaims: JWTClaims = {

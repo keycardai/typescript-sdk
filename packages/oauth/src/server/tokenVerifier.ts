@@ -131,6 +131,9 @@ function toAccessToken(token: string, claims: JWTClaims): AccessToken {
   const resourceClaim = claims["resource"];
   const resource = typeof resourceClaim === "string" ? resourceClaim : undefined;
   const expiresAt = typeof claims.exp === "number" ? claims.exp : undefined;
+  const sub = typeof claims.sub === "string" ? claims.sub : undefined;
+  const subProfile = optionalStringClaim(claims, "sub_profile");
+  const keycardAppId = optionalStringClaim(claims, "keycard_app_id");
   // JWTVerifier validates client_id is present and a non-empty string before
   // returning, so this assertion is load-bearing only at the type boundary.
   return {
@@ -139,7 +142,15 @@ function toAccessToken(token: string, claims: JWTClaims): AccessToken {
     scopes,
     expiresAt,
     resource,
+    sub,
+    subProfile,
+    keycardAppId,
   };
+}
+
+function optionalStringClaim(claims: JWTClaims, name: string): string | undefined {
+  const value = claims[name];
+  return typeof value === "string" ? value : undefined;
 }
 
 function buildZoneScopedIssuer(baseIssuer: string, zoneId: string): string {

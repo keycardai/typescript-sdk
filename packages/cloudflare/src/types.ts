@@ -21,6 +21,25 @@ export interface KeycardEnv {
 // Auth Info (mirrors @modelcontextprotocol/sdk AuthInfo without the dependency)
 // =============================================================================
 
+/**
+ * Verified bearer token for a Worker request.
+ *
+ * The identity fields answer different questions, so key on the right one:
+ *
+ * - `clientId`: the OAuth client that authenticated. Names the credential,
+ *   which rotates, not the application.
+ * - `keycardAppId`: the stable Keycard application identifier. Key on this to
+ *   identify the calling application regardless of grant type or which
+ *   credential authenticated.
+ * - `subject`: the `sub` claim. The user on a user-present token, the
+ *   application on an application token (equal to `keycardAppId` when
+ *   `subProfile` is `"app"`).
+ * - `subProfile`: `"user"` when a user authorized access, `"app"` when an
+ *   application acts on its own behalf.
+ *
+ * `subProfile` and `keycardAppId` are Keycard claims and are undefined on a
+ * token from another issuer.
+ */
 export interface AuthInfo {
   /** The raw bearer token from the request. */
   token: string;
@@ -34,6 +53,10 @@ export interface AuthInfo {
   resource?: URL;
   /** JWT subject claim — critical for per-user cache keying in shared isolates. */
   subject?: string;
+  /** The sub_profile claim: "user" or "app". */
+  subProfile?: string;
+  /** The keycard_app_id claim: the stable Keycard application identifier. */
+  keycardAppId?: string;
 }
 
 // =============================================================================
