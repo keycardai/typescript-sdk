@@ -74,6 +74,50 @@ describe("verifyBearerToken", () => {
     expect(result.token).toBe("valid-token");
   });
 
+  it("exposes the caller identity claims from a Keycard token", async () => {
+    mockVerify.mockResolvedValue({
+      sub: "alice@example.com",
+      sub_profile: "user",
+      keycard_app_id: "app-456",
+      client_id: "cred-123",
+      scope: "read",
+      exp: Math.floor(Date.now() / 1000) + 3600,
+      iss: "https://auth.keycard.ai",
+    });
+
+    const result = await verifyBearerToken(makeRequest("Bearer valid-token"), { issuers: "https://auth.keycard.ai" });
+
+    if (isAuthError(result)) {
+      throw new Error(`Expected AuthInfo, got Response with status ${result.status}`);
+    }
+
+    expect(result.clientId).toBe("cred-123");
+    expect(result.subject).toBe("alice@example.com");
+    expect(result.subProfile).toBe("user");
+    expect(result.keycardAppId).toBe("app-456");
+  });
+
+  it("leaves the Keycard identity claims undefined when the token lacks them", async () => {
+    mockVerify.mockResolvedValue({
+      sub: "some-subject",
+      client_id: "app-456",
+      scope: "read",
+      exp: Math.floor(Date.now() / 1000) + 3600,
+      iss: "https://auth.keycard.ai",
+    });
+
+    const result = await verifyBearerToken(makeRequest("Bearer valid-token"), { issuers: "https://auth.keycard.ai" });
+
+    if (isAuthError(result)) {
+      throw new Error(`Expected AuthInfo, got Response with status ${result.status}`);
+    }
+
+    expect(result.clientId).toBe("app-456");
+    expect(result.subject).toBe("some-subject");
+    expect(result.subProfile).toBeUndefined();
+    expect(result.keycardAppId).toBeUndefined();
+  });
+
   it("returns 403 when required scopes are missing", async () => {
     mockVerify.mockResolvedValue({
       sub: "user-123",

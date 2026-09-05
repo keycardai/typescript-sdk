@@ -54,6 +54,47 @@ describe('requireBearerAuth', () => {
     expect(res.body.clientId).toBe('svc-x');
   });
 
+  function makeIdentityApp(verifier: TokenVerifier) {
+    const app = express();
+    app.use(requireBearerAuth({ verifier }));
+    app.get('/whoami', (req, res) => {
+      const { clientId, sub, subProfile, keycardAppId } = (req as any).auth as AccessToken;
+      res.json({ clientId, sub, subProfile, keycardAppId });
+    });
+    return app;
+  }
+
+  it('exposes the caller identity claims on req.auth for a Keycard token', async () => {
+    const keycardToken: AccessToken = {
+      ...VALID_TOKEN,
+      clientId: 'cred-123',
+      sub: 'alice@example.com',
+      subProfile: 'user',
+      keycardAppId: 'app-456',
+    };
+    const res = await request(makeIdentityApp(makeVerifier(keycardToken)))
+      .get('/whoami')
+      .set('Authorization', 'Bearer valid-jwt');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      clientId: 'cred-123',
+      sub: 'alice@example.com',
+      subProfile: 'user',
+      keycardAppId: 'app-456',
+    });
+  });
+
+  it('leaves the Keycard identity claims undefined on req.auth when the token lacks them', async () => {
+    const res = await request(makeIdentityApp(makeVerifier(VALID_TOKEN)))
+      .get('/whoami')
+      .set('Authorization', 'Bearer valid-jwt');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ clientId: 'svc-x' });
+    expect(res.body.sub).toBeUndefined();
+    expect(res.body.subProfile).toBeUndefined();
+    expect(res.body.keycardAppId).toBeUndefined();
+  });
+
   it('returns 401 with a resource_metadata URL in WWW-Authenticate when no Authorization header', async () => {
     const app = makeApp(makeVerifier(VALID_TOKEN));
     const res = await request(app).get('/resource');
