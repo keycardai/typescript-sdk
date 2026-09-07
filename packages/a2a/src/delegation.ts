@@ -1,15 +1,27 @@
 import { TokenExchangeClient } from "@keycardai/oauth/tokenExchange";
 import { ClientSecret } from "@keycardai/oauth/server/clientSecret";
-import type { AgentCard } from "@a2a-js/sdk";
-import type { Message } from "@a2a-js/sdk";
+import type { AgentCard, Message, Task } from "@a2a-js/sdk";
+import { Role } from "@a2a-js/sdk";
+import {
+  ClientFactory,
+  DefaultAgentCardResolver,
+  JsonRpcTransportFactory,
+  type Client,
+} from "@a2a-js/sdk/client";
 import { ServiceDiscovery } from "./discovery.js";
 import type { AgentServiceConfig } from "./config.js";
 import { getAuthServerUrl } from "./config.js";
 
 export interface DelegationResult {
-  /** The agent's response message. */
-  message: Message;
-  /** Resolved agent card for the target service. */
+  /**
+   * The agent's direct response, when it answered with a message. A2A 1.0
+   * agents may instead answer with a task (see `task`); exactly one of the
+   * two is set.
+   */
+  message?: Message;
+  /** The task the agent created or updated, when it did not answer inline. */
+  task?: Task;
+  /** Resolved agent card for the target service, as discovered. */
   agentCard: AgentCard;
 }
 
@@ -31,13 +43,28 @@ export interface InvokeOptions {
   metadata?: Record<string, unknown>;
 }
 
-const A2A_JSONRPC_PATH = "/a2a/jsonrpc";
-const A2A_PROTOCOL_VERSION = "0.3";
-const A2A_VERSION_HEADER = "x-a2a-protocol-version";
+export interface DelegationClientOptions {
+  /** Agent-card discovery to use. Default: a fresh `ServiceDiscovery`. */
+  discovery?: ServiceDiscovery;
+  /**
+   * Opt into `@a2a-js/sdk`'s v0.3 compatibility layer. When enabled, a
+   * target whose agent card advertises a protocol version below 1.0 (or a
+   * 0.3-shaped card without `supportedInterfaces`) is called with the 0.3
+   * wire format (`message/send`, `kind`-tagged parts). Targets advertising
+   * 1.0 are unaffected. Default: disabled; only A2A 1.0 agents are reachable.
+   */
+  legacyCompat?: { enabled: boolean };
+  /** `fetch` implementation for the JSON-RPC transport. Default: global `fetch`. */
+  fetchImpl?: typeof fetch;
+}
 
 /**
  * Client for delegating tasks to remote A2A agent services with
  * Keycard token exchange.
+ *
+ * Requests go through `@a2a-js/sdk`'s typed client, so the JSON-RPC method
+ * names, the `A2A-Version` header and the request envelope follow the A2A
+ * 1.0 generation the dependency implements.
  *
  * ```ts
  * const client = new DelegationClient(config);
@@ -47,7 +74,7 @@ const A2A_VERSION_HEADER = "x-a2a-protocol-version";
  * const result = await client.invokeService(targetUrl, "summarize this", {
  *   subjectToken: auth!.token,
  * });
- * eventBus.publish(result.message);
+ * if (result.message) eventBus.publish({ kind: "message", data: result.message });
  * eventBus.finished();
  * ```
  *
@@ -57,12 +84,21 @@ export class DelegationClient {
   #config: AgentServiceConfig;
   #tokenClient: TokenExchangeClient;
   #discovery: ServiceDiscovery;
+  #clientFactory: ClientFactory;
 
-  constructor(config: AgentServiceConfig, options?: { discovery?: ServiceDiscovery }) {
+  constructor(config: AgentServiceConfig, options?: DelegationClientOptions) {
     this.#config = config;
     this.#discovery = options?.discovery ?? new ServiceDiscovery();
     this.#tokenClient = new TokenExchangeClient(getAuthServerUrl(config), {
       credential: new ClientSecret(config.clientId, config.clientSecret),
+    });
+    const transportOptions = {
+      fetchImpl: options?.fetchImpl,
+      legacyCompat: options?.legacyCompat,
+    };
+    this.#clientFactory = new ClientFactory({
+      transports: [new JsonRpcTransportFactory(transportOptions)],
+      cardResolver: new DefaultAgentCardResolver(transportOptions),
     });
   }
 
@@ -76,15 +112,41 @@ export class DelegationClient {
   ): Promise<DelegationResult> {
     const agentCard = await this.#discovery.getServiceCard(serviceUrl);
     const delegationToken = await this.#getDelegationToken(serviceUrl, options.subjectToken);
+    const client = await this.#createClient(agentCard);
     const message = buildUserMessage(task, options.metadata);
-    const jsonrpcUrl = buildJsonrpcUrl(serviceUrl, agentCard);
-    const responseMessage = await this.#sendMessage(
-      jsonrpcUrl,
-      message,
-      delegationToken,
-      options.timeoutMs,
-    );
-    return { message: responseMessage, agentCard };
+
+    let result: Message | Task;
+    try {
+      result = await client.sendMessage(
+        { tenant: "", message, configuration: undefined, metadata: undefined },
+        {
+          serviceParameters: { Authorization: `Bearer ${delegationToken}` },
+          signal: AbortSignal.timeout(options.timeoutMs ?? 30_000),
+        },
+      );
+    } catch (error) {
+      throw new Error(
+        `DelegationClient: A2A request to "${serviceUrl}" failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+
+    return isMessage(result)
+      ? { message: result, agentCard }
+      : { task: result, agentCard };
+  }
+
+  async #createClient(agentCard: AgentCard): Promise<Client> {
+    try {
+      return await this.#clientFactory.createFromAgentCard(agentCard);
+    } catch (error) {
+      throw new Error(
+        `DelegationClient: agent card for "${agentCard.name}" exposes no usable JSON-RPC interface: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
   }
 
   async #getDelegationToken(targetUrl: string, subjectToken: string): Promise<string> {
@@ -95,71 +157,28 @@ export class DelegationClient {
     });
     return response.accessToken;
   }
+}
 
-  async #sendMessage(
-    jsonrpcUrl: string,
-    message: Message,
-    bearerToken: string,
-    timeoutMs = 30_000,
-  ): Promise<Message> {
-    const requestBody = {
-      jsonrpc: "2.0",
-      id: crypto.randomUUID(),
-      method: "message/send",
-      params: { message },
-    };
-
-    const response = await fetch(jsonrpcUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-        Authorization: `Bearer ${bearerToken}`,
-        [A2A_VERSION_HEADER]: A2A_PROTOCOL_VERSION,
-      },
-      body: JSON.stringify(requestBody),
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-
-    if (!response.ok) {
-      throw new Error(
-        `DelegationClient: A2A request to "${jsonrpcUrl}" failed (HTTP ${response.status})`,
-      );
-    }
-
-    let body: unknown;
-    try {
-      body = await response.json();
-    } catch {
-      throw new Error(`DelegationClient: response from "${jsonrpcUrl}" is not valid JSON`);
-    }
-
-    const envelope = body as { result?: { message?: Message }; error?: { message?: string } };
-    if (!envelope.result?.message) {
-      throw new Error(
-        `DelegationClient: A2A error from "${jsonrpcUrl}": ${envelope.error?.message ?? "unknown error"}`,
-      );
-    }
-
-    return envelope.result.message;
-  }
+function isMessage(result: Message | Task): result is Message {
+  return "messageId" in result;
 }
 
 function buildUserMessage(text: string, metadata?: Record<string, unknown>): Message {
   return {
     messageId: crypto.randomUUID(),
-    role: "user",
-    parts: [{ kind: "text", text }],
-    ...(metadata ? { metadata } : {}),
-  } as Message;
-}
-
-function buildJsonrpcUrl(serviceUrl: string, agentCard: AgentCard): string {
-  // agentCard.url IS the JSONRPC endpoint per the A2A spec — use it directly.
-  // Do not append A2A_JSONRPC_PATH: the agent card is built with getJsonrpcUrl()
-  // which already includes /a2a/jsonrpc, so appending would double the path.
-  if (agentCard.url) {
-    return agentCard.url;
-  }
-  return `${serviceUrl.replace(/\/$/, "")}${A2A_JSONRPC_PATH}`;
+    contextId: "",
+    taskId: "",
+    role: Role.ROLE_USER,
+    parts: [
+      {
+        content: { $case: "text", value: text },
+        metadata: undefined,
+        filename: "",
+        mediaType: "",
+      },
+    ],
+    metadata,
+    extensions: [],
+    referenceTaskIds: [],
+  };
 }

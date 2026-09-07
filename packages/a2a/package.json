@@ -35,7 +35,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@a2a-js/sdk": "^0.3.13",
+    "@a2a-js/sdk": "^1.1.0",
     "@keycardai/express": "workspace:*",
     "@keycardai/oauth": "workspace:*"
   },

@@ -2,7 +2,12 @@ import { jest } from '@jest/globals';
 import express from 'express';
 import request from 'supertest';
 import { createKeycardRequestHandler, buildAgentCard } from './server.js';
-import { keycardUserBuilder, KeycardUser, getKeycardAuth } from './auth.js';
+import {
+  keycardUserBuilder,
+  KeycardUser,
+  getKeycardAuth,
+  UNAUTHENTICATED_JSONRPC_CODE,
+} from './auth.js';
 // Imported via the package index to cover the re-exports from @keycardai/express.
 import { requireBearerAuth, keycardMetadataRouter } from './index.js';
 import {
@@ -15,7 +20,7 @@ import {
   type ExecutionEventBus,
   RequestContext,
 } from '@a2a-js/sdk/server';
-import type { Message } from '@a2a-js/sdk';
+import { Role, type Message } from '@a2a-js/sdk';
 import { TokenVerifier } from '@keycardai/oauth/server';
 import type { AccessToken } from '@keycardai/oauth/server';
 
@@ -34,21 +39,61 @@ const VALID_TOKEN: AccessToken = {
   scopes: ['read'],
 };
 
+function agentMessage(text: string): Message {
+  return {
+    messageId: crypto.randomUUID(),
+    contextId: '',
+    taskId: '',
+    role: Role.ROLE_AGENT,
+    parts: [{ content: { $case: 'text', value: text }, metadata: undefined, filename: '', mediaType: '' }],
+    metadata: undefined,
+    extensions: [],
+    referenceTaskIds: [],
+  };
+}
+
+function textOf(message: Message): string {
+  const part = message.parts.find((p) => p.content?.$case === 'text');
+  return part?.content?.$case === 'text' ? part.content.value : '';
+}
+
 const ECHO_EXECUTOR: AgentExecutor = {
   async execute(requestContext: RequestContext, eventBus: ExecutionEventBus): Promise<void> {
-    const userMsg = requestContext.userMessage;
-    const textPart = userMsg.parts.find((p): p is { kind: 'text'; text: string } =>
-      (p as any).kind === 'text',
-    );
-    const responseMsg: Message = {
-      messageId: crypto.randomUUID(),
-      role: 'agent',
-      parts: [{ kind: 'text', text: `echo: ${textPart?.text ?? ''}` } as any],
-    };
-    eventBus.publish(responseMsg);
+    eventBus.publish({ kind: 'message', data: agentMessage(`echo: ${textOf(requestContext.userMessage)}`) });
     eventBus.finished();
   },
   async cancelTask(): Promise<void> {},
+};
+
+// The A2A 1.0 JSON-RPC envelope a keycardai-a2a (Python) DelegationClient
+// sends; mirrors python-sdk's tests/test_jsonrpc_dispatch.py.
+function sendMessageRequest(text = 'hello', id = 'req-1') {
+  return {
+    jsonrpc: '2.0',
+    id,
+    method: 'SendMessage',
+    params: {
+      message: {
+        messageId: 'msg-1',
+        role: 'ROLE_USER',
+        parts: [{ text }],
+      },
+    },
+  };
+}
+
+// The 0.3 envelope @keycardai/a2a 0.3.x sent.
+const LEGACY_SEND_REQUEST = {
+  jsonrpc: '2.0',
+  id: 'req-03',
+  method: 'message/send',
+  params: {
+    message: {
+      messageId: 'msg-03',
+      role: 'user',
+      parts: [{ kind: 'text', text: 'ping-03' }],
+    },
+  },
 };
 
 function makeVerifier(result: AccessToken | null) {
@@ -88,10 +133,17 @@ function makeApp(verifier: TokenVerifier) {
 }
 
 describe('buildAgentCard', () => {
-  it('builds an agent card from config', () => {
+  it('builds an agent card from config with a 1.0 JSON-RPC interface', () => {
     const card = buildAgentCard(CONFIG);
     expect(card.name).toBe('Test Agent');
-    expect(card.url).toBe('https://agent.example.com/a2a/jsonrpc');
+    expect(card.supportedInterfaces).toEqual([
+      {
+        url: 'https://agent.example.com/a2a/jsonrpc',
+        protocolBinding: 'JSONRPC',
+        protocolVersion: '1.0',
+        tenant: '',
+      },
+    ]);
     expect(card.capabilities).toBeDefined();
   });
 
@@ -99,45 +151,102 @@ describe('buildAgentCard', () => {
     const card = buildAgentCard(CONFIG);
     expect(card.securitySchemes).toEqual({
       bearer: {
-        type: 'http',
-        scheme: 'bearer',
-        bearerFormat: 'JWT',
-        description: 'Keycard-issued JWT access token',
+        scheme: {
+          $case: 'httpAuthSecurityScheme',
+          value: {
+            scheme: 'bearer',
+            bearerFormat: 'JWT',
+            description: 'Keycard-issued JWT access token',
+          },
+        },
       },
     });
-    expect(card.security).toEqual([{ bearer: [] }]);
+    expect(card.securityRequirements).toEqual([{ schemes: { bearer: { list: [] } } }]);
   });
 });
 
 describe('agentCardHandler', () => {
-  it('serves the agent card with correct name', async () => {
+  it('serves the agent card in the 1.0 wire form', async () => {
     const app = makeApp(makeVerifier(VALID_TOKEN));
     const res = await request(app).get('/.well-known/agent-card.json');
     expect(res.status).toBe(200);
     expect(res.body.name).toBe('Test Agent');
+    expect(res.body.url).toBeUndefined();
+    expect(res.body.protocolVersion).toBeUndefined();
+    expect(res.body.supportedInterfaces).toEqual([
+      {
+        url: 'https://agent.example.com/a2a/jsonrpc',
+        protocolBinding: 'JSONRPC',
+        protocolVersion: '1.0',
+        tenant: '',
+      },
+    ]);
+    expect(Object.keys(res.body.securitySchemes)).toEqual(['bearer']);
+    expect(res.body.securityRequirements).toHaveLength(1);
   });
 });
 
-describe('jsonRpcHandler with KeycardUser', () => {
-  it('dispatches to executor and returns agent message', async () => {
+describe('jsonRpcHandler with KeycardUser (A2A 1.0 dispatch)', () => {
+  it('dispatches SendMessage with A2A-Version: 1.0 and returns the agent message', async () => {
     const app = makeApp(makeVerifier(VALID_TOKEN));
     const res = await request(app)
       .post('/a2a/jsonrpc')
       .set('Authorization', 'Bearer valid-jwt')
       .set('Content-Type', 'application/json')
-      .send({
-        jsonrpc: '2.0',
-        id: 'req-1',
-        method: 'message/send',
-        params: {
-          message: {
-            messageId: 'msg-1',
-            role: 'user',
-            parts: [{ kind: 'text', text: 'hello' }],
-          },
-        },
-      });
+      .set('A2A-Version', '1.0')
+      .send(sendMessageRequest('hello'));
     expect(res.status).toBe(200);
+    expect(res.body.id).toBe('req-1');
+    expect(res.body.error).toBeUndefined();
+    expect(res.body.result.message.role).toBe('ROLE_AGENT');
+    expect(res.body.result.message.parts).toEqual([{ text: 'echo: hello' }]);
+  });
+
+  it('rejects the 0.3 method name message/send (no compat layer by default)', async () => {
+    const app = makeApp(makeVerifier(VALID_TOKEN));
+    const res = await request(app)
+      .post('/a2a/jsonrpc')
+      .set('Authorization', 'Bearer valid-jwt')
+      .set('Content-Type', 'application/json')
+      .set('A2A-Version', '1.0')
+      .send(LEGACY_SEND_REQUEST);
+    expect(res.status).toBe(200);
+    expect(res.body.error?.code).toBe(-32601);
+  });
+
+  it('rejects a request that omits A2A-Version (0.3 assumed) with VersionNotSupported', async () => {
+    const app = makeApp(makeVerifier(VALID_TOKEN));
+    const res = await request(app)
+      .post('/a2a/jsonrpc')
+      .set('Authorization', 'Bearer valid-jwt')
+      .set('Content-Type', 'application/json')
+      .send(sendMessageRequest('hello'));
+    expect(res.status).toBe(500);
+    expect(res.body.error?.code).toBe(-32009);
+  });
+
+  it('accepts the 0.3 envelope when the upstream legacyCompat layer is enabled (mirror of enable_v0_3_compat)', async () => {
+    const card = buildAgentCard(CONFIG, { legacyCompat: { enabled: true } });
+    expect(card.supportedInterfaces.map((i) => i.protocolVersion)).toEqual(['1.0', '0.3']);
+    const requestHandler = createKeycardRequestHandler(ECHO_EXECUTOR, card);
+    const app = express();
+    app.use(express.json());
+    app.use(
+      '/a2a/jsonrpc',
+      jsonRpcHandler({
+        requestHandler,
+        userBuilder: async () => new KeycardUser(VALID_TOKEN),
+        legacyCompat: { enabled: true },
+      }),
+    );
+    const res = await request(app)
+      .post('/a2a/jsonrpc')
+      .set('Content-Type', 'application/json')
+      .send(LEGACY_SEND_REQUEST);
+    expect(res.status).toBe(200);
+    expect(res.body.error).toBeUndefined();
+    expect(res.body.result.kind).toBe('message');
+    expect(res.body.result.parts).toEqual([{ kind: 'text', text: 'echo: ping-03' }]);
   });
 
   it('returns a JSONRPC error for unauthenticated requests', async () => {
@@ -145,24 +254,23 @@ describe('jsonRpcHandler with KeycardUser', () => {
     const res = await request(app)
       .post('/a2a/jsonrpc')
       .set('Content-Type', 'application/json')
-      .send({
-        jsonrpc: '2.0',
-        id: '1',
-        method: 'message/send',
-        params: { message: { messageId: 'm', role: 'user', parts: [] } },
-      });
-    // The SDK returns JSONRPC error responses with HTTP 200 per the JSONRPC spec.
+      .set('A2A-Version', '1.0')
+      .send(sendMessageRequest());
+    // An anonymous user is passed through to the executor; the SDK itself
+    // does not reject it, which is why requireBearerAuth is mounted in front
+    // (covered below). It must not surface as a KeycardUser.
     expect(res.status).toBe(200);
-    expect(res.body.error).toBeDefined();
+    expect(res.body.error).toBeUndefined();
   });
 });
 
 describe('getKeycardAuth', () => {
   it('returns null when context has no user', () => {
     const ctx = new RequestContext(
-      { messageId: 'm', role: 'user', parts: [] } as any,
+      { tenant: '', message: agentMessage(''), configuration: undefined, metadata: undefined },
       'task-1',
       'ctx-1',
+      { user: undefined, tenant: '', requestedExtensions: new Set(), activatedExtensions: new Set() } as any,
     );
     expect(getKeycardAuth(ctx)).toBeNull();
   });
@@ -198,8 +306,8 @@ describe('requireBearerAuth + keycardUserBuilder (end-to-end auth path)', () => 
     const res = await request(app)
       .post('/a2a/jsonrpc')
       .set('Content-Type', 'application/json')
-      .send({ jsonrpc: '2.0', id: '1', method: 'message/send',
-        params: { message: { messageId: 'm', role: 'user', parts: [] } } });
+      .set('A2A-Version', '1.0')
+      .send(sendMessageRequest());
     expect(res.status).toBe(401);
     expect(res.headers['www-authenticate']).toMatch(/^Bearer /);
     expect(res.headers['www-authenticate']).toContain('resource_metadata=');
@@ -225,8 +333,8 @@ describe('requireBearerAuth + keycardUserBuilder (end-to-end auth path)', () => 
     const unauth = await request(app)
       .post('/a2a/jsonrpc')
       .set('Content-Type', 'application/json')
-      .send({ jsonrpc: '2.0', id: '1', method: 'message/send',
-        params: { message: { messageId: 'm', role: 'user', parts: [] } } });
+      .set('A2A-Version', '1.0')
+      .send(sendMessageRequest());
     expect(unauth.status).toBe(401);
 
     const challenge = unauth.headers['www-authenticate'];
@@ -245,8 +353,8 @@ describe('requireBearerAuth + keycardUserBuilder (end-to-end auth path)', () => 
       .post('/a2a/jsonrpc')
       .set('Authorization', 'Bearer bad-token')
       .set('Content-Type', 'application/json')
-      .send({ jsonrpc: '2.0', id: '1', method: 'message/send',
-        params: { message: { messageId: 'm', role: 'user', parts: [] } } });
+      .set('A2A-Version', '1.0')
+      .send(sendMessageRequest());
     expect(res.status).toBe(401);
     expect(res.headers['www-authenticate']).toContain('error="invalid_token"');
   });
@@ -256,13 +364,7 @@ describe('requireBearerAuth + keycardUserBuilder (end-to-end auth path)', () => 
     const capturingExecutor: AgentExecutor = {
       async execute(requestContext, eventBus) {
         capturedAuth = getKeycardAuth(requestContext);
-        const responseMsg: Message = {
-          kind: 'message',
-          messageId: 'r',
-          role: 'agent',
-          parts: [{ kind: 'text', text: 'ok' }],
-        };
-        eventBus.publish(responseMsg);
+        eventBus.publish({ kind: 'message', data: agentMessage('ok') });
         eventBus.finished();
       },
       async cancelTask() {},
@@ -274,17 +376,17 @@ describe('requireBearerAuth + keycardUserBuilder (end-to-end auth path)', () => 
       .post('/a2a/jsonrpc')
       .set('Authorization', 'Bearer valid-jwt')
       .set('Content-Type', 'application/json')
-      .send({ jsonrpc: '2.0', id: '1', method: 'message/send',
-        params: { message: { messageId: 'm', role: 'user',
-          parts: [{ kind: 'text', text: 'hi' }] } } });
+      .set('A2A-Version', '1.0')
+      .send(sendMessageRequest('hi'));
 
     expect(res.status).toBe(200);
+    expect(res.body.error).toBeUndefined();
     expect(capturedAuth?.token).toBe('valid-jwt');
     expect(capturedAuth?.clientId).toBe('svc-x');
   });
 
   it('keycardUserBuilder verifies the token itself when no middleware ran (standalone fallback)', async () => {
-    // Without requireBearerAuth in front, the builder throws an A2A -32001
+    // Without requireBearerAuth in front, the builder throws a JSON-RPC -32000
     // error which the SDK's jsonRpcHandler surfaces as HTTP 500 with a
     // JSON-RPC error body. This documents the standalone contract; prefer
     // the requireBearerAuth composition above.
@@ -303,10 +405,10 @@ describe('requireBearerAuth + keycardUserBuilder (end-to-end auth path)', () => 
     const res = await request(app)
       .post('/a2a/jsonrpc')
       .set('Content-Type', 'application/json')
-      .send({ jsonrpc: '2.0', id: '1', method: 'message/send',
-        params: { message: { messageId: 'm', role: 'user', parts: [] } } });
+      .set('A2A-Version', '1.0')
+      .send(sendMessageRequest());
     expect(res.status).toBe(500);
-    expect(res.body.error?.code).toBe(-32001);
+    expect(res.body.error?.code).toBe(UNAUTHENTICATED_JSONRPC_CODE);
   });
 
   it('does not launder a req.auth set by foreign middleware into an authenticated KeycardUser', async () => {
@@ -344,13 +446,13 @@ describe('requireBearerAuth + keycardUserBuilder (end-to-end auth path)', () => 
     const res = await request(app)
       .post('/a2a/jsonrpc')
       .set('Content-Type', 'application/json')
-      .send({ jsonrpc: '2.0', id: '1', method: 'message/send',
-        params: { message: { messageId: 'm', role: 'user', parts: [] } } });
+      .set('A2A-Version', '1.0')
+      .send(sendMessageRequest());
 
     // Without the brand the builder falls through to the standalone path;
-    // with no verifier options it rejects with A2A -32001 over HTTP 500.
+    // with no verifier options it rejects with JSON-RPC -32000 over HTTP 500.
     expect(res.status).toBe(500);
-    expect(res.body.error?.code).toBe(-32001);
+    expect(res.body.error?.code).toBe(UNAUTHENTICATED_JSONRPC_CODE);
     expect(executed).toBe(false);
   });
 });

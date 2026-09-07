@@ -1,5 +1,10 @@
 // Keycard auth adapter for @a2a-js/sdk
-export { KeycardUser, keycardUserBuilder, getKeycardAuth } from "./auth.js";
+export {
+  KeycardUser,
+  keycardUserBuilder,
+  getKeycardAuth,
+  UNAUTHENTICATED_JSONRPC_CODE,
+} from "./auth.js";
 export type { KeycardUserBuilderOptions } from "./auth.js";
 
 // Server convenience helpers (thin wrappers over @a2a-js/sdk)
@@ -16,7 +21,11 @@ export { ServiceDiscovery } from "./discovery.js";
 
 // Delegation client
 export { DelegationClient } from "./delegation.js";
-export type { DelegationResult, InvokeOptions } from "./delegation.js";
+export type {
+  DelegationResult,
+  InvokeOptions,
+  DelegationClientOptions,
+} from "./delegation.js";
 
 // Re-export the bearer auth middleware that fronts the JSON-RPC handler,
 // so customers import from one place. It responds to auth failures with
@@ -42,5 +51,6 @@ export {
 } from "@a2a-js/sdk/server/express";
 
 // Re-export core SDK types customers need for executor implementations.
-export type { AgentCard, Message, Task } from "@a2a-js/sdk";
+export type { AgentCard, Message, Task, Part } from "@a2a-js/sdk";
+export { Role, A2A_PROTOCOL_VERSION, A2A_VERSION_HEADER } from "@a2a-js/sdk";
 export { DefaultRequestHandler } from "@a2a-js/sdk/server";

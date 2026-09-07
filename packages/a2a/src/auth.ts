@@ -5,8 +5,25 @@ import { TokenVerifier } from "@keycardai/oauth/server/tokenVerifier";
 import type { TokenVerifierOptions } from "@keycardai/oauth/server/tokenVerifier";
 import type { AccessToken } from "@keycardai/oauth/server/accessToken";
 import type { RequestContext } from "@a2a-js/sdk/server";
-import { A2AError } from "@a2a-js/sdk/server";
+import { JsonRpcTransportError } from "@a2a-js/sdk/errors";
 import { KEYCARD_ACCESS_TOKEN } from "@keycardai/express";
+
+/**
+ * JSON-RPC error code used when `keycardUserBuilder` rejects a request in
+ * standalone mode. A2A 1.0 defines no authentication error of its own
+ * (authentication failures are expected at the HTTP layer as 401); this is
+ * the JSON-RPC 2.0 reserved server-error code, outside the A2A range
+ * `-32001..-32009`.
+ */
+export const UNAUTHENTICATED_JSONRPC_CODE = -32000;
+
+function unauthenticated(message: string): JsonRpcTransportError {
+  return new JsonRpcTransportError({
+    jsonrpc: "2.0",
+    id: null,
+    error: { code: UNAUTHENTICATED_JSONRPC_CODE, message },
+  });
+}
 
 /**
  * A Keycard-verified user. Implements `@a2a-js/sdk`'s `User` interface
@@ -70,7 +87,7 @@ export type KeycardUserBuilderOptions = Pick<
  *
  * When the brand is absent, the builder falls back to verifying the bearer
  * token itself using `options` (which are then required). In that standalone
- * mode auth failures throw an A2A `-32001` error, which `@a2a-js/sdk`'s
+ * mode auth failures throw a JSON-RPC `-32000` error, which `@a2a-js/sdk`'s
  * handlers surface as a JSON-RPC error body over HTTP 500 with no
  * `WWW-Authenticate` challenge. Prefer the `requireBearerAuth` composition.
  *
@@ -100,22 +117,19 @@ export function keycardUserBuilder(options?: KeycardUserBuilderOptions): UserBui
     }
 
     if (!verifier) {
-      // -32001 is the A2A unauthorized error code
-      throw new A2AError(
-        -32001,
+      throw unauthenticated(
         "Request not authenticated: mount requireBearerAuth() in front of this handler, or pass verification options to keycardUserBuilder()",
       );
     }
 
     const authorization = req.headers.authorization;
     if (!authorization?.startsWith("Bearer ")) {
-      // -32001 is the A2A unauthorized error code
-      throw new A2AError(-32001, "Missing or invalid Authorization header");
+      throw unauthenticated("Missing or invalid Authorization header");
     }
     const token = authorization.slice(7);
     const accessToken = await verifier.verifyToken(token);
     if (!accessToken) {
-      throw new A2AError(-32001, "Invalid or expired token");
+      throw unauthenticated("Invalid or expired token");
     }
     return new KeycardUser(accessToken);
   };
