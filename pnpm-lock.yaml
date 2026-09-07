@@ -15,8 +15,8 @@ importers:
   packages/a2a:
     dependencies:
       '@a2a-js/sdk':
-        specifier: ^0.3.13
-        version: 0.3.13(express@5.2.1)
+        specifier: ^1.1.0
+        version: 1.1.0(express@5.2.1)
       '@keycardai/express':
         specifier: workspace:*
         version: link:../express
@@ -44,7 +44,7 @@ importers:
         version: 7.2.2
       ts-jest:
         specifier: ^29.4.7
-        version: 29.4.7(@babel/core@7.29.6)(@jest/transform@30.2.0)(@jest/types@30.2.0)(babel-jest@30.2.0(@babel/core@7.29.6))(jest-util@30.2.0)(jest@30.2.0)(typescript@5.9.3)
+        version: 29.4.7(@babel/core@7.29.6)(@jest/transform@30.2.0)(@jest/types@30.2.0)(babel-jest@30.2.0(@babel/core@7.29.6))(jest-util@30.2.0)(jest@30.2.0(@types/node@25.6.0))(typescript@5.9.3)
       typescript:
         specifier: ^5.8.3
         version: 5.9.3
@@ -66,7 +66,7 @@ importers:
         version: 30.2.0(@types/node@25.6.0)
       ts-jest:
         specifier: ^29.4.7
-        version: 29.4.7(@babel/core@7.29.6)(@jest/transform@30.2.0)(@jest/types@30.2.0)(babel-jest@30.2.0(@babel/core@7.29.6))(jest-util@30.2.0)(jest@30.2.0)(typescript@5.9.3)
+        version: 29.4.7(@babel/core@7.29.6)(@jest/transform@30.2.0)(@jest/types@30.2.0)(babel-jest@30.2.0(@babel/core@7.29.6))(jest-util@30.2.0)(jest@30.2.0(@types/node@25.6.0))(typescript@5.9.3)
       typescript:
         specifier: ^5.8.3
         version: 5.9.3
@@ -91,7 +91,7 @@ importers:
         version: 30.2.0(@types/node@25.6.0)
       ts-jest:
         specifier: ^29.4.7
-        version: 29.4.7(@babel/core@7.29.6)(@jest/transform@30.2.0)(@jest/types@30.2.0)(babel-jest@30.2.0(@babel/core@7.29.6))(jest-util@30.2.0)(jest@30.2.0)(typescript@5.9.3)
+        version: 29.4.7(@babel/core@7.29.6)(@jest/transform@30.2.0)(@jest/types@30.2.0)(babel-jest@30.2.0(@babel/core@7.29.6))(jest-util@30.2.0)(jest@30.2.0(@types/node@25.6.0))(typescript@5.9.3)
       typescript:
         specifier: ^5.8.3
         version: 5.9.3
@@ -122,7 +122,7 @@ importers:
         version: 7.2.2
       ts-jest:
         specifier: ^29.4.7
-        version: 29.4.7(@babel/core@7.29.6)(@jest/transform@30.2.0)(@jest/types@30.2.0)(babel-jest@30.2.0(@babel/core@7.29.6))(jest-util@30.2.0)(jest@30.2.0)(typescript@5.9.3)
+        version: 29.4.7(@babel/core@7.29.6)(@jest/transform@30.2.0)(@jest/types@30.2.0)(babel-jest@30.2.0(@babel/core@7.29.6))(jest-util@30.2.0)(jest@30.2.0(@types/node@25.6.0))(typescript@5.9.3)
       typescript:
         specifier: ^5.8.3
         version: 5.9.3
@@ -162,7 +162,7 @@ importers:
         version: 1.5.10(@langchain/core@1.2.9(ws@8.21.3))(ws@8.21.3)
       ts-jest:
         specifier: ^29.4.7
-        version: 29.4.7(@babel/core@7.29.6)(@jest/transform@30.2.0)(@jest/types@30.2.0)(babel-jest@30.2.0(@babel/core@7.29.6))(jest-util@30.2.0)(jest@30.2.0)(typescript@5.9.3)
+        version: 29.4.7(@babel/core@7.29.6)(@jest/transform@30.2.0)(@jest/types@30.2.0)(babel-jest@30.2.0(@babel/core@7.29.6))(jest-util@30.2.0)(jest@30.2.0(@types/node@25.6.0))(typescript@5.9.3)
       typescript:
         specifier: ^5.8.3
         version: 5.9.3
@@ -208,7 +208,7 @@ importers:
         version: 7.2.2
       ts-jest:
         specifier: ^29.4.7
-        version: 29.4.7(@babel/core@7.29.6)(@jest/transform@30.2.0)(@jest/types@30.2.0)(babel-jest@30.2.0(@babel/core@7.29.6))(jest-util@30.2.0)(jest@30.2.0)(typescript@5.9.3)
+        version: 29.4.7(@babel/core@7.29.6)(@jest/transform@30.2.0)(@jest/types@30.2.0)(babel-jest@30.2.0(@babel/core@7.29.6))(jest-util@30.2.0)(jest@30.2.0(@types/node@25.6.0))(typescript@5.9.3)
       typescript:
         specifier: ^5.8.3
         version: 5.9.3
@@ -230,7 +230,7 @@ importers:
         version: 30.2.0(@types/node@25.6.0)
       ts-jest:
         specifier: ^29.4.7
-        version: 29.4.7(@babel/core@7.29.6)(@jest/transform@30.2.0)(@jest/types@30.2.0)(babel-jest@30.2.0(@babel/core@7.29.6))(jest-util@30.2.0)(jest@30.2.0)(typescript@5.9.3)
+        version: 29.4.7(@babel/core@7.29.6)(@jest/transform@30.2.0)(@jest/types@30.2.0)(babel-jest@30.2.0(@babel/core@7.29.6))(jest-util@30.2.0)(jest@30.2.0(@types/node@25.6.0))(typescript@5.9.3)
       typescript:
         specifier: ^5.8.3
         version: 5.9.3
@@ -253,9 +253,9 @@ importers:
 
 packages:
 
-  '@a2a-js/sdk@0.3.13':
-    resolution: {integrity: sha512-BZr0f9JVNQs3GKOM9xINWCh6OKIJWZFPyqqVqTym5mxO2Eemc6I/0zL7zWnljHzGdaf5aZQyQN5xa6PSH62q+A==}
-    engines: {node: '>=18'}
+  '@a2a-js/sdk@1.1.0':
+    resolution: {integrity: sha512-/Mhzw9C6VW7pFbY2Rq0pnrjT0Fy9PV0c46A7Gx1ppRlYq2u/6OV/bNRIoVBKChb8UZ8bE0WzzCc0pIr2CdmG+w==}
+    engines: {node: '>=20'}
     peerDependencies:
       '@bufbuild/protobuf': ^2.10.2
       '@grpc/grpc-js': ^1.11.0
@@ -2183,6 +2183,9 @@ packages:
   jose@6.1.3:
     resolution: {integrity: sha512-0TpaTfihd4QMNwrz/ob2Bp7X04yuxJkjRGi4aKmOqwhov54i6u79oCv7T+C7lo70MKH6BesI3vscD1yb/yzKXQ==}
 
+  jose@6.2.12:
+    resolution: {integrity: sha512-9NiFmJEex0sy2Dk58j2UGBSHgUs2ypF9eZSu4L6vjOX3Dp96Sw1F3uL+H+D1sx02jZZdzUT0HgvCy59CuvXcWw==}
+
   js-tiktoken@1.0.21:
     resolution: {integrity: sha512-biOj/6M5qdgx5TKjDnFT1ymSpM5tbd3ylwDtrQvFQSu0Z7bBYko2dF+W/aUkXUPuk6IVpRxk/3Q2sHOzGlS36g==}
 
@@ -3088,10 +3091,6 @@ packages:
   util-deprecate@1.0.2:
     resolution: {integrity: sha512-EPD5q1uXyFxJpCrLnCc1nHnq3gOa6DZBocAIiI2TaSCA7VCJ1UJDMagCzIkXNsUYfD1daK//LTEQ8xiIbrHtcw==}
 
-  uuid@11.1.1:
-    resolution: {integrity: sha512-vIYxrBCC/N/K+Js3qSN88go7kIfNPssr/hHCesKCQNAjmgvYS2oqr69kIufEG+O4+PfezOH4EbIeHCfFov8ZgQ==}
-    hasBin: true
-
   v8-to-istanbul@9.3.0:
     resolution: {integrity: sha512-kiGUalWN+rgBJ/1OHZsBtU4rXZOfj/7rKQxULKlIzwzQSvMJUUNgPwJEEh7gU6xEVxC0ahoOBvN2YI8GH6FNgA==}
     engines: {node: '>=10.12.0'}
@@ -3180,9 +3179,9 @@ packages:
 
 snapshots:
 
-  '@a2a-js/sdk@0.3.13(express@5.2.1)':
+  '@a2a-js/sdk@1.1.0(express@5.2.1)':
     dependencies:
-      uuid: 11.1.1
+      jose: 6.2.12
     optionalDependencies:
       express: 5.2.1
 
@@ -5308,6 +5307,8 @@ snapshots:
 
   jose@6.1.3: {}
 
+  jose@6.2.12: {}
+
   js-tiktoken@1.0.21:
     dependencies:
       base64-js: 1.5.1
@@ -5998,7 +5999,7 @@ snapshots:
 
   triple-beam@1.4.1: {}
 
-  ts-jest@29.4.7(@babel/core@7.29.6)(@jest/transform@30.2.0)(@jest/types@30.2.0)(babel-jest@30.2.0(@babel/core@7.29.6))(jest-util@30.2.0)(jest@30.2.0)(typescript@5.9.3):
+  ts-jest@29.4.7(@babel/core@7.29.6)(@jest/transform@30.2.0)(@jest/types@30.2.0)(babel-jest@30.2.0(@babel/core@7.29.6))(jest-util@30.2.0)(jest@30.2.0(@types/node@25.6.0))(typescript@5.9.3):
     dependencies:
       bs-logger: 0.2.6
       fast-json-stable-stringify: 2.1.0
@@ -6100,8 +6101,6 @@ snapshots:
       picocolors: 1.1.1
 
   util-deprecate@1.0.2: {}
-
-  uuid@11.1.1: {}
 
   v8-to-istanbul@9.3.0:
     dependencies:

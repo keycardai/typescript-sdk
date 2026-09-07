@@ -10,6 +10,8 @@ Python equivalent: [`keycardai-a2a`](https://github.com/keycardai/python-sdk/tre
 npm install @keycardai/a2a @a2a-js/sdk express
 ```
 
+Requires `@a2a-js/sdk` 1.x (A2A protocol 1.0). See [Protocol version and 0.3 agents](#protocol-version-and-03-agents) for interop with agents still on 0.3.
+
 ## Quick Start
 
 ### Build an A2A agent server
@@ -18,6 +20,7 @@ npm install @keycardai/a2a @a2a-js/sdk express
 import express from "express";
 import { agentCardHandler, jsonRpcHandler } from "@a2a-js/sdk/server/express";
 import { InMemoryTaskStore, type AgentExecutor, type RequestContext, type ExecutionEventBus } from "@a2a-js/sdk/server";
+import { Role } from "@a2a-js/sdk";
 import {
   requireBearerAuth,
   keycardMetadataRouter,
@@ -32,9 +35,21 @@ const executor: AgentExecutor = {
     const auth = getKeycardAuth(requestContext);
     if (!auth) throw new Error("unauthenticated"); // guard: requireBearerAuth normally prevents this
     // auth.token is the raw bearer string for downstream delegation
-    const text = (requestContext.userMessage.parts[0] as any).text;
-    eventBus.publish({ messageId: crypto.randomUUID(), role: "agent",
-      parts: [{ kind: "text", text: `Hello: ${text}` }] } as any);
+    const part = requestContext.userMessage.parts[0]?.content;
+    const text = part?.$case === "text" ? part.value : "";
+    eventBus.publish({
+      kind: "message",
+      data: {
+        messageId: crypto.randomUUID(),
+        contextId: "",
+        taskId: "",
+        role: Role.ROLE_AGENT,
+        parts: [{ content: { $case: "text", value: `Hello: ${text}` }, metadata: undefined, filename: "", mediaType: "" }],
+        metadata: undefined,
+        extensions: [],
+        referenceTaskIds: [],
+      },
+    });
     eventBus.finished();
   },
   async cancelTask() {},
@@ -88,10 +103,31 @@ async execute(requestContext, eventBus) {
     "Summarize this document",
     { subjectToken: auth.token },
   );
-  eventBus.publish(result.message);
+  // A 1.0 agent answers SendMessage with either a message or a task.
+  if (result.message) eventBus.publish({ kind: "message", data: result.message });
+  else if (result.task) eventBus.publish({ kind: "task", data: result.task });
   eventBus.finished();
 }
 ```
+
+## Protocol version and 0.3 agents
+
+This package speaks A2A protocol 1.0: `DelegationClient` sends the `SendMessage` JSON-RPC method with an `A2A-Version: 1.0` header, and `buildAgentCard` advertises a 1.0 JSON-RPC interface under `supportedInterfaces`. That is what `keycardai-a2a` (Python, `a2a-sdk` 1.x) serves and sends, so the two interoperate out of the box.
+
+Agents built on the 0.3 generation (`@keycardai/a2a` 0.3.x, or the Go and Ruby integrations until they move) do not interoperate by default: their cards have no 1.0 interface, and they answer `SendMessage` with `-32601 MethodNotFound`. `@a2a-js/sdk` ships an opt-in compatibility layer for the migration window, and this package passes it through rather than translating envelopes itself:
+
+```typescript
+// Client side: talk 0.3 to agents whose card only advertises 0.3.
+// The wire generation is chosen per agent from its card; 1.0 agents still get 1.0.
+const client = new DelegationClient(config, { legacyCompat: { enabled: true } });
+
+// Server side: also accept 0.3 envelopes (message/send) from old callers.
+const agentCard = buildAgentCard(config, { legacyCompat: { enabled: true } });
+app.use("/.well-known/agent-card.json", agentCardHandler({ agentCardProvider: requestHandler, legacyCompat: { enabled: true } }));
+app.use("/a2a/jsonrpc", requireBearerAuth({ ... }), jsonRpcHandler({ requestHandler, userBuilder: keycardUserBuilder(), legacyCompat: { enabled: true } }));
+```
+
+The Python equivalent is `enable_v0_3_compat` in `keycardai-a2a`. See the upstream [v0.3 compatibility guide](https://github.com/a2aproject/a2a-js/blob/main/docs/compatibility-v0_3.md).
 
 ## How it works
 
@@ -114,12 +150,13 @@ If you skip the middleware and pass verification options directly to `keycardUse
 | `KeycardUser` | Implements `User`, carries `AccessToken` |
 | `getKeycardAuth(requestContext)` | Extracts `AccessToken` from executor context; returns `null` if unauthenticated |
 | `createKeycardRequestHandler(executor, agentCard, options?)` | Convenience wrapper creating `DefaultRequestHandler` with `InMemoryTaskStore` |
-| `buildAgentCard(config)` | Builds an `AgentCard` from `AgentServiceConfig` |
-| `DelegationClient` | Discovers, exchanges tokens, and invokes remote A2A agents |
+| `buildAgentCard(config, options?)` | Builds a 1.0 `AgentCard` from `AgentServiceConfig`; `options.legacyCompat` also advertises a 0.3 interface |
+| `DelegationClient` | Discovers, exchanges tokens, and invokes remote A2A agents over A2A 1.0; `options.legacyCompat` enables upstream's 0.3 client shim |
+| `DelegationResult` | `{ message?, task?, agentCard }`: a 1.0 agent answers with a message or a task |
 | `ServiceDiscovery` | Fetches and caches agent cards from `/.well-known/agent-card.json` |
 | `AgentServiceConfig` | Config: service name, credentials, identity URL, zone |
 
-Re-exports from `@a2a-js/sdk`: `agentCardHandler`, `jsonRpcHandler`, `restHandler`, `UserBuilder`, `AgentExecutor`, `RequestContext`, `ExecutionEventBus`, `InMemoryTaskStore`, `DefaultRequestHandler`, `AgentCard`, `Message`, `Task`.
+Re-exports from `@a2a-js/sdk`: `agentCardHandler`, `jsonRpcHandler`, `restHandler`, `UserBuilder`, `AgentExecutor`, `RequestContext`, `ExecutionEventBus`, `InMemoryTaskStore`, `DefaultRequestHandler`, `AgentCard`, `Message`, `Task`, `Part`, `Role`, `A2A_PROTOCOL_VERSION`, `A2A_VERSION_HEADER`.
 
 ## Related Packages
 
