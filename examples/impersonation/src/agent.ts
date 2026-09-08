@@ -10,7 +10,9 @@
  * The exchange is authenticated with the client's own credentials, and the
  * subject token is an unsigned substitute-user assertion carrying the target
  * user identifier. The issued token's "sub" is the target user; the server
- * records this service in its "act" claim chain for audit.
+ * knows this service from client authentication and records it server-side
+ * (policy, audit events). The token itself is indistinguishable from the user
+ * acting directly (RFC 8693 impersonation), with no "act" claim.
  *
  * Configuration (environment variables):
  *
