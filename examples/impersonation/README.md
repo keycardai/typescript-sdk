@@ -12,8 +12,10 @@ performs a single token exchange, authenticated with the agent's own
 credentials, where the subject token is an unsigned substitute-user assertion
 (`subject_token_type`: `urn:keycard:params:oauth:token-type:substitute-user`)
 carrying the target user identifier. The issued token's `sub` is the target
-user; the authorization server derives the acting party from the
-authenticated client and records it in the `act` claim chain for audit.
+user; the authorization server identifies the acting party from client
+authentication and records it server-side, as policy inputs and audit events.
+The issued token carries no `act` claim and is indistinguishable from the user
+acting directly, per RFC 8693 impersonation semantics.
 
 The user must have previously granted access (a delegated grant) for the
 requested resource. **Impersonation is forbidden by default**: an
