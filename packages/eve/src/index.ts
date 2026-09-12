@@ -26,6 +26,8 @@ export type {
   AuthorizedTokenStore,
   KeycardInteractiveOptions,
   KeycardResumeState,
+  RegisterAttemptClientOptions,
+  RegisteredClient,
   WebAppFlow,
 } from "./interactive.js";
 

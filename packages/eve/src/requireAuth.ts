@@ -1,12 +1,20 @@
+import type { ToolAuthOptions } from "eve/tools";
+
 /**
  * The part of eve's tool context this helper needs.
  *
  * Declared structurally rather than imported so nothing here loads eve at
  * runtime. `ctx.requireAuth` never returns: it aborts the tool call and hands
  * the connection's authorization strategy back to the runtime.
+ *
+ * The options are eve's own `ToolAuthOptions` — imported as a type, which is
+ * erased, so the structural property still holds. Taking the type from eve
+ * rather than restating it is deliberate: the previous hand-written shape
+ * accepted a `reason` field that eve does not have, and a call passing one
+ * failed to typecheck at the call site rather than here.
  */
 export interface RequireAuthContext<Provider> {
-  requireAuth(provider: Provider, options?: { readonly reason?: string }): never;
+  requireAuth(provider: Provider, options?: ToolAuthOptions): never;
 }
 
 /**
@@ -30,12 +38,8 @@ export function requireAuthOnUnauthorized<Provider>(
   response: { readonly status: number },
   ctx: RequireAuthContext<Provider>,
   provider: Provider,
-  options?: { readonly reason?: string },
+  options?: ToolAuthOptions,
 ): void {
   if (response.status !== 401 && response.status !== 403) return;
-  ctx.requireAuth(provider, {
-    reason:
-      options?.reason ??
-      `The provider rejected the connection credential with ${response.status}.`,
-  });
+  ctx.requireAuth(provider, options);
 }
