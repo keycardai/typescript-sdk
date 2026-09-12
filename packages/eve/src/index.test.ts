@@ -31,7 +31,10 @@ describe("package surface", () => {
     // A connection's model-facing schema comes from the server's tool list;
     // the auth definition contributes callbacks and metadata only, so no
     // credential and no auth argument can reach the model through it.
-    expect(Object.keys(auth).sort()).toEqual(["displayName", "getToken", "principalType"]);
+    //
+    // The keys are also exactly what eve's authored-connection validator
+    // allows. `displayName` is absent deliberately — see connections.ts.
+    expect(Object.keys(auth).sort()).toEqual(["getToken", "principalType"]);
 
     const result = await auth.getToken({ principal: userPrincipal(), connection });
 
@@ -39,7 +42,7 @@ describe("package surface", () => {
     // is never stored on the definition, so nothing token-shaped survives here
     // for a serializer to sweep into conversation history.
     expect(JSON.stringify(auth)).not.toContain(result.token);
-    expect(JSON.stringify(auth)).toBe(`{"principalType":"user","displayName":"${CALENDAR}"}`);
+    expect(JSON.stringify(auth)).toBe(`{"principalType":"user"}`);
   });
 });
 
@@ -48,19 +51,33 @@ describe("requireAuthOnUnauthorized", () => {
     const auth = Keycard.asSelf({ resource: CALENDAR, client: fakeZoneClient() });
     const seen: unknown[] = [];
     const ctx = {
-      requireAuth(provider: unknown, options?: { readonly reason?: string }): never {
+      requireAuth(provider: unknown, options?: unknown): never {
         seen.push({ provider, options });
         throw new Error("requireAuth");
       },
     };
 
     expect(() => requireAuthOnUnauthorized({ status: 401 }, ctx, auth)).toThrow("requireAuth");
-    expect(seen).toEqual([
-      {
-        provider: auth,
-        options: { reason: "The provider rejected the connection credential with 401." },
+    // Forwarded with no options. eve's ToolAuthOptions carries `connection`,
+    // `displayName` and `authKey` — there is no field for an explanation, and
+    // inventing one made the call fail to typecheck against eve.
+    expect(seen).toEqual([{ provider: auth, options: undefined }]);
+  });
+
+  it("forwards the options eve actually accepts", () => {
+    const auth = Keycard.asSelf({ resource: CALENDAR, client: fakeZoneClient() });
+    const seen: unknown[] = [];
+    const ctx = {
+      requireAuth(provider: unknown, options?: unknown): never {
+        seen.push({ provider, options });
+        throw new Error("requireAuth");
       },
-    ]);
+    };
+
+    expect(() =>
+      requireAuthOnUnauthorized({ status: 403 }, ctx, auth, { displayName: "Calendar" }),
+    ).toThrow("requireAuth");
+    expect(seen).toEqual([{ provider: auth, options: { displayName: "Calendar" } }]);
   });
 
   it("leaves other statuses to the tool", () => {
