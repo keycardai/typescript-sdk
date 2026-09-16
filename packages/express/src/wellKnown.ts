@@ -117,7 +117,7 @@ function protectedResourceHandler(options: KeycardRouterOptions): RequestHandler
 }
 
 function authorizationServerHandler(issuer: string, timeoutMs: number): RequestHandler {
-  return async (req, res, next) => {
+  return async (_req, res, next) => {
     try {
       const upstream = await fetch(
         `${issuer}/.well-known/oauth-authorization-server`,
@@ -128,14 +128,6 @@ function authorizationServerHandler(issuer: string, timeoutMs: number): RequestH
         return;
       }
       const metadata = await upstream.json() as Record<string, unknown>;
-
-      // Rewrite authorization_endpoint to include a `resource` param pointing
-      // at this server's origin so the AS knows which resource is being accessed.
-      if (typeof metadata.authorization_endpoint === "string") {
-        const authUrl = new URL(metadata.authorization_endpoint);
-        authUrl.searchParams.set("resource", getRequestOrigin(req));
-        metadata.authorization_endpoint = authUrl.toString();
-      }
 
       res.set("Access-Control-Allow-Origin", "*");
       res.status(200).json(metadata);
