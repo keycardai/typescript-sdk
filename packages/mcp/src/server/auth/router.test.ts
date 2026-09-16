@@ -197,13 +197,32 @@ describe('MCP Auth Metadata Router', () => {
       expect(response.status).toBe(200);
       expect(response.body).toStrictEqual({
         issuer: 'https://auth.example.com',
-        authorization_endpoint: 'https://auth.example.com/authorize?resource=http%3A%2F%2Fapi.example.com',
+        authorization_endpoint: 'https://auth.example.com/authorize',
         token_endpoint: 'https://auth.example.com/token',
         response_types_supported: ['code'],
         grant_types_supported: ['authorization_code', 'refresh_token'],
         code_challenge_methods_supported: ['S256'],
         token_endpoint_auth_methods_supported: ['client_secret_post']
       });
+    });
+
+    it('passes an authorization_endpoint with an existing query through unchanged', async () => {
+      const upstream = {
+        issuer: 'https://auth.example.com',
+        authorization_endpoint: 'https://auth.example.com/authorize?resource=stale&keep=1',
+        token_endpoint: 'https://auth.example.com/token'
+      };
+      jest.spyOn(global, 'fetch').mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve(upstream)
+      } as Response);
+
+      const response = await supertest(app)
+        .get('/.well-known/oauth-authorization-server')
+        .set('Host', 'api.example.com');
+
+      expect(response.status).toBe(200);
+      expect(response.body).toStrictEqual(upstream);
     });
 
     it('returns 502 when the upstream AS metadata response is not OK', async () => {
