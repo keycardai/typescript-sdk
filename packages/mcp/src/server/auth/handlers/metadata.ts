@@ -28,7 +28,7 @@ export function authorizationServerMetadataHandler(issuer: string): RequestHandl
 
   router.use(cors());
 
-  router.get("/", async (req, res) => {
+  router.get("/", async (_req, res) => {
     let resp: Response;
     try {
       resp = await fetch(issuer + '/.well-known/oauth-authorization-server');
@@ -43,14 +43,6 @@ export function authorizationServerMetadataHandler(issuer: string): RequestHandl
     }
 
     const json = await resp.json() as Record<string, unknown>;
-
-    const baseUrl = `${req.protocol}://${req.host}`
-
-    if (typeof json.authorization_endpoint === 'string') {
-      const authorizationUrl = new URL(json.authorization_endpoint);
-      authorizationUrl.searchParams.set('resource', baseUrl);
-      json.authorization_endpoint = authorizationUrl.toString();
-    }
 
     res.status(200).json(json);
   });
