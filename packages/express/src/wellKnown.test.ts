@@ -69,11 +69,23 @@ describe('keycardMetadataRouter', () => {
     expect(res.body.issuer).toBe(ISSUER);
   });
 
-  it('rewrites authorization_endpoint with a resource param', async () => {
+  it('passes the upstream authorization_endpoint through unchanged, existing query included', async () => {
+    const upstream = {
+      issuer: ISSUER,
+      authorization_endpoint: `${ISSUER}/authorize?resource=stale&keep=1`,
+      token_endpoint: `${ISSUER}/token`,
+    };
+    fetchMock.mockImplementation(async () =>
+      new Response(JSON.stringify(upstream), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
     const app = makeApp();
     const res = await request(app).get('/.well-known/oauth-authorization-server');
-    const authUrl = new URL(res.body.authorization_endpoint);
-    expect(authUrl.searchParams.get('resource')).toBeTruthy();
+    expect(res.status).toBe(200);
+    expect(res.body).toStrictEqual(upstream);
+    expect(res.body.authorization_endpoint).toBe(`${ISSUER}/authorize?resource=stale&keep=1`);
   });
 
   it.each([
