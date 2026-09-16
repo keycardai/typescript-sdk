@@ -32,7 +32,7 @@ export async function handleMetadataRequest(
   }
 
   if (url.pathname === "/.well-known/oauth-authorization-server") {
-    return handleAuthorizationServerMetadata(url, options);
+    return handleAuthorizationServerMetadata(options);
   }
 
   if (url.pathname === "/.well-known/jwks.json" && options.publicJwks) {
@@ -67,7 +67,6 @@ function handleProtectedResourceMetadata(
 }
 
 async function handleAuthorizationServerMetadata(
-  url: URL,
   options: MetadataOptions,
 ): Promise<Response> {
   const resp = await fetch(
@@ -82,15 +81,6 @@ async function handleAuthorizationServerMetadata(
   }
 
   const json = (await resp.json()) as Record<string, unknown>;
-  const baseUrl = url.origin;
-
-  // Rewrite authorization_endpoint to include ?resource= so STS knows
-  // which resource is being requested
-  if (typeof json.authorization_endpoint === "string") {
-    const authorizationUrl = new URL(json.authorization_endpoint);
-    authorizationUrl.searchParams.set("resource", baseUrl);
-    json.authorization_endpoint = authorizationUrl.toString();
-  }
 
   return jsonResponse(json);
 }

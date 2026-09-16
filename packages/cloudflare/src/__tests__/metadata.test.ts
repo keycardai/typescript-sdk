@@ -92,9 +92,37 @@ describe("handleMetadataRequest", () => {
       expect(result).not.toBeNull();
       const json = await result!.json();
 
-      // Should rewrite authorization_endpoint to include ?resource=
-      expect(json.authorization_endpoint).toContain("resource=https%3A%2F%2Fexample.com");
-      expect(json.token_endpoint).toBe("https://z_abc123.keycard.cloud/oauth/token");
+      // The upstream document is returned unmodified
+      expect(json).toEqual(mockMetadata);
+      expect(json.authorization_endpoint).toBe("https://z_abc123.keycard.cloud/oauth/authorize");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("passes an authorization_endpoint with an existing query through unchanged", async () => {
+    const mockMetadata = {
+      issuer: "https://z_abc123.keycard.cloud",
+      authorization_endpoint: "https://z_abc123.keycard.cloud/oauth/authorize?resource=stale&keep=1",
+      token_endpoint: "https://z_abc123.keycard.cloud/oauth/token",
+    };
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = jest.fn<typeof fetch>().mockResolvedValue(
+      new Response(JSON.stringify(mockMetadata), { status: 200 }),
+    );
+
+    try {
+      const request = new Request("https://example.com/.well-known/oauth-authorization-server");
+      const result = await handleMetadataRequest(request, baseOptions);
+
+      expect(result).not.toBeNull();
+      const json = await result!.json();
+
+      expect(json).toEqual(mockMetadata);
+      expect(json.authorization_endpoint).toBe(
+        "https://z_abc123.keycard.cloud/oauth/authorize?resource=stale&keep=1",
+      );
     } finally {
       globalThis.fetch = originalFetch;
     }
