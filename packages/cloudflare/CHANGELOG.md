@@ -1,3 +1,14 @@
+## 0.4.1-keycardai-cloudflare (2026-09-16)
+
+
+- fix(cloudflare): stop rewriting the proxied authorization_endpoint (SDK-3) (#180)
+- handleAuthorizationServerMetadata set resource=<origin> on the upstream
+authorization_endpoint, a shim for MCP clients on the 2025-03-26
+authorization spec. The upstream document is now returned unmodified, per
+keycard-sdk-spec oauth-metadata-endpoints spec-version 2.
+- Co-authored-by: devin-ai-keycard <devin-ai@keycard.ai>
+Co-authored-by: Larry Osakwe <larry@keycard.ai>
+
 ## 0.4.0-keycardai-cloudflare (2026-07-30)
 
 
