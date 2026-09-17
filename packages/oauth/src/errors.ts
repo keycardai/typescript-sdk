@@ -49,6 +49,33 @@ export class AuthorizationDeniedError extends OAuthError {
 }
 
 /**
+ * A refresh-token grant was not renewed. `errorCode` is the authorization
+ * server's `error` when it returned one (`invalid_grant` means the refresh
+ * token is expired, revoked, or was issued to another client, and the only
+ * recovery is to authorize again), `invalid_response` otherwise. `retryable`
+ * is `true` for a transport failure, HTTP 5xx, or 429, `false` for every
+ * authorization-server error and other 4xx. `cause` carries the underlying
+ * error for a transport failure.
+ */
+export class RefreshGrantError extends OAuthError {
+  readonly retryable: boolean;
+  readonly status?: number;
+  readonly cause?: unknown;
+
+  constructor(
+    errorCode: string,
+    message: string,
+    options: { retryable: boolean; status?: number; errorUri?: string; cause?: unknown },
+  ) {
+    super(errorCode, message, options.errorUri);
+    this.name = "RefreshGrantError";
+    this.retryable = options.retryable;
+    this.status = options.status;
+    this.cause = options.cause;
+  }
+}
+
+/**
  * The `state` on the callback is absent or does not match the value stored at
  * the begin step (RFC 6749 §10.12). The flow is rejected before any token
  * request.

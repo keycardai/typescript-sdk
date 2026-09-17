@@ -1,8 +1,8 @@
 import base64url from "./base64url.js";
 import { fetchAuthorizationServerMetadata, type OAuthAuthorizationServerMetadata } from "./discovery.js";
-import { AuthorizationDeniedError, OAuthError, StateMismatchError } from "./errors.js";
+import { AuthorizationDeniedError, OAuthError, RefreshGrantError, StateMismatchError } from "./errors.js";
 import { buildAuthorizeUrl, exchangeAuthorizationCode, generatePkcePair } from "./pkce.js";
-import type { TokenResponse } from "./tokenExchange.js";
+import { deserializeTokenResponse, type TokenResponse } from "./tokenExchange.js";
 
 // =============================================================================
 // Stateless web-app authorization-code flow with PKCE
@@ -52,6 +52,25 @@ export interface CompleteAuthorizationOptions {
   redirectUri: string;
   /** Client secret for confidential clients. Public clients omit it. */
   clientSecret?: string;
+  /** Pre-discovered metadata. When set, no discovery request is made. */
+  metadata?: OAuthAuthorizationServerMetadata;
+  signal?: AbortSignal;
+}
+
+export interface RefreshAuthorizationOptions {
+  /** The `refresh_token` a previous token response carried. */
+  refreshToken: string;
+  /** The client the grant was issued to. */
+  clientId: string;
+  /** Client secret for confidential clients. Public clients omit it. */
+  clientSecret?: string;
+  /**
+   * RFC 8707 resource indicators, one `resource` parameter per entry, to
+   * narrow the refreshed token to a subset of the granted resources.
+   */
+  resources?: readonly string[];
+  /** Requested scopes, to narrow the refreshed token to a subset of the granted scopes. */
+  scopes?: readonly string[];
   /** Pre-discovered metadata. When set, no discovery request is made. */
   metadata?: OAuthAuthorizationServerMetadata;
   signal?: AbortSignal;
@@ -153,6 +172,116 @@ export async function completeAuthorization(
     metadata: options.metadata,
     signal: options.signal,
   });
+}
+
+/**
+ * Renew a grant the authorization-code flow issued (RFC 6749 §6).
+ *
+ * POSTs `grant_type=refresh_token` to the token endpoint, authenticating the
+ * client the way `completeAuthorization` does: `client_id` in the body for a
+ * public client, HTTP Basic for a confidential one. The response is the same
+ * `TokenResponse` shape; when it carries a `refreshToken`, the server rotated
+ * it and the caller must store the new value in place of the old one. The SDK
+ * holds no state: where the refresh token lives is the caller's concern.
+ *
+ * Failures throw `RefreshGrantError`. `invalid_grant` is not retryable and
+ * means the user must authorize again; a transport failure or a 5xx is
+ * retryable and leaves the refresh token usable.
+ */
+export async function refreshAuthorization(
+  issuer: string,
+  options: RefreshAuthorizationOptions,
+): Promise<TokenResponse> {
+  const metadata = options.metadata
+    ?? await fetchAuthorizationServerMetadata(issuer, { signal: options.signal });
+  if (!metadata.token_endpoint) {
+    throw new Error(
+      `Authorization server "${issuer}" does not advertise a token_endpoint`,
+    );
+  }
+
+  const params = new URLSearchParams();
+  params.set("grant_type", "refresh_token");
+  params.set("refresh_token", options.refreshToken);
+  if (options.scopes && options.scopes.length > 0) {
+    params.set("scope", options.scopes.join(" "));
+  }
+  for (const resource of options.resources ?? []) {
+    params.append("resource", resource);
+  }
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/x-www-form-urlencoded",
+  };
+  if (options.clientSecret) {
+    headers["Authorization"] = `Basic ${btoa(`${options.clientId}:${options.clientSecret}`)}`;
+  } else {
+    params.set("client_id", options.clientId);
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(metadata.token_endpoint, {
+      method: "POST",
+      headers,
+      body: params.toString(),
+      signal: options.signal,
+    });
+  } catch (cause) {
+    throw new RefreshGrantError(
+      "invalid_response",
+      `Refresh token request failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+      { retryable: true, cause },
+    );
+  }
+
+  if (!response.ok) {
+    const retryable = response.status >= 500 || response.status === 429;
+    let errorBody: Record<string, unknown> | null = null;
+    try {
+      const json = await response.json() as unknown;
+      if (json && typeof json === "object" && !Array.isArray(json)) {
+        errorBody = json as Record<string, unknown>;
+      }
+    } catch {
+      // non-JSON error body: fall through to the generic error
+    }
+    if (errorBody && typeof errorBody.error === "string") {
+      const description = typeof errorBody.error_description === "string"
+        ? errorBody.error_description
+        : errorBody.error;
+      const errorUri = typeof errorBody.error_uri === "string" ? errorBody.error_uri : undefined;
+      throw new RefreshGrantError(errorBody.error, description, {
+        retryable,
+        status: response.status,
+        errorUri,
+      });
+    }
+    throw new RefreshGrantError(
+      "invalid_response",
+      `Refresh token request failed (HTTP ${response.status})`,
+      { retryable, status: response.status },
+    );
+  }
+
+  let json: unknown;
+  try {
+    json = await response.json();
+  } catch (cause) {
+    throw new RefreshGrantError(
+      "invalid_response",
+      "Token endpoint response is not valid JSON",
+      { retryable: false, status: response.status, cause },
+    );
+  }
+  if (!json || typeof json !== "object" || Array.isArray(json)) {
+    throw new RefreshGrantError(
+      "invalid_response",
+      "Token endpoint response is not a valid JSON object",
+      { retryable: false, status: response.status },
+    );
+  }
+  return deserializeTokenResponse(json as Record<string, unknown>);
 }
 
 /** Compare two strings without leaking their common prefix length via timing. */
