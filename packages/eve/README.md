@@ -16,11 +16,18 @@ Three adapters, each one plugging into an eve primitive instead of wrapping it:
 pnpm add @keycardai/eve
 ```
 
-`eve` is a peer dependency, pinned to `>=0.47.3 <0.48.0`. This package was
-built and verified against eve `0.47.3`. eve is in public beta and ships
+`eve` is a peer dependency, pinned to `>=0.54.3 <0.55.0`. This package was
+built and verified against eve `0.54.3`. eve is in public beta and ships
 releases most days, and its connection and auth surfaces are still moving, so
 the range deliberately stops at the next minor rather than tracking `^`. Widen
 it only after re-running this package's tests against the newer eve.
+
+The narrowness is the point rather than an oversight, and so is keeping the
+range current: a consumer who runs a newer eve and installs this anyway —
+`--legacy-peer-deps` — silently loses the check, and the incompatibilities
+surface at build time instead. Two of them are what the 0.47 → 0.54 bump had to
+fix: an `auth` key list that `displayName` is not in, and a `requireAuth`
+options type with no `reason` field.
 
 eve itself declares `engines.node: ">=24"` and is ESM only. This package
 imports eve for types only (`import type { ... } from "eve/connections"`), so
@@ -139,12 +146,38 @@ export default defineMcpClientConnection({
   description: "Documents the user has authorized.",
   auth: Keycard.interactive({
     zoneUrl: process.env.KEYCARD_ZONE_URL!,
-    clientId: process.env.KEYCARD_CLIENT_ID!,
     resource: "https://docs.example.com",
     requestScopes: ["documents.read"],
+    connectionName: "Docs",
   }),
 });
 ```
+
+**There is no `clientId`, and adding one usually breaks the flow.** eve mints a
+fresh callback URL for every attempt — `/eve/v1/connections/:name/callback/
+:attemptId/:token` — while [RFC 9700][rfc9700] requires the authorization server
+to match `redirect_uri` against the client's registered list by exact string
+comparison. A client registered ahead of time cannot name a URL that is
+generated later, so the request is rejected with something like
+`Unauthorized redirect URI`. Leaving `clientId` unset registers a client per
+attempt instead (RFC 7591), whose single redirect URI is the callback that
+attempt will actually return to. Each client is public and PKCE-bound, so
+nothing secret enters eve's durable resume state; if the server issues a
+confidential client anyway, the attempt is abandoned rather than journaling a
+secret.
+
+Set `clientId` only when that client's registered redirect URIs already cover
+eve's callback. Note that a Keycard application `identifier` is not a client id:
+zones identify clients by [Client ID Metadata Document][cimd] — an HTTPS URL
+with a path, serving the client's metadata — so a value like
+`urn:app:my-agent` fails with `Unsupported client identifier prefix: urn`.
+
+Per-attempt clients accumulate in the zone. They hold no secret and their
+callback is single-use, but a server returning `registration_client_uri` and
+`registration_access_token` allows RFC 7592 deletion once a grant settles.
+
+[rfc9700]: https://datatracker.ietf.org/doc/html/rfc9700
+[cimd]: https://datatracker.ietf.org/doc/html/draft-ietf-oauth-client-id-metadata-document-02
 
 The definition implements the same three-method form as eve's
 `defineInteractiveAuthorization`, over `@keycardai/oauth`'s v3 web-app flow:
@@ -153,11 +186,13 @@ The definition implements the same three-method form as eve's
   principal. Otherwise it throws `ConnectionAuthorizationRequiredError`, so eve
   emits `authorization.required`, runs `startAuthorization` in a durable step,
   and parks the turn on a framework-owned callback.
-- `startAuthorization` calls `beginAuthorization` for the connection's resource
-  list against eve's minted callback URL, and returns the challenge URL plus
-  the `state` and PKCE verifier as JSON resume state.
+- `startAuthorization` registers this attempt's client (unless `clientId` is
+  set), calls `beginAuthorization` for the connection's resource list against
+  eve's minted callback URL, and returns the challenge URL plus the `state`,
+  PKCE verifier and client id as JSON resume state.
 - `completeAuthorization` calls `completeAuthorization` with eve's callback
-  params and the journaled resume state, and hands eve the token.
+  params and the journaled resume state, redeeming as the client that attempt's
+  authorization request ran as, and hands eve the token.
 
 **Resume without authorization cannot yield a credential.** `getToken` is the
 only path that returns a token, and it reads a store only
@@ -212,8 +247,12 @@ const auth = Keycard.onBehalfOf({
 `fakeZoneClient()` records every exchange, impersonation, and client
 credentials call, and can fail one resource or every request. `keycardAuth()`
 takes a `verify` seam in place of the JWKS-backed verifier, and
-`Keycard.interactive()` takes a `flow` seam in place of the two web-flow calls.
-An injected `client` or `flow` supersedes `zoneUrl`, so a test needs no zone.
+`Keycard.interactive()` takes a `flow` seam in place of the web-flow calls —
+`begin`, `complete`, and the `register` used for per-attempt clients. A flow
+without `register` is rejected at construction unless a `clientId` is also
+given, so a test cannot accidentally exercise a combination that cannot work in
+production. An injected `client` or `flow` supersedes `zoneUrl`, so a test needs
+no zone.
 
 ## Not included: the Keycard gateway MCP proxy
 
