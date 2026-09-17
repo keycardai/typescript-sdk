@@ -1,3 +1,13 @@
+## 0.24.1-keycardai-oauth (2026-09-17)
+
+
+- fix(oauth): warn once when a TokenVerifier is built without an audience (SDK-4) (#183)
+- TokenVerifier now console.warns once per instance when options.audience
+is undefined, naming the option to set. Behavior with an audience is
+unchanged; no signature change.
+- Co-authored-by: devin-ai-keycard <devin-ai@keycard.ai>
+Co-authored-by: Larry Osakwe <larry@keycard.ai>
+
 ## 0.24.0-keycardai-oauth (2026-09-05)
 
 
