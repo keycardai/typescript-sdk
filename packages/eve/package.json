@@ -1,6 +1,6 @@
 {
   "name": "@keycardai/eve",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "[Preview] Keycard auth adapters for eve agents: a zone token verifier for the channel auth walk, Keycard-backed connection auth, and interactive authorization over the zone's web flow",
   "license": "MIT",
   "repository": {
