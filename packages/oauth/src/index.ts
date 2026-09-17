@@ -19,6 +19,7 @@ export {
   JWKSKeyNotFoundError,
   AuthorizationDeniedError,
   StateMismatchError,
+  RefreshGrantError,
   TokenEndpointDiscoveryError,
 } from "./errors.js";
 export type { TokenEndpointCacheOptions } from "./tokenEndpoint.js";
@@ -69,10 +70,11 @@ export type {
   AuthorizeUrlParams,
   AuthenticateOptions,
 } from "./pkce.js";
-export { beginAuthorization, completeAuthorization } from "./webApp.js";
+export { beginAuthorization, completeAuthorization, refreshAuthorization } from "./webApp.js";
 export type {
   BeginAuthorizationOptions,
   CompleteAuthorizationOptions,
+  RefreshAuthorizationOptions,
   AuthorizationRedirect,
 } from "./webApp.js";
 export { fetchUserInfo } from "./userinfo.js";
