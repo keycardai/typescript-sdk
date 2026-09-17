@@ -817,6 +817,84 @@ describe("interactive grant lifecycle", () => {
     expect(await tokens.list(PRINCIPAL_KEY)).toHaveLength(1);
   });
 
+  it("refreshes a grant whose access token already expired instead of dropping it", async () => {
+    // The durable-store case: the user comes back after the access token
+    // expired, and the refresh token is what keeps them signed in.
+    const flow = recordingFlow({
+      completion: {
+        accessToken: "granted-token",
+        tokenType: "Bearer",
+        expiresIn: -1,
+        refreshToken: "refresh-1",
+      },
+    });
+    const tokens = memoryAuthorizedTokenStore();
+    const auth = interactive({ resource: CALENDAR, tokens, flow });
+    await authorize(auth);
+
+    // The store keeps the expired grant because it still holds a refresh token.
+    expect(await tokens.list(PRINCIPAL_KEY)).toHaveLength(1);
+
+    const result = await auth.getToken({
+      principal: userPrincipal(),
+      connection,
+    });
+
+    expect(result.token).toBe("refreshed-token");
+    expect(flow.refreshes).toHaveLength(1);
+    expect(flow.refreshes[0]?.refreshToken).toBe("refresh-1");
+    expect(flow.begins).toHaveLength(1);
+    const held = await tokens.list(PRINCIPAL_KEY);
+    expect(held).toHaveLength(1);
+    expect(held[0]).toMatchObject({
+      accessToken: "refreshed-token",
+      refreshToken: "rotated-refresh",
+    });
+  });
+
+  it("keeps a grant another step already rotated when its own refresh is refused", async () => {
+    const tokens = memoryAuthorizedTokenStore();
+    const base = recordingFlow({
+      completion: {
+        accessToken: "granted-token",
+        tokenType: "Bearer",
+        expiresIn: 30,
+        refreshToken: "refresh-1",
+      },
+    });
+    const flow = {
+      ...base,
+      async refresh(refreshOptions: RefreshAuthorizationOptions): Promise<TokenResponse> {
+        base.refreshes.push(refreshOptions);
+        // Another step rotated the grant between our list and our refresh.
+        const [stored] = await tokens.list(PRINCIPAL_KEY);
+        await tokens.put(PRINCIPAL_KEY, {
+          ...stored!,
+          accessToken: "elsewhere-token",
+          refreshToken: "rotated-elsewhere",
+          expiresAt: Date.now() + 900_000,
+        });
+        throw new RefreshGrantError("invalid_grant", "refresh token already used", {
+          retryable: false,
+          status: 400,
+        });
+      },
+    };
+    const auth = interactive({ resource: CALENDAR, tokens, flow });
+    await authorize(auth);
+
+    const result = await auth.getToken({
+      principal: userPrincipal(),
+      connection,
+    });
+
+    expect(result.token).toBe("elsewhere-token");
+    const held = await tokens.list(PRINCIPAL_KEY);
+    expect(held).toHaveLength(1);
+    expect(held[0]?.refreshToken).toBe("rotated-elsewhere");
+  });
+
+
   it("parks on expiry when the grant holds no refresh token", async () => {
     const flow = recordingFlow({
       completion: {

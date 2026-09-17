@@ -341,6 +341,15 @@ export function interactive(
         cause instanceof RefreshGrantError &&
         cause.errorCode === "invalid_grant"
       ) {
+        // A concurrent step may have rotated this grant first, in which case
+        // the refresh token we sent is the stale one and the stored grant is
+        // the good one.
+        const current = (await tokens.list(principal)).find(
+          (candidate) => candidate.id === grant.id,
+        );
+        if (current && current.refreshToken !== grant.refreshToken) {
+          return current;
+        }
         await tokens.remove(principal, grant.id);
         throw new AuthorizationRequiredError(connectionName, {
           message:
@@ -382,7 +391,12 @@ export function interactive(
       const key = storeKey(principal);
       const now = Date.now();
       const held = (await tokens.list(key)).filter(covers);
-      let grant = held.find((candidate) => !expired(candidate, now));
+      // A grant is usable while its access token is live or while it holds a
+      // refresh token that can mint a new one; an expired grant with no refresh
+      // token is dead.
+      const usable = held.filter((candidate) => !dead(candidate, now));
+      let grant =
+        usable.find((candidate) => !expired(candidate, now)) ?? usable[0];
       if (!grant) {
         await Promise.all(held.map((stale) => tokens.remove(key, stale.id)));
         throw new AuthorizationRequiredError(connectionName);
@@ -392,6 +406,10 @@ export function interactive(
           ...grant,
           refreshToken: grant.refreshToken,
         });
+      } else if (expired(grant, now)) {
+        // Expired, and this flow cannot refresh it.
+        await tokens.remove(key, grant.id);
+        throw new AuthorizationRequiredError(connectionName);
       }
       return toTokenResult(grant);
     },
@@ -480,7 +498,7 @@ export function interactive(
   };
 }
 
-/** A process-local store that drops grants at their advisory expiry. */
+/** A process-local store that drops grants once they can no longer mint a token. */
 export function memoryAuthorizedTokenStore(): GrantStore {
   const grants = new Map<string, Map<string, AuthorizedGrant>>();
   return {
@@ -489,7 +507,7 @@ export function memoryAuthorizedTokenStore(): GrantStore {
       if (!held) return [];
       const now = Date.now();
       for (const [id, grant] of held) {
-        if (expired(grant, now)) held.delete(id);
+        if (dead(grant, now)) held.delete(id);
       }
       return [...held.values()];
     },
@@ -598,6 +616,11 @@ function grantFromResponse(
 
 function expired(grant: AuthorizedGrant, now: number): boolean {
   return grant.expiresAt !== undefined && grant.expiresAt <= now;
+}
+
+/** Expired with no refresh token: nothing can mint a new access token. */
+function dead(grant: AuthorizedGrant, now: number): boolean {
+  return expired(grant, now) && !grant.refreshToken;
 }
 
 function nearExpiry(grant: AuthorizedGrant, now: number): boolean {
