@@ -263,6 +263,16 @@ describe('web-app flow', () => {
       expect(new URLSearchParams(String(calls[0].init?.body)).has('client_id')).toBe(false);
     });
 
+        failure = e;
+      }
+
+      expect(failure).toBeInstanceOf(RefreshGrantError);
+      const error = failure as RefreshGrantError;
+      expect(error.errorCode).toBe('invalid_response');
+      expect(error.retryable).toBe(false);
+      expect(error.status).toBe(200);
+    });
+
     it('discovers the token endpoint when no metadata is supplied', async () => {
       const calls = mockFetch((url) =>
         url.includes('.well-known')
@@ -404,6 +414,19 @@ describe('web-app flow', () => {
       expect(error.cause).toBeInstanceOf(TypeError);
     });
 
+    it('maps a non-JSON success body to a non-retryable RefreshGrantError', async () => {
+      mockFetch(() =>
+        new Response('<html>not json</html>', { status: 200, headers: { 'content-type': 'text/html' } }),
+      );
+
+      let failure: unknown;
+      try {
+        await refreshAuthorization(ISSUER, {
+          metadata: METADATA,
+          refreshToken: 'rt-1',
+          clientId: 'client-123',
+        });
+      } catch (e) {
     it('discovers the token endpoint when no metadata is supplied', async () => {
       const calls = mockFetch((url) =>
         url.includes('.well-known')

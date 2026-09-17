@@ -264,7 +264,16 @@ export async function refreshAuthorization(
     );
   }
 
-  const json = await response.json() as unknown;
+  let json: unknown;
+  try {
+    json = await response.json();
+  } catch (cause) {
+    throw new RefreshGrantError(
+      "invalid_response",
+      "Token endpoint response is not valid JSON",
+      { retryable: false, status: response.status, cause },
+    );
+  }
   if (!json || typeof json !== "object" || Array.isArray(json)) {
     throw new RefreshGrantError(
       "invalid_response",
