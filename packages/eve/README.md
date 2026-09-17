@@ -264,7 +264,7 @@ export function redisGrantStore(redis: {
 
 Every method is async, and `put` with an `id` already held replaces that grant
 (a refresh rewrites the rotated pair under the same `id`). The same three
-methods map onto Vercel KV's `hgetall`, `hset` and `hdel`, or any other
+methods map onto Upstash Redis's `hgetall`, `hset` and `hdel`, or any other
 key-value backend.
 
 Choosing a durable store puts refresh tokens at rest in that backend. Each one
