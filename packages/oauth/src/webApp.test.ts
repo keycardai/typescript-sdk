@@ -263,16 +263,6 @@ describe('web-app flow', () => {
       expect(new URLSearchParams(String(calls[0].init?.body)).has('client_id')).toBe(false);
     });
 
-        failure = e;
-      }
-
-      expect(failure).toBeInstanceOf(RefreshGrantError);
-      const error = failure as RefreshGrantError;
-      expect(error.errorCode).toBe('invalid_response');
-      expect(error.retryable).toBe(false);
-      expect(error.status).toBe(200);
-    });
-
     it('discovers the token endpoint when no metadata is supplied', async () => {
       const calls = mockFetch((url) =>
         url.includes('.well-known')
@@ -427,6 +417,16 @@ describe('web-app flow', () => {
           clientId: 'client-123',
         });
       } catch (e) {
+        failure = e;
+      }
+
+      expect(failure).toBeInstanceOf(RefreshGrantError);
+      const error = failure as RefreshGrantError;
+      expect(error.errorCode).toBe('invalid_response');
+      expect(error.retryable).toBe(false);
+      expect(error.status).toBe(200);
+    });
+
     it('discovers the token endpoint when no metadata is supplied', async () => {
       const calls = mockFetch((url) =>
         url.includes('.well-known')
