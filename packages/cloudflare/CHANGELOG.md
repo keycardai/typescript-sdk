@@ -1,3 +1,14 @@
+## 0.4.2-keycardai-cloudflare (2026-09-17)
+
+
+- fix(cloudflare): warn once when verifyBearerToken runs without an audience (SDK-4) (#185)
+- verifyBearerToken constructs its JWTVerifier per request, so the
+missing-audience warning is gated by a module-level flag and fires at
+most once per isolate. createKeycardWorker shares the path. No signature
+change.
+- Co-authored-by: devin-ai-keycard <devin-ai@keycard.ai>
+Co-authored-by: Larry Osakwe <larry@keycard.ai>
+
 ## 0.4.1-keycardai-cloudflare (2026-09-16)
 
 

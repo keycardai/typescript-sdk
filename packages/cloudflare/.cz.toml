@@ -1,6 +1,6 @@
 [tool.commitizen]
 name = "cz_customize"
-version = "0.4.1"
+version = "0.4.2"
 version_files = ["package.json:version"]
 tag_format = "${version}-keycardai-cloudflare"
 ignored_tag_formats = ["${version}-*"]
