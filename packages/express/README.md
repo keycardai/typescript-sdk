@@ -18,7 +18,10 @@ import { requireBearerAuth, type AuthenticatedRequest } from "@keycardai/express
 
 const app = express();
 
-app.use(requireBearerAuth({ zoneUrl: "https://your-zone.keycard.cloud" }));
+app.use(requireBearerAuth({
+  zoneUrl: "https://your-zone.keycard.cloud",
+  audience: "https://your-api.example.com",
+}));
 
 app.get("/api/data", (req, res) => {
   // auth is AccessToken: { token, clientId, scopes, ... }
@@ -37,7 +40,10 @@ import { ClientSecret } from "@keycardai/oauth/server";
 
 const credential = new ClientSecret("your-client-id", "your-client-secret");
 
-app.use(requireBearerAuth({ zoneUrl: "https://your-zone.keycard.cloud" }));
+app.use(requireBearerAuth({
+  zoneUrl: "https://your-zone.keycard.cloud",
+  audience: "https://your-api.example.com",
+}));
 app.use(grant(["https://graph.microsoft.com"], {
   zoneUrl: "https://your-zone.keycard.cloud",
   applicationCredential: credential,
@@ -62,7 +68,11 @@ const credential = new ClientSecret({
   "zone-b": ["client-id-b", "client-secret-b"],
 });
 
-app.use(requireBearerAuth({ zoneUrl: "https://base-zone.keycard.cloud", enableMultiZone: true }));
+app.use(requireBearerAuth({
+  zoneUrl: "https://base-zone.keycard.cloud",
+  audience: "https://your-api.example.com",
+  enableMultiZone: true,
+}));
 
 // zoneId accepts a function that receives the verified AccessToken and
 // returns the zone identifier for this request. AccessToken has no

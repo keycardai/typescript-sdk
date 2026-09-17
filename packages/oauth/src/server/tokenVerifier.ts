@@ -31,6 +31,9 @@ export interface TokenVerifierOptions {
    * A `Record<zoneId, audience>` selects the audience per zone; if a request
    * arrives for a zoneId with no entry in the dict, verification fails closed
    * (returns null) rather than silently dropping audience validation.
+   *
+   * When omitted the verifier accepts a token minted for any resource in the
+   * zone and warns once at construction.
    */
   audience?: string | Record<string, string>;
   /**
@@ -58,6 +61,13 @@ export class TokenVerifier {
     this.#enableMultiZone = options.enableMultiZone ?? false;
     this.#audience = options.audience;
     this.#keyring = options.keyring ?? new JWKSOAuthKeyring();
+    if (options.audience === undefined) {
+      console.warn(
+        "TokenVerifier: no audience configured, so this verifier accepts a token " +
+          "minted for any resource in the zone; set audience to this server's registered " +
+          "resource identifier.",
+      );
+    }
   }
 
   async verifyToken(token: string): Promise<AccessToken | null> {
