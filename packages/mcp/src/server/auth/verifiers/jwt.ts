@@ -7,6 +7,13 @@ export class JWTOAuthTokenVerifier implements OAuthTokenVerifier {
 
   constructor(keyring: OAuthKeyring, options: JWTVerifierOptions) {
     this.#verifier = new JWTVerifier(keyring, options);
+    if (options.audiences === undefined || options.audiences.length === 0) {
+      console.warn(
+        "JWTOAuthTokenVerifier: this verifier has no audience configured, so it accepts a " +
+          "token minted for any resource in the zone; set audiences to this server's " +
+          "registered resource identifier.",
+      );
+    }
   }
 
   async verifyAccessToken(token: string): Promise<AuthInfo> {
