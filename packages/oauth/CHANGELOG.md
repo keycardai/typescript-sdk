@@ -1,3 +1,23 @@
+## 0.25.0-keycardai-oauth (2026-09-17)
+
+
+- feat(oauth): refresh an authorization-code grant (ECO-416) (#190)
+- * feat(oauth): refresh an authorization-code grant (ECO-416)
+- Adds refreshAuthorization(issuer, options) beside beginAuthorization and completeAuthorization. It posts grant_type=refresh_token to the token endpoint, authenticates the client the way completeAuthorization does, and returns the same TokenResponse, so a rotated refresh token comes back on refreshToken. Failures throw RefreshGrantError (an OAuthError) with retryable: invalid_grant and other 4xx are not retryable, transport failures and 5xx are.
+- Co-Authored-By: Larry Osakwe <larry@keycard.ai>
+- * feat(oauth): map a non-JSON refresh success body to RefreshGrantError
+- A 2xx whose body is not JSON escaped as a raw SyntaxError, so a caller
+classifying failures by RefreshGrantError.retryable could not see it. It is
+now a non-retryable invalid_response with the status and cause attached.
+- Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+- * test(oauth): place the non-JSON refresh body test in the refreshAuthorization block
+- Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+- ---------
+- Co-authored-by: devin-ai-keycard <devin-ai@keycard.ai>
+Co-authored-by: Larry Osakwe <larry@keycard.ai>
+Co-authored-by: Larry-Osakwe <larryosak@gmail.com>
+Co-authored-by: Claude Fable 5.1 <noreply@anthropic.com>
+
 ## 0.24.1-keycardai-oauth (2026-09-17)
 
 
