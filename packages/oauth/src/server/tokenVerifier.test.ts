@@ -298,6 +298,36 @@ describe('TokenVerifier', () => {
     expect(keyring.clear).toHaveBeenCalledTimes(1);
   });
 
+  describe('missing-audience warning', () => {
+    let warn: ReturnType<typeof jest.spyOn>;
+    beforeEach(() => {
+      warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    });
+    afterEach(() => {
+      warn.mockRestore();
+    });
+
+    it('warns exactly once at construction when audience is omitted', () => {
+      new TokenVerifier({ issuer: ISSUER });
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(String(warn.mock.calls[0][0])).toMatch(/set audience/);
+    });
+
+    it('does not warn with a string audience', () => {
+      new TokenVerifier({ issuer: ISSUER, audience: 'https://api.example.com' });
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    it('does not warn with a per-zone Record audience', () => {
+      new TokenVerifier({
+        issuer: ISSUER,
+        enableMultiZone: true,
+        audience: { 'zone-a': 'https://api.example.com' },
+      });
+      expect(warn).not.toHaveBeenCalled();
+    });
+  });
+
   it('clearCache is a no-op when the keyring does not expose clear()', () => {
     const verifier = new TokenVerifier({
       issuer: ISSUER,
