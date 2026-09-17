@@ -22,8 +22,8 @@ export type { KeycardImpersonateOptions } from "./connections.js";
 
 export { interactive, memoryAuthorizedTokenStore } from "./interactive.js";
 export type {
-  AuthorizedToken,
-  AuthorizedTokenStore,
+  AuthorizedGrant,
+  GrantStore,
   KeycardInteractiveOptions,
   KeycardResumeState,
   RegisterAttemptClientOptions,

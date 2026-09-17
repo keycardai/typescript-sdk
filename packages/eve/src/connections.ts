@@ -17,25 +17,16 @@ import { subjectTokenExpired } from "./expiry.js";
 import { principalKey, readSubjectToken } from "./subjectTokens.js";
 
 /**
- * NONE OF THESE DEFINITIONS CARRY A `displayName`, and adding one back breaks
- * every connection that uses them.
- *
- * eve validates an authored connection's `auth` against a closed key list —
- * `completeAuthorization`, `evict`, `getToken`, `principalType`,
- * `startAuthorization`, `vercelConnect` — and `displayName` is not in it, so a
- * definition carrying one fails the BUILD with
- * `The "auth" field Unknown key "displayName"`. That is an inconsistency inside
- * eve rather than a rule: its `normalizeAuthorizationSpec` accepts and forwards
- * the field, and only the authored-module key check disagrees. Until the two
- * agree, a package whose whole purpose is to be dropped into `auth:` has to
- * keep off the key.
- *
- * Nothing is lost. The only consumer of a definition-level `displayName` is
- * eve's `stampChallengeDisplayName`, which resolves
- * `definition.displayName ?? challenge.displayName` — so a name supplied on the
- * challenge still reaches the sign-in prompt (see {@link interactive}), and a
- * non-interactive definition has no challenge to name in the first place. Tools
- * name a provider through `ToolAuthOptions.displayName` at the call site.
+ * None of these definitions carry a `displayName`. eve validates an authored
+ * connection's `auth` against a closed key list (`completeAuthorization`,
+ * `evict`, `getToken`, `principalType`, `startAuthorization`, `vercelConnect`),
+ * and a definition carrying any other key fails the build with
+ * `The "auth" field Unknown key "displayName"`. The only consumer of the field
+ * is eve's `stampChallengeDisplayName`, which resolves
+ * `definition.displayName ?? challenge.displayName`, so an interactive
+ * definition names itself on the challenge instead (see {@link interactive}),
+ * a non-interactive one has no challenge to name, and tools name a provider
+ * through `ToolAuthOptions.displayName` at the call site.
  */
 
 /** Options for {@link impersonate}. */

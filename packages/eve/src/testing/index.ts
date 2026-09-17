@@ -18,3 +18,4 @@ export {
   validJwt,
 } from "./testUtils.js";
 export type { FakeZoneClient, FakeZoneClientOptions, ZoneCalls } from "./testUtils.js";
+export { resetInteractiveDefinitions } from "../interactive.js";

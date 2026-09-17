@@ -154,23 +154,23 @@ export default defineMcpClientConnection({
 ```
 
 **There is no `clientId`, and adding one usually breaks the flow.** eve mints a
-fresh callback URL for every attempt — `/eve/v1/connections/:name/callback/
-:attemptId/:token` — while [RFC 9700][rfc9700] requires the authorization server
-to match `redirect_uri` against the client's registered list by exact string
-comparison. A client registered ahead of time cannot name a URL that is
-generated later, so the request is rejected with something like
-`Unauthorized redirect URI`. Leaving `clientId` unset registers a client per
-attempt instead (RFC 7591), whose single redirect URI is the callback that
-attempt will actually return to. Each client is public and PKCE-bound, so
-nothing secret enters eve's durable resume state; if the server issues a
-confidential client anyway, the attempt is abandoned rather than journaling a
-secret.
+fresh callback URL for every attempt
+(`/eve/v1/connections/:name/callback/:attemptId/:token`) while
+[RFC 9700][rfc9700] requires the authorization server to match `redirect_uri`
+against the client's registered list by exact string comparison. A client
+registered ahead of time cannot name a URL that is generated later, so the
+request is rejected with something like `Unauthorized redirect URI`. Leaving
+`clientId` unset registers a client per attempt instead (RFC 7591), whose
+single redirect URI is the callback that attempt will return to. Each client is
+public and PKCE-bound, so nothing secret enters eve's durable resume state; if
+the server issues a confidential client anyway, the attempt is abandoned rather
+than journaling a secret.
 
 Set `clientId` only when that client's registered redirect URIs already cover
 eve's callback. Note that a Keycard application `identifier` is not a client id:
-zones identify clients by [Client ID Metadata Document][cimd] — an HTTPS URL
-with a path, serving the client's metadata — so a value like
-`urn:app:my-agent` fails with `Unsupported client identifier prefix: urn`.
+zones identify clients by [Client ID Metadata Document][cimd], an HTTPS URL
+with a path serving the client's metadata, so a value like `urn:app:my-agent`
+fails with `Unsupported client identifier prefix: urn`.
 
 Per-attempt clients accumulate in the zone. They hold no secret and their
 callback is single-use, but a server returning `registration_client_uri` and
@@ -182,17 +182,20 @@ callback is single-use, but a server returning `registration_client_uri` and
 The definition implements the same three-method form as eve's
 `defineInteractiveAuthorization`, over `@keycardai/oauth`'s v3 web-app flow:
 
-- `getToken` returns a token only when this package holds one for the
-  principal. Otherwise it throws `ConnectionAuthorizationRequiredError`, so eve
-  emits `authorization.required`, runs `startAuthorization` in a durable step,
-  and parks the turn on a framework-owned callback.
+- `getToken` looks up the principal's stored grants and returns the access
+  token of one whose resources cover this connection's `resource` and whose
+  scopes cover `requestScopes`. Within 60 seconds of expiry, a grant holding a
+  refresh token is refreshed first (see below). With no usable grant it throws
+  `ConnectionAuthorizationRequiredError`, so eve emits
+  `authorization.required`, runs `startAuthorization` in a durable step, and
+  parks the turn on a framework-owned callback.
 - `startAuthorization` registers this attempt's client (unless `clientId` is
   set), calls `beginAuthorization` for the connection's resource list against
   eve's minted callback URL, and returns the challenge URL plus the `state`,
   PKCE verifier and client id as JSON resume state.
 - `completeAuthorization` calls `completeAuthorization` with eve's callback
   params and the journaled resume state, redeeming as the client that attempt's
-  authorization request ran as, and hands eve the token.
+  authorization request ran as, and stores the resulting grant.
 
 **Resume without authorization cannot yield a credential.** `getToken` is the
 only path that returns a token, and it reads a store only
@@ -203,6 +206,72 @@ loop: it settles each parked authorization once, and a `Required` thrown after
 an authorization has settled ends the tool call. User denial is reported as
 `ConnectionAuthorizationFailedError` with `reason: "access_denied"` and
 `retryable: false`, so eve stops re-prompting.
+
+### Grants: what is stored, and for how long
+
+`completeAuthorization` stores a grant, not a bare token: the access token and
+its expiry, the refresh token the zone returned, the client id the grant was
+issued to, and the resources and scopes granted. Grants are keyed by the
+principal, never by `connectionName`, which is display and error text only;
+two `Keycard.interactive()` definitions in one process with the same
+`connectionName` fail at definition time with
+`AuthProviderConfigurationError`. Because a grant is matched on what it covers,
+a connection listing the agent's other resources in `additionalResources`
+yields one sign-in that serves every connection whose resource is in the list.
+
+When a grant is within 60 seconds of expiry and holds a refresh token,
+`getToken` posts `grant_type=refresh_token` to the zone as the grant's own
+client (public, no secret; a per-attempt client registers with
+`refresh_token` among its grant types), stores the rotated access and refresh
+token pair, and returns the new access token without parking. A refresh the
+zone refuses with `invalid_grant` deletes the grant and throws `Required`, so
+the turn parks for a fresh sign-in. A transport or 5xx failure keeps the grant
+and fails the tool call with `retryable: true`. A grant without a refresh token
+parks at expiry, as before.
+
+`evict` removes every grant of the principal that covers this connection's
+resource, leaving grants for other resources in place.
+
+### Plugging a durable grant store
+
+The default store is process-local, so a restarted agent parks once more for
+each user. To keep grants across processes, pass `tokens` an object of this
+shape:
+
+```ts
+import type { AuthorizedGrant, GrantStore } from "@keycardai/eve";
+
+export function redisGrantStore(redis: {
+  hgetall(key: string): Promise<Record<string, string>>;
+  hset(key: string, field: string, value: string): Promise<unknown>;
+  hdel(key: string, field: string): Promise<unknown>;
+}): GrantStore {
+  const key = (principal: string) => `keycard:grants:${principal}`;
+  return {
+    async list(principal) {
+      const rows = await redis.hgetall(key(principal));
+      return Object.values(rows).map((row) => JSON.parse(row) as AuthorizedGrant);
+    },
+    async put(principal, grant) {
+      await redis.hset(key(principal), grant.id, JSON.stringify(grant));
+    },
+    async remove(principal, grantId) {
+      await redis.hdel(key(principal), grantId);
+    },
+  };
+}
+```
+
+Every method is async, and `put` with an `id` already held replaces that grant
+(a refresh rewrites the rotated pair under the same `id`). The same three
+methods map onto Vercel KV's `hgetall`, `hset` and `hdel`, or any other
+key-value backend.
+
+Choosing a durable store puts refresh tokens at rest in that backend. Each one
+is a long-lived credential for the user's resources, so the backend's access
+control and encryption are yours to provide. This package never writes a grant
+into eve's session attributes for that reason: a refresh token must not enter
+eve's durable state.
 
 ## Parity with `@keycardai/langchain`
 
@@ -247,8 +316,8 @@ const auth = Keycard.onBehalfOf({
 `fakeZoneClient()` records every exchange, impersonation, and client
 credentials call, and can fail one resource or every request. `keycardAuth()`
 takes a `verify` seam in place of the JWKS-backed verifier, and
-`Keycard.interactive()` takes a `flow` seam in place of the web-flow calls —
-`begin`, `complete`, and the `register` used for per-attempt clients. A flow
+`Keycard.interactive()` takes a `flow` seam in place of the web-flow calls:
+`begin`, `complete`, `register` for per-attempt clients, and `refresh`. A flow
 without `register` is rejected at construction unless a `clientId` is also
 given, so a test cannot accidentally exercise a combination that cannot work in
 production. An injected `client` or `flow` supersedes `zoneUrl`, so a test needs
