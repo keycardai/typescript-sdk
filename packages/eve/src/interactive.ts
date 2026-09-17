@@ -76,7 +76,7 @@ export interface AuthorizedGrant {
  * `getToken` after that; this store is what makes a later step reuse the grant
  * a user already completed instead of parking again. `put` with an `id` the
  * store already holds replaces that grant. The default is process-local, so a
- * fresh process re-parks. A durable implementation (Redis, Vercel KV) keeps the
+ * fresh process re-parks. A durable implementation (Redis, Upstash Redis) keeps the
  * grant, refresh token included, at rest in that backend; eve's session
  * attributes are never used, so no credential enters eve's durable state.
  */
