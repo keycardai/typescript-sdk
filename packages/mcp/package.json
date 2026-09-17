@@ -1,6 +1,6 @@
 {
   "name": "@keycardai/mcp",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "description": "[Preview] High-security OAuth implementation for Model Context Protocol",
   "license": "MIT",
   "repository": {

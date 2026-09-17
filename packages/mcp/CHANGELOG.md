@@ -1,3 +1,13 @@
+## 2.0.2-keycardai-mcp (2026-09-17)
+
+
+- fix(mcp): warn once when the bearer verifier is built without an audience (SDK-4) (#184)
+- JWTOAuthTokenVerifier console.warns once per instance when audiences is
+undefined or empty, naming the option to set. A caller-supplied verifier
+emits nothing. No signature change.
+- Co-authored-by: devin-ai-keycard <devin-ai@keycard.ai>
+Co-authored-by: Larry Osakwe <larry@keycard.ai>
+
 ## 2.0.1-keycardai-mcp (2026-09-16)
 
 
