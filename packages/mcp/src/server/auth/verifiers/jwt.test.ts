@@ -78,4 +78,42 @@ describe('JSON Web Token Verifier', () => {
     });
   });
 
+  describe('missing-audience warning', () => {
+    const keyring = { key: jest.fn() };
+    let warn: ReturnType<typeof jest.spyOn>;
+    beforeEach(() => {
+      warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    });
+    afterEach(() => {
+      warn.mockRestore();
+    });
+
+    it('warns exactly once at construction when audiences is omitted', () => {
+      new JWTOAuthTokenVerifier(keyring, { issuers: 'https://auth.example.com' });
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(String(warn.mock.calls[0][0])).toMatch(/set audiences/);
+    });
+
+    it('warns when audiences is an empty array', () => {
+      new JWTOAuthTokenVerifier(keyring, { issuers: 'https://auth.example.com', audiences: [] });
+      expect(warn).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not warn with a string audience', () => {
+      new JWTOAuthTokenVerifier(keyring, {
+        issuers: 'https://auth.example.com',
+        audiences: 'https://api.example.com',
+      });
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    it('does not warn with an array of audiences', () => {
+      new JWTOAuthTokenVerifier(keyring, {
+        issuers: 'https://auth.example.com',
+        audiences: ['https://api.example.com', 'https://api.example.com/mcp'],
+      });
+      expect(warn).not.toHaveBeenCalled();
+    });
+  });
+
 });

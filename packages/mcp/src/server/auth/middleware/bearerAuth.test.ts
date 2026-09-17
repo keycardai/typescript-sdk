@@ -317,4 +317,33 @@ describe("requireBearerAuth middleware", () => {
     expect(mockResponse.end).not.toHaveBeenCalled();
   });
 
+  describe("missing-audience warning at construction", () => {
+    let warn: ReturnType<typeof jest.spyOn>;
+    beforeEach(() => {
+      warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    });
+    afterEach(() => {
+      warn.mockRestore();
+    });
+
+    it("warns once when built from issuers without audiences", () => {
+      requireBearerAuth({ issuers: "https://auth.example.com" });
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(String(warn.mock.calls[0][0])).toMatch(/set audiences/);
+    });
+
+    it("does not warn when built from issuers with audiences", () => {
+      requireBearerAuth({
+        issuers: "https://auth.example.com",
+        audiences: "https://api.example.com",
+      });
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    it("does not warn when the caller supplies its own verifier", () => {
+      requireBearerAuth({ verifier: mockVerifier });
+      expect(warn).not.toHaveBeenCalled();
+    });
+  });
+
 });
