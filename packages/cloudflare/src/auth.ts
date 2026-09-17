@@ -19,6 +19,22 @@ import type { AuthInfo, BearerAuthOptions } from "./types.js";
 // of Set literals and is sub-millisecond.
 const sharedKeyring = new JWKSOAuthKeyring();
 
+// The per-request JWTVerifier is the wrong place for a construction-time
+// warning, so the missing-audience warning is emitted at most once per
+// isolate from here.
+let warnedMissingAudience = false;
+
+function warnMissingAudienceOnce(audiences: BearerAuthOptions["audiences"]): void {
+  if (warnedMissingAudience) return;
+  if (audiences !== undefined && audiences.length > 0) return;
+  warnedMissingAudience = true;
+  console.warn(
+    "verifyBearerToken: this Worker verifies tokens without an audience, so it accepts a " +
+      "token minted for any resource in the zone; set audiences to the Worker's public URL " +
+      "registered as the resource.",
+  );
+}
+
 /**
  * Constructs the OAuth Protected Resource Metadata URL for WWW-Authenticate headers.
  */
@@ -53,6 +69,8 @@ export async function verifyBearerToken(
         "ensure the `KEYCARD_ISSUER` env binding is set.",
     );
   }
+
+  warnMissingAudienceOnce(options.audiences);
 
   try {
     const credentials = request.headers.get("Authorization");

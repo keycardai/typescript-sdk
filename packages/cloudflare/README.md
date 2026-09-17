@@ -106,6 +106,7 @@ import { TokenExchangeClient } from "@keycardai/oauth/tokenExchange";
 let tokenCache: IsolateSafeTokenCache | undefined;
 
 export default createKeycardWorker({
+  audiences: ["https://my-worker.example.workers.dev"],
   requiredScopes: ["read"],
 
   async fetch(request, env, ctx, auth) {
@@ -153,7 +154,7 @@ export default createKeycardWorker({
 
 Returns an `ExportedHandler` with Keycard auth built in. Auto-detects credential type from env.
 
-Set `audiences` to the Worker's public URL so bearer tokens minted for other resources on the same issuer are rejected.
+Set `audiences` to the Worker's public URL (its registered resource identifier) so bearer tokens minted for other resources on the same issuer are rejected. Without it the Worker accepts a token minted for any resource in the zone and warns once per isolate on the first verified request.
 
 ### `verifyBearerToken(request, options?)`
 
