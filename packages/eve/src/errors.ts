@@ -75,6 +75,19 @@ export const FailureReason = Object.freeze({
   SUBJECT_TOKEN_UNAVAILABLE: "subject_token_unavailable",
   /** The zone refused to issue a token for the connection's resource. */
   ACQUISITION_FAILED: "acquisition_failed",
+  /**
+   * The resource is reached only under a user's own grant, and that grant does
+   * not exist: the user has not authorized it yet, or the connection ran as the
+   * application against a resource that accepts no application identity.
+   */
+  USER_AUTHORIZATION_REQUIRED: "user_authorization_required",
+  /** The identifier an impersonation named is not a user in the zone. */
+  UNKNOWN_USER: "unknown_user",
+  /**
+   * The agent's workload credential could not produce its platform token,
+   * such as a Vercel OIDC token on a host that issues none.
+   */
+  WORKLOAD_IDENTITY_UNAVAILABLE: "workload_identity_unavailable",
   /** The user denied consent, or the provider returned an OAuth error. */
   ACCESS_DENIED: "access_denied",
   /** The callback did not carry the state journaled at the begin step. */

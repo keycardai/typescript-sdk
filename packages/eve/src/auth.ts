@@ -7,6 +7,7 @@ import {
 import type { AuthFn } from "eve/channels/auth";
 import type { SessionAuthContext } from "eve/context";
 
+import { zoneUrlOption } from "./config.js";
 import { RouteRejectedError } from "./errors.js";
 import { decodeClaims } from "./expiry.js";
 import {
@@ -44,7 +45,7 @@ const RESERVED_CLAIMS = new Set([
 export type SubjectTokenRetention = "attributes" | "memory" | "none";
 
 export interface KeycardAuthOptions {
-  /** Keycard zone URL (issuer). Required unless `verify` is given. */
+  /** Keycard zone URL (issuer). Defaults to `KEYCARD_ZONE_URL`; required unless `verify` is given. */
   zoneUrl?: string;
   /** Audience(s) the token must carry. Omit to skip audience validation. */
   audience?: string | readonly string[];
@@ -90,13 +91,16 @@ export interface KeycardAuthOptions {
  * discovery and signing keys, so a request pays no discovery round trip.
  */
 export function keycardAuth(options: KeycardAuthOptions): AuthFn<Request> {
-  if (!options.zoneUrl && !options.verify) {
-    throw new Error("keycardAuth requires zoneUrl or verify");
+  const zoneUrl = zoneUrlOption(options.zoneUrl);
+  if (!zoneUrl && !options.verify) {
+    throw new Error(
+      "keycardAuth requires zoneUrl, the KEYCARD_ZONE_URL environment variable, or verify",
+    );
   }
 
   // Zone tokens carry no trailing slash in `iss`; a slash on the configured
   // zoneUrl would otherwise make every zone token unrecognized.
-  const issuer = options.zoneUrl?.replace(/\/+$/, "");
+  const issuer = zoneUrl?.replace(/\/+$/, "");
   const principalType = options.principalType ?? "user";
   const retention = options.retainSubjectToken ?? "memory";
   const store = options.subjectTokens ?? defaultSubjectTokenStore;

@@ -202,9 +202,36 @@ export class TokenExchangeClient {
         subjectTokenType: TokenType.SUBSTITUTE_USER,
         resource: req.resource,
         scope: req.scope,
+        ...(await this.#assertionFields(subjectToken, req.resource, req.issuer)),
       },
       { issuer: req.issuer },
     );
+  }
+
+  /**
+   * Client-authentication fields an assertion credential contributes to the
+   * request body. A substitute-user token only names the user and is unsigned,
+   * so the application's own authentication is the whole of the authority:
+   * without these fields a workload credential (`WorkloadIdentity`,
+   * `WebIdentity`) would send an unauthenticated exchange. `ClientSecret`
+   * authenticates at the HTTP layer and contributes nothing here.
+   */
+  async #assertionFields(
+    subjectToken: string,
+    resource: string,
+    issuer: string | undefined,
+  ): Promise<Pick<TokenExchangeRequest, "clientAssertion" | "clientAssertionType" | "clientId">> {
+    if (!this.#credential || this.#credential.getAuth(issuer)) return {};
+    const prepared = await this.#credential.prepareTokenExchangeRequest(subjectToken, resource, {
+      tokenEndpoint: await this.#tokenEndpoint.resolve(),
+      ...(issuer ? { issuer } : {}),
+    });
+    if (!prepared.clientAssertion) return {};
+    return {
+      clientAssertion: prepared.clientAssertion,
+      clientAssertionType: prepared.clientAssertionType,
+      ...(prepared.clientId ? { clientId: prepared.clientId } : {}),
+    };
   }
 
   #resolveBasicAuth(

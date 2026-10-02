@@ -200,6 +200,8 @@ describe("keycardAuth", () => {
   });
 
   it("requires a zone URL or a verification seam", () => {
-    expect(() => keycardAuth({})).toThrow("keycardAuth requires zoneUrl or verify");
+    expect(() => keycardAuth({})).toThrow(
+      "keycardAuth requires zoneUrl, the KEYCARD_ZONE_URL environment variable, or verify",
+    );
   });
 });

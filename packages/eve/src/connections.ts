@@ -1,17 +1,25 @@
 import {
   AuthProviderConfigurationError,
+  OAuthError,
   TokenType,
   type ClientCredentialsRequest,
   type TokenExchangeRequest,
   type TokenResponse,
 } from "@keycardai/oauth";
+import { WorkloadIdentityRuntimeError } from "@keycardai/oauth/server";
 import type {
   ConnectionPrincipal,
   NonInteractiveAuthorizationDefinition,
   TokenResult,
 } from "eve/connections";
+import type { SessionContext } from "eve/context";
 
-import { expiresAt, resolveConnectionConfig, type KeycardConnectionOptions } from "./config.js";
+import {
+  expiresAt,
+  resolveConnectionConfig,
+  type KeycardConnectionOptions,
+  type ResolvedConnectionConfig,
+} from "./config.js";
 import { AuthorizationFailedError, FailureReason } from "./errors.js";
 import { subjectTokenExpired } from "./expiry.js";
 import { principalKey, readSubjectToken } from "./subjectTokens.js";
@@ -33,10 +41,27 @@ import { principalKey, readSubjectToken } from "./subjectTokens.js";
 export interface KeycardImpersonateOptions extends KeycardConnectionOptions {
   /**
    * The user the agent acts for. A function receives the connection principal,
-   * so a session-scoped identifier can be read from the turn's current auth.
+   * so a session-scoped identifier can be read from the turn's current auth,
+   * or looked up from it (a Slack user id resolved to an email, say).
    */
-  userIdentifier: string | ((principal: ConnectionPrincipal) => string);
+  userIdentifier: string | ((principal: ConnectionPrincipal) => string | Promise<string>);
+  /**
+   * The user to act for on turns with no authenticated user, such as
+   * schedules. Requires a function `userIdentifier`, and turns the result into
+   * a connection auth resolver: a turn whose current auth is a user stays
+   * user-scoped and acts for `userIdentifier(principal)`, and any other turn is
+   * app-scoped and acts for this identifier.
+   *
+   * `null`, or a function returning it, makes those turns act as the agent
+   * itself, by client credentials as {@link asSelf} does. Only unattended turns
+   * can: a user turn whose identifier resolves empty is refused, never served
+   * with the agent's authority.
+   */
+  unattendedUserIdentifier?: string | null | (() => string | null | Promise<string | null>);
 }
+
+/** A connection `auth` resolver, as eve calls it with the active turn. */
+export type KeycardAuthResolver = (ctx: SessionContext) => NonInteractiveAuthorizationDefinition;
 
 /**
  * Connection auth that runs client credentials under the agent's own identity.
@@ -52,19 +77,25 @@ export function asSelf(
 
   return {
     principalType: "app",
-    async getToken(): Promise<TokenResult> {
+    getToken: () => selfToken(config),
+  };
+}
+
+/** A client-credentials token under the agent's own identity. */
+async function selfToken(config: ResolvedConnectionConfig): Promise<TokenResult> {
+  const local = config.localToken();
+  if (local) return { token: local };
+
+  return tokenResult(
+    await acquire(config, null, async () => {
       const request: ClientCredentialsRequest = {
         resource: config.resource,
         ...(config.scope ? { scope: config.scope } : {}),
         ...(await config.clientAuthFields()),
       };
-      return tokenResult(
-        await acquire(config.connectionName, () =>
-          config.zoneClient().clientCredentialsGrant(request),
-        ),
-      );
-    },
-  };
+      return config.zoneClient().clientCredentialsGrant(request);
+    }),
+  );
 }
 
 /**
@@ -114,23 +145,24 @@ export function onBehalfOf(
         });
       }
 
-      let request: TokenExchangeRequest;
-      if (config.credential) {
-        request = await config.credential.prepareTokenExchangeRequest(
-          subjectToken,
-          config.resource,
-        );
-      } else {
-        request = {
-          subjectToken,
-          resource: config.resource,
-          subjectTokenType: TokenType.ACCESS_TOKEN,
-        };
-      }
-      if (config.scope) request = { ...request, scope: config.scope };
-
       return tokenResult(
-        await acquire(config.connectionName, () => config.zoneClient().exchangeToken(request)),
+        await acquire(config, "The signed-in user", async () => {
+          let request: TokenExchangeRequest;
+          if (config.credential) {
+            request = await config.credential.prepareTokenExchangeRequest(
+              subjectToken,
+              config.resource,
+            );
+          } else {
+            request = {
+              subjectToken,
+              resource: config.resource,
+              subjectTokenType: TokenType.ACCESS_TOKEN,
+            };
+          }
+          if (config.scope) request = { ...request, scope: config.scope };
+          return config.zoneClient().exchangeToken(request);
+        }),
       );
     },
   };
@@ -140,36 +172,76 @@ export function onBehalfOf(
  * Connection auth that acts for a named user the agent holds no token for.
  *
  * Uses the zone's substitute-user exchange, authenticated by the application
- * credential: no subject token is involved, so this is the pattern for
- * back-office and batch work rather than for a user's own request.
+ * credential: no subject token is involved, and the user's grant lives in the
+ * zone rather than in this process, so nothing is stored here and a restart
+ * never sends the user back through a sign-in. With the default Vercel OIDC
+ * credential the deployment holds no secret either.
  *
  * The principal type follows the identifier. A function needs the turn's
  * current user, so the connection is user-scoped and inherits eve's
  * `principal_required` rejection; a fixed identifier needs no caller, so the
- * connection is app-scoped and runs on schedules.
+ * connection is app-scoped and runs on schedules. Setting
+ * `unattendedUserIdentifier` as well returns a resolver that picks between the
+ * two per turn, and lets an unattended turn act as the agent itself.
  */
 export function impersonate(
+  options: KeycardImpersonateOptions & {
+    unattendedUserIdentifier: Exclude<KeycardImpersonateOptions["unattendedUserIdentifier"], undefined>;
+  },
+): KeycardAuthResolver;
+export function impersonate(options: KeycardImpersonateOptions): NonInteractiveAuthorizationDefinition;
+export function impersonate(
   options: KeycardImpersonateOptions,
-): NonInteractiveAuthorizationDefinition {
+): NonInteractiveAuthorizationDefinition | KeycardAuthResolver {
   const config = resolveConnectionConfig(options, "impersonate");
-  const identifier = options.userIdentifier;
-  if (typeof identifier === "string" && !identifier.trim()) {
-    throw new AuthProviderConfigurationError(
-      "impersonate requires a non-empty user identifier",
-    );
+  const { userIdentifier: identifier, unattendedUserIdentifier: unattended } = options;
+  for (const fixed of [identifier, unattended]) {
+    if (typeof fixed === "string" && !fixed.trim()) {
+      throw new AuthProviderConfigurationError(
+        "impersonate requires a non-empty user identifier",
+      );
+    }
   }
 
+  if (typeof identifier === "string") {
+    if (unattended !== undefined) {
+      throw new AuthProviderConfigurationError(
+        "impersonate takes unattendedUserIdentifier only with a function userIdentifier; " +
+          "a fixed userIdentifier already runs unattended",
+      );
+    }
+    return impersonation(config, "app", () => identifier);
+  }
+
+  const asCaller = impersonation(config, "user", (principal) => {
+    requireUser(principal, config.connectionName);
+    return identifier(principal);
+  });
+  if (unattended === undefined) return asCaller;
+
+  const asUnattended = impersonation(
+    config,
+    "app",
+    () => (typeof unattended === "function" ? unattended() : unattended),
+    { orSelf: true },
+  );
+  return (ctx) => (ctx.session?.auth?.current?.principalType === "user" ? asCaller : asUnattended);
+}
+
+function impersonation(
+  config: ResolvedConnectionConfig,
+  principalType: "app" | "user",
+  resolveIdentifier: (principal: ConnectionPrincipal) => string | null | Promise<string | null>,
+  { orSelf = false }: { orSelf?: boolean } = {},
+): NonInteractiveAuthorizationDefinition {
   return {
-    principalType: typeof identifier === "function" ? "user" : "app",
+    principalType,
     async getToken({ principal }): Promise<TokenResult> {
-      let userIdentifier: string;
-      if (typeof identifier === "function") {
-        requireUser(principal, config.connectionName);
-        userIdentifier = identifier(principal);
-      } else {
-        userIdentifier = identifier;
-      }
-      if (!userIdentifier || !userIdentifier.trim()) {
+      const resolved = await resolveIdentifier(principal);
+      if (resolved === null && orSelf) return selfToken(config);
+
+      const userIdentifier = resolved?.trim();
+      if (!userIdentifier) {
         throw new AuthorizationFailedError(config.connectionName, {
           message: "impersonate resolved an empty user identifier for this turn.",
           reason: FailureReason.PRINCIPAL_REQUIRED,
@@ -177,8 +249,11 @@ export function impersonate(
         });
       }
 
+      const local = config.localToken();
+      if (local) return { token: local };
+
       return tokenResult(
-        await acquire(config.connectionName, () =>
+        await acquire(config, userIdentifier, () =>
           config.zoneClient().impersonate({
             userIdentifier,
             resource: config.resource,
@@ -210,20 +285,84 @@ function requireUser(
   });
 }
 
-/** Wraps a zone failure as an eve authorization failure for this connection. */
+/**
+ * Wraps a zone failure as an eve authorization failure for this connection.
+ *
+ * A workload credential that could not produce its token is reported as
+ * such, since it is a deployment fault no user action fixes. The two
+ * failures a user can act on get their own reason and a message
+ * written to be relayed as is: a missing grant, fixed by authorizing the
+ * resource, and an identifier the zone does not know, which no grant fixes.
+ * The second is checked first because the zone reports it as `invalid_grant`
+ * too. Everything else stays `acquisition_failed` with the zone's own message.
+ *
+ * `user` names who the token is for, or is null when the agent acts as itself.
+ */
 async function acquire(
-  connectionName: string,
+  config: ResolvedConnectionConfig,
+  user: string | null,
   request: () => Promise<TokenResponse>,
 ): Promise<TokenResponse> {
   try {
     return await request();
   } catch (cause) {
-    throw new AuthorizationFailedError(connectionName, {
-      message: cause instanceof Error ? cause.message : "Token acquisition failed",
-      reason: FailureReason.ACQUISITION_FAILED,
-      retryable: false,
-    });
+    const detail = cause instanceof Error ? cause.message : "Token acquisition failed";
+    const fail = (reason: string, message: string): never => {
+      throw new AuthorizationFailedError(config.connectionName, {
+        message,
+        reason,
+        retryable: false,
+      });
+    };
+
+    if (cause instanceof WorkloadIdentityRuntimeError) {
+      fail(FailureReason.WORKLOAD_IDENTITY_UNAVAILABLE, detail);
+    }
+    if (user !== null && isUnknownUser(detail)) {
+      fail(
+        FailureReason.UNKNOWN_USER,
+        `${user} is not a user in this Keycard zone, so there is no grant to act ` +
+          `under for ${config.resource}. Authorizing the resource will not help until the ` +
+          `identifier matches a zone user exactly. Zone said: ${detail}`,
+      );
+    }
+    if (needsUserAuthorization(cause, detail)) {
+      fail(
+        FailureReason.USER_AUTHORIZATION_REQUIRED,
+        user !== null
+          ? `${user} has not authorized ${config.resource} yet. Access runs under ` +
+              `their own grant, so there is nothing else to fall back to. ` +
+              `${config.authorizationHint} Zone said: ${detail}`
+          : `${config.resource} accepts only per-user grants, so the agent cannot reach it as ` +
+              `itself. Act for a user with impersonate or onBehalfOf, or permit the ` +
+              `application on this resource in the zone. Zone said: ${detail}`,
+      );
+    }
+    return fail(FailureReason.ACQUISITION_FAILED, detail);
   }
+}
+
+/** OAuth codes the zone uses for "this resource needs a user's own grant". */
+const USER_AUTHORIZATION_CODES = new Set([
+  "insufficient_authorization",
+  "authorization_required",
+  "user_authorization_required",
+]);
+
+function needsUserAuthorization(cause: unknown, detail: string): boolean {
+  if (cause instanceof OAuthError && USER_AUTHORIZATION_CODES.has(cause.errorCode)) return true;
+  // The prose varies ("User authorization is required for resource ..."), so
+  // match it independent of word order.
+  const text = detail.toLowerCase();
+  return (
+    text.includes("cannot be accessed with client credentials") ||
+    (text.includes("user authorization") && text.includes("requir"))
+  );
+}
+
+/** Text only: the zone's code for an unknown identifier is the generic `invalid_grant`. */
+function isUnknownUser(detail: string): boolean {
+  return detail.toLowerCase().includes("user not found");
 }
 
 function tokenResult(response: TokenResponse): TokenResult {
