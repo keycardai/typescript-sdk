@@ -90,6 +90,20 @@ Impersonation is a privileged operation gated by Keycard policy. The calling
 application authenticates via client credentials, and the impersonated user
 must have a delegated grant for the target resource.
 
+The substitute-user token only names the user and is unsigned, so the
+application's own authentication carries the request. Any `credential` works,
+including an assertion-based workload identity, whose client assertion is sent
+in the request body in place of a Basic header:
+
+```typescript
+import { WorkloadIdentity } from "@keycardai/oauth/server";
+import { getVercelOidcToken } from "@vercel/functions/oidc";
+
+const client = new TokenExchangeClient("https://your-zone.keycard.cloud", {
+  credential: new WorkloadIdentity(getVercelOidcToken),
+});
+```
+
 ### Multi-Zone Credentials
 
 ```typescript
