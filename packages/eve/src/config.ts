@@ -5,6 +5,7 @@ import {
   type ClientCredentialsRequest,
 } from "@keycardai/oauth";
 
+import { defaultApplicationCredential } from "./vercel.js";
 import { KeycardZoneClient, type ZoneClient } from "./zoneClient.js";
 import { defaultSubjectTokenStore, type SubjectTokenStore } from "./subjectTokens.js";
 
@@ -12,12 +13,17 @@ import { defaultSubjectTokenStore, type SubjectTokenStore } from "./subjectToken
 export interface KeycardConnectionOptions {
   /** The resource URL tokens are minted for. */
   resource: string;
-  /** Keycard zone URL (issuer). Required unless `client` is given. */
+  /**
+   * Keycard zone URL (issuer). Defaults to `KEYCARD_ZONE_URL`; one of the two
+   * is required unless `client` is given.
+   */
   zoneUrl?: string;
   /**
-   * How the agent authenticates to the zone: `ClientSecret` for Keycard-issued
-   * client credentials, or any other `ApplicationCredential`. Mutually
-   * exclusive with `clientId` / `clientSecret`.
+   * How the agent authenticates to the zone. Defaults to
+   * {@link vercelWorkloadIdentity}, the deployment's Vercel OIDC token, so an
+   * agent on Vercel holds no secret. Pass `ClientSecret` for Keycard-issued
+   * client credentials, or any other `ApplicationCredential` on another host.
+   * Mutually exclusive with `clientId` / `clientSecret`.
    */
   applicationCredential?: ApplicationCredential;
   /** Shorthand for `applicationCredential: new ClientSecret(clientId, clientSecret)`. */
@@ -32,6 +38,22 @@ export interface KeycardConnectionOptions {
   connectionName?: string;
   /** Where the verified inbound bearer is read from. Defaults to the shared store. */
   subjectTokens?: SubjectTokenStore;
+  /**
+   * An environment variable holding a token already brokered for this
+   * resource, as `keycard run` hydrates one from `keycard.toml`. When it is
+   * set and non-empty, `asSelf` and `impersonate` return it without contacting
+   * the zone, so a local run needs no workload identity. Leave the variable
+   * unset in deployed environments: whatever it holds is served to every
+   * principal of the connection.
+   */
+  localTokenEnv?: string;
+  /**
+   * What a `user_authorization_required` failure tells the user to do, in
+   * place of the default `keycard auth resource` command. Use it when the
+   * grant spans more than this connection's resource, such as an MCP server
+   * that exchanges the token for an upstream provider's.
+   */
+  authorizationHint?: string;
 }
 
 /** One factory's resolved configuration, validated once at definition time. */
@@ -41,6 +63,10 @@ export interface ResolvedConnectionConfig {
   readonly connectionName: string;
   readonly credential?: ApplicationCredential;
   readonly subjectTokens: SubjectTokenStore;
+  /** The instruction a `user_authorization_required` failure ends with. */
+  readonly authorizationHint: string;
+  /** The `localTokenEnv` token, when one is set for this process. */
+  localToken(): string | undefined;
   /** The warm zone client, built on first use and reused after that. */
   zoneClient(): ZoneClient;
   /** Client-authentication fields an assertion credential adds to a request body. */
@@ -60,8 +86,11 @@ export function resolveConnectionConfig(
   if (!options.resource || !options.resource.trim()) {
     throw new AuthProviderConfigurationError(`${factory} requires a resource URL`);
   }
-  if (!options.zoneUrl && !options.client) {
-    throw new AuthProviderConfigurationError(`${factory} requires zoneUrl or client`);
+  const zoneUrl = zoneUrlOption(options.zoneUrl);
+  if (!zoneUrl && !options.client) {
+    throw new AuthProviderConfigurationError(
+      `${factory} requires zoneUrl or the KEYCARD_ZONE_URL environment variable`,
+    );
   }
   if (options.applicationCredential && (options.clientId || options.clientSecret)) {
     throw new AuthProviderConfigurationError(
@@ -74,11 +103,14 @@ export function resolveConnectionConfig(
     );
   }
 
+  // An injected client authenticates itself, so it gets no default.
   let credential: ApplicationCredential | undefined;
   if (options.applicationCredential) {
     credential = options.applicationCredential;
   } else if (options.clientId && options.clientSecret) {
     credential = new ClientSecret(options.clientId, options.clientSecret);
+  } else if (!options.client) {
+    credential = defaultApplicationCredential();
   }
 
   let client = options.client;
@@ -90,8 +122,15 @@ export function resolveConnectionConfig(
     connectionName: options.connectionName ?? options.resource,
     ...(credential ? { credential } : {}),
     subjectTokens: options.subjectTokens ?? defaultSubjectTokenStore,
+    authorizationHint:
+      options.authorizationHint ??
+      `Run \`keycard auth resource ${options.resource}${zoneFlag(zoneUrl)}\`, then retry.`,
+    localToken() {
+      const token = options.localTokenEnv ? process.env[options.localTokenEnv]?.trim() : undefined;
+      return token || undefined;
+    },
     zoneClient() {
-      if (!client) client = new KeycardZoneClient(options.zoneUrl!, credential);
+      if (!client) client = new KeycardZoneClient(zoneUrl!, credential);
       return client;
     },
     /**
@@ -127,6 +166,22 @@ export function resolveConnectionConfig(
 export function expiresAt(expiresIn: number | undefined): number | undefined {
   if (typeof expiresIn !== "number" || !Number.isFinite(expiresIn)) return undefined;
   return Date.now() + expiresIn * 1000;
+}
+
+/** The zone URL an option names, falling back to `KEYCARD_ZONE_URL`. */
+export function zoneUrlOption(zoneUrl: string | undefined): string | undefined {
+  return zoneUrl || process.env.KEYCARD_ZONE_URL?.trim() || undefined;
+}
+
+/** ` --zone <id>` for a `<id>.keycard.cloud` zone URL, otherwise nothing. */
+function zoneFlag(zoneUrl: string | undefined): string {
+  if (!zoneUrl) return "";
+  try {
+    const host = new URL(zoneUrl).host;
+    return host.endsWith(".keycard.cloud") ? ` --zone ${host.split(".")[0]}` : "";
+  } catch {
+    return "";
+  }
 }
 
 function joinScopes(scopes: string | readonly string[] | undefined): string | undefined {

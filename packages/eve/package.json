@@ -37,7 +37,8 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@keycardai/oauth": "workspace:*"
+    "@keycardai/oauth": "workspace:*",
+    "@vercel/oidc": "^3.8.0"
   },
   "peerDependencies": {
     "eve": ">=0.54.3 <0.55.0"

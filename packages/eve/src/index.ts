@@ -18,7 +18,7 @@ export { keycardAuth } from "./auth.js";
 export type { KeycardAuthOptions, SubjectTokenRetention } from "./auth.js";
 
 export { asSelf, impersonate, onBehalfOf } from "./connections.js";
-export type { KeycardImpersonateOptions } from "./connections.js";
+export type { KeycardAuthResolver, KeycardImpersonateOptions } from "./connections.js";
 
 export { interactive, memoryAuthorizedTokenStore } from "./interactive.js";
 export type {
@@ -51,6 +51,8 @@ export {
   SUBJECT_TOKEN_ATTRIBUTE,
 } from "./subjectTokens.js";
 export type { SubjectTokenStore } from "./subjectTokens.js";
+
+export { vercelWorkloadIdentity } from "./vercel.js";
 
 export { KeycardZoneClient } from "./zoneClient.js";
 export type { ZoneClient } from "./zoneClient.js";

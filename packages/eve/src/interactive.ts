@@ -22,7 +22,7 @@ import type {
   TokenResult,
 } from "eve/connections";
 
-import { expiresAt } from "./config.js";
+import { expiresAt, zoneUrlOption } from "./config.js";
 import {
   AuthorizationFailedError,
   AuthorizationRequiredError,
@@ -125,7 +125,7 @@ export interface WebAppFlow {
 export interface KeycardInteractiveOptions {
   /** The resource URL the authorization is scoped to. */
   resource: string;
-  /** Keycard zone URL (issuer). Required unless `flow` is given. */
+  /** Keycard zone URL (issuer). Defaults to `KEYCARD_ZONE_URL`; required unless `flow` is given. */
   zoneUrl?: string;
   /**
    * OAuth client the browser flow runs as.
@@ -236,9 +236,10 @@ export function interactive(
       "interactive requires a resource URL",
     );
   }
-  if (!options.flow && !options.zoneUrl) {
+  const zoneUrl = zoneUrlOption(options.zoneUrl);
+  if (!options.flow && !zoneUrl) {
     throw new AuthProviderConfigurationError(
-      "interactive requires zoneUrl, or an injected flow",
+      "interactive requires zoneUrl, the KEYCARD_ZONE_URL environment variable, or an injected flow",
     );
   }
 
@@ -252,7 +253,7 @@ export function interactive(
   const tokens = options.tokens ?? memoryAuthorizedTokenStore();
   const flow =
     options.flow ??
-    zoneWebAppFlow(options.zoneUrl!, {
+    zoneWebAppFlow(zoneUrl!, {
       ...(options.initialAccessToken !== undefined
         ? { initialAccessToken: options.initialAccessToken }
         : {}),

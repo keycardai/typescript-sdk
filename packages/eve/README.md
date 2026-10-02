@@ -29,6 +29,13 @@ surface at build time instead. Two of them are what the 0.47 → 0.54 bump had t
 fix: an `auth` key list that `displayName` is not in, and a `requireAuth`
 options type with no `reason` field.
 
+The one runtime dependency besides `@keycardai/oauth` is `@vercel/oidc`, for
+the default credential. It is imported on first use, so an agent that passes
+its own credential never loads it.
+
+Every zone URL option (`zoneUrl` on `keycardAuth()` and on each factory)
+defaults to the `KEYCARD_ZONE_URL` environment variable.
+
 eve itself declares `engines.node: ">=24"` and is ESM only. This package
 imports eve for types only (`import type { ... } from "eve/connections"`), so
 nothing here pulls eve into the runtime and the package builds and tests on
@@ -44,10 +51,7 @@ import { keycardAuth } from "@keycardai/eve";
 
 export default eveChannel({
   auth: [
-    keycardAuth({
-      zoneUrl: process.env.KEYCARD_ZONE_URL!,
-      audience: "https://agent.example.com",
-    }),
+    keycardAuth({ audience: "https://agent.example.com" }),
     localDev(),
   ],
 });
@@ -85,14 +89,15 @@ export default defineMcpClientConnection({
   url: "https://calendar.example.com/mcp",
   description: "The signed-in user's calendar.",
   auth: Keycard.onBehalfOf({
-    zoneUrl: process.env.KEYCARD_ZONE_URL!,
     resource: "https://calendar.example.com",
     requestScopes: ["calendar.read"],
-    clientId: process.env.KEYCARD_CLIENT_ID!,
-    clientSecret: process.env.KEYCARD_CLIENT_SECRET!,
   }),
 });
 ```
+
+That is the whole configuration on Vercel. The zone URL comes from
+`KEYCARD_ZONE_URL`, and the agent authenticates to the zone with the
+deployment's Vercel OIDC token (see [Deploying on Vercel](#deploying-on-vercel)).
 
 - `Keycard.onBehalfOf()` is user-scoped, so eve resolves the principal from the
   active turn's `ctx.session.auth.current` and rejects with
@@ -104,7 +109,8 @@ export default defineMcpClientConnection({
 - `Keycard.impersonate({ userIdentifier })` uses the zone's substitute-user
   exchange for a user the agent holds no token for. A fixed identifier makes
   the connection app-scoped; a function receives the connection principal and
-  makes it user-scoped.
+  makes it user-scoped. See
+  [Act for a user without a sign-in per process](#act-for-a-user-without-a-sign-in-per-process).
 
 Nothing falls back to the agent's authority. A user-pattern connection with no
 user principal, a turn whose subject token was never retained, and an expired
@@ -113,14 +119,111 @@ subject token all fail, each with its own reason: `principal_required`,
 sign-in signal, decided by a decode-only expiry check, so an already dead token
 never costs an exchange round trip.
 
-Credentials go in as either `clientId` plus `clientSecret` (shorthand for a
-client-secret credential) or `applicationCredential` (any
-`ApplicationCredential`, including assertion-based workload credentials, whose
-`clientAssertion`, `clientAssertionType`, and `clientId` are forwarded). Setting
-both is a configuration error.
+### Deploying on Vercel
+
+With no credential configured, every factory authenticates to the zone with
+`vercelWorkloadIdentity()`: the deployment's Vercel OIDC token, read fresh on
+each request and sent as a jwt-bearer client assertion. The agent holds no
+client secret, and nothing it holds outlives the request.
+
+1. Enable OIDC federation on the Vercel project (Settings → Security).
+2. In the zone, give the application a token credential that trusts Vercel's
+   OIDC issuer for the project's subject, for example
+   `owner:<team>:project:<project>:environment:*`. The `environment:*`
+   wildcard is what lets `eve dev` authenticate as well as production.
+3. Set `KEYCARD_ZONE_URL` to `https://<zone-id>.keycard.cloud`.
+4. Locally, run `vercel env pull` to write `VERCEL_OIDC_TOKEN` into
+   `.env.local`. An expired token is refreshed through the Vercel CLI.
+
+A credential the zone resolves by ID rather than by OIDC subject needs it
+named: `applicationCredential: vercelWorkloadIdentity({ clientId })`.
+
+When the token is unavailable, the tool call fails with
+`reason: "workload_identity_unavailable"` and a message naming these steps.
+It never falls back to another credential.
+
+On another host, pass a credential explicitly. Use `clientId` plus
+`clientSecret` (shorthand for a client-secret credential), or
+`applicationCredential` (any `ApplicationCredential`, including other
+workload credentials, whose `clientAssertion`, `clientAssertionType`, and
+`clientId` are forwarded). Setting both is a configuration error. An injected
+`client` brings its own authentication and gets no default.
 
 Every factory builds one warm zone client and reuses it, so tool calls do not
 pay per-call discovery or client construction.
+
+### Act for a user without a sign-in per process
+
+`Keycard.interactive()` keeps a user's grant in the agent, so where the agent
+runs decides how long the grant lives. `Keycard.impersonate()` keeps nothing:
+the grant lives in the zone, created once by the user with
+`keycard auth resource`, and every tool call asks the zone for a fresh token
+for that user. A cold start costs one token request, not a sign-in, and no
+refresh token is ever at rest in the agent or its store.
+
+This is typically what "on behalf of a Slack (or other channel) user" means.
+The channel tells the agent who is asking, for example a Slack user id the
+agent resolves to an email, and the agent names that user to the zone. The
+user never signs in to Keycard on the channel. When the caller does carry a
+Keycard token, verified by `keycardAuth()`, use `Keycard.onBehalfOf()`
+instead, which exchanges that token.
+
+The application proves who it is on each request with its Vercel OIDC token,
+so the agent holds no secret either:
+
+```ts title="agent/connections/notion.ts"
+import { defineMcpClientConnection } from "eve/connections";
+import { Keycard } from "@keycardai/eve";
+
+export default defineMcpClientConnection({
+  url: "https://mcp.notion.com/mcp",
+  description: "The owner's Notion workspace.",
+  auth: Keycard.impersonate({
+    resource: "https://mcp.notion.com/mcp",
+    // Who the caller is: may be async, e.g. a Slack user id resolved to an email.
+    userIdentifier: async (principal) => emailForPrincipal(principal),
+    // Who a schedule acts for, since a scheduled turn has no caller.
+    unattendedUserIdentifier: "owner@example.com",
+    // Locally, `keycard run` has already brokered this token from keycard.toml.
+    localTokenEnv: "NOTION_MCP_TOKEN",
+  }),
+});
+```
+
+- `userIdentifier` as a function makes the connection user-scoped. It
+  receives the connection principal and may return a promise. Throw from it to
+  refuse a caller before any token is requested.
+- `unattendedUserIdentifier` (a string, or a function returning one) returns a
+  connection `auth` resolver instead of a definition. A turn whose current
+  auth is a user acts for `userIdentifier(principal)`. Every other turn, such
+  as a schedule, is app-scoped and acts for this identifier. Without it, a
+  schedule reaching a user-scoped connection fails with `principal_required`.
+- `unattendedUserIdentifier: null`, or a function returning `null`, makes
+  those unattended turns act as the agent itself, by client credentials as
+  `Keycard.asSelf()` does. A function can decide per run, for example acting
+  for a configured user when one is set and as the agent otherwise. A user
+  turn never gets the agent's authority: an empty `userIdentifier` is refused
+  with `principal_required`.
+- `localTokenEnv` names an environment variable that, when set, is returned
+  without contacting the zone. It is meant for `keycard run -- eve dev`. Leave
+  it unset in deployed environments, because the token is served to every
+  principal of the connection. `asSelf` accepts it too.
+
+Impersonation is gated by the zone's policy for the application, so the
+policy, not this code, decides whom the agent may act for. Keep a check in
+`userIdentifier` as well when the agent should serve only some users.
+
+Two failures are ones a user can fix, and each has its own `reason` and a
+message written to be relayed as is:
+
+| `reason` | Cause | Fix |
+| --- | --- | --- |
+| `user_authorization_required` | The user has not authorized the resource. From `asSelf`, the resource accepts only per-user grants. | `keycard auth resource <resource> --zone <id>`, or the `authorizationHint` you pass when the grant spans more resources (an MCP server that exchanges for an upstream provider's token). |
+| `unknown_user` | The identifier is not a user in the zone. | Make the identifier match a zone user exactly. No grant fixes this one. |
+
+A third, `workload_identity_unavailable`, is a deployment fault rather than a
+user's (see [Deploying on Vercel](#deploying-on-vercel)). Everything else stays
+`acquisition_failed` and carries the zone's message.
 
 ### A revoked token mid-call
 
@@ -145,7 +248,6 @@ export default defineMcpClientConnection({
   url: "https://docs.example.com/mcp",
   description: "Documents the user has authorized.",
   auth: Keycard.interactive({
-    zoneUrl: process.env.KEYCARD_ZONE_URL!,
     resource: "https://docs.example.com",
     requestScopes: ["documents.read"],
     connectionName: "Docs",
@@ -208,6 +310,12 @@ an authorization has settled ends the tool call. User denial is reported as
 `retryable: false`, so eve stops re-prompting.
 
 ### Grants: what is stored, and for how long
+
+Only `Keycard.interactive()` stores grants. `impersonate()` and `asSelf()`
+store nothing in the agent, and `onBehalfOf()` keeps only the caller's
+inbound Keycard token, in memory by default, for the exchange. The deployment
+path makes no difference: the Vercel OIDC credential authenticates the agent,
+and `interactive()` does not use it.
 
 `completeAuthorization` stores a grant, not a bare token: the access token and
 its expiry, the refresh token the zone returned, the client id the grant was

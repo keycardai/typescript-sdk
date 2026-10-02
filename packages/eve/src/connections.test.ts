@@ -2,11 +2,13 @@ import { describe, expect, it } from "@jest/globals";
 import {
   AuthProviderConfigurationError,
   ClientSecret,
+  OAuthError,
   TokenType,
   type ApplicationCredential,
   type TokenExchangeRequest,
 } from "@keycardai/oauth";
-import type { ConnectionPrincipal } from "eve/connections";
+import type { ConnectionAuthDefinition, ConnectionPrincipal } from "eve/connections";
+import type { SessionContext } from "eve/context";
 
 import { asSelf, impersonate, onBehalfOf } from "./connections.js";
 import { AuthorizationFailedError, FailureReason } from "./errors.js";
@@ -15,6 +17,7 @@ import {
   appPrincipal,
   connectionContext,
   expiredJwt,
+  sessionAuthContext,
   fakeZoneClient,
   unsignedJwt,
   userPrincipal,
@@ -249,6 +252,190 @@ describe("impersonate", () => {
       AuthProviderConfigurationError,
     );
   });
+  it("awaits an identifier looked up from the principal", async () => {
+    const client = fakeZoneClient();
+    const auth = impersonate({
+      resource: CALENDAR,
+      client,
+      userIdentifier: async (principal) =>
+        principal.type === "user" ? `${principal.id}@example.com` : "",
+    });
+
+    await auth.getToken({ principal: userPrincipal("U123"), connection });
+
+    expect(client.calls.impersonations[0]?.userIdentifier).toBe("U123@example.com");
+  });
+
+  describe("with unattendedUserIdentifier", () => {
+    const turn = (current: ReturnType<typeof sessionAuthContext> | null) =>
+      ({ session: { auth: { current, initiator: current } } }) as unknown as SessionContext;
+
+    it("acts for the caller on a user turn and for the fixed user otherwise", async () => {
+      const client = fakeZoneClient();
+      const resolve = impersonate({
+        resource: CALENDAR,
+        client,
+        userIdentifier: (principal) => (principal.type === "user" ? principal.id : ""),
+        unattendedUserIdentifier: () => "owner@example.com",
+      });
+      // Assignable to a connection's `auth` field as is.
+      const _auth: ConnectionAuthDefinition = resolve;
+
+      const onDm = resolve(turn(sessionAuthContext({ principalId: "user-3" })));
+      const onSchedule = resolve(
+        turn(sessionAuthContext({ principalType: "runtime", principalId: "eve:app" })),
+      );
+      expect(onDm.principalType).toBe("user");
+      expect(onSchedule.principalType).toBe("app");
+      expect(resolve(turn(null)).principalType).toBe("app");
+
+      await onDm.getToken({ principal: userPrincipal("user-3"), connection });
+      await onSchedule.getToken({ principal: appPrincipal(), connection });
+
+      expect(client.calls.impersonations.map((call) => call.userIdentifier)).toEqual([
+        "user-3",
+        "owner@example.com",
+      ]);
+    });
+
+    it("acts as the agent itself on unattended turns when the identifier is null", async () => {
+      const client = fakeZoneClient();
+      const resolve = impersonate({
+        resource: CALENDAR,
+        client,
+        userIdentifier: (principal) => (principal.type === "user" ? principal.id : ""),
+        unattendedUserIdentifier: null,
+      });
+
+      const onSchedule = resolve(turn(null));
+      expect(onSchedule.principalType).toBe("app");
+      const result = await onSchedule.getToken({ principal: appPrincipal(), connection });
+
+      expect(result.token).toBe(`app-token-for-${CALENDAR}`);
+      expect(client.calls.clientCredentials).toEqual([{ resource: CALENDAR }]);
+      expect(client.calls.impersonations).toEqual([]);
+    });
+
+    it("decides per turn when a function returns a user or null", async () => {
+      const client = fakeZoneClient();
+      let sweepAs: string | null = "sweeper@example.com";
+      const resolve = impersonate({
+        resource: CALENDAR,
+        client,
+        userIdentifier: (principal) => (principal.type === "user" ? principal.id : ""),
+        unattendedUserIdentifier: async () => sweepAs,
+      });
+
+      await resolve(turn(null)).getToken({ principal: appPrincipal(), connection });
+      sweepAs = null;
+      await resolve(turn(null)).getToken({ principal: appPrincipal(), connection });
+
+      expect(client.calls.impersonations.map((call) => call.userIdentifier)).toEqual([
+        "sweeper@example.com",
+      ]);
+      expect(client.calls.clientCredentials).toHaveLength(1);
+    });
+
+    it("never serves a user turn with the agent's authority", async () => {
+      const client = fakeZoneClient();
+      const resolve = impersonate({
+        resource: CALENDAR,
+        client,
+        userIdentifier: () => "",
+        unattendedUserIdentifier: null,
+      });
+
+      const onDm = resolve(turn(sessionAuthContext()));
+      await expect(
+        onDm.getToken({ principal: userPrincipal(), connection }),
+      ).rejects.toMatchObject({ reason: FailureReason.PRINCIPAL_REQUIRED });
+      expect(client.calls.clientCredentials).toEqual([]);
+      expect(client.calls.impersonations).toEqual([]);
+    });
+
+    it("rejects a fixed userIdentifier, which already runs unattended", () => {
+      expect(() =>
+        impersonate({
+          resource: CALENDAR,
+          zoneUrl: ZONE,
+          userIdentifier: "ops@example.com",
+          unattendedUserIdentifier: "owner@example.com",
+        }),
+      ).toThrow(AuthProviderConfigurationError);
+    });
+  });
+
+  it("names the missing grant and the command that creates it", async () => {
+    const client = fakeZoneClient({
+      fail: new OAuthError(
+        "insufficient_authorization",
+        `User authorization is required for resource ${CALENDAR}`,
+      ),
+    });
+    const auth = impersonate({
+      resource: CALENDAR,
+      zoneUrl: "https://abc123.keycard.cloud",
+      client,
+      userIdentifier: "ops@example.com",
+    });
+
+    const failure = auth.getToken({ principal: appPrincipal(), connection });
+
+    await expect(failure).rejects.toMatchObject({
+      reason: FailureReason.USER_AUTHORIZATION_REQUIRED,
+      retryable: false,
+    });
+    await expect(failure).rejects.toThrow(
+      `Run \`keycard auth resource ${CALENDAR} --zone abc123\``,
+    );
+  });
+
+  it("uses authorizationHint in place of the default command", async () => {
+    const client = fakeZoneClient({ fail: new OAuthError("authorization_required", "no grant") });
+    const auth = impersonate({
+      resource: CALENDAR,
+      client,
+      userIdentifier: "ops@example.com",
+      authorizationHint: "Run `keycard auth resource a b c`.",
+    });
+
+    await expect(auth.getToken({ principal: appPrincipal(), connection })).rejects.toThrow(
+      "Run `keycard auth resource a b c`.",
+    );
+  });
+
+  it("tells an unknown user apart from a missing grant", async () => {
+    const client = fakeZoneClient({
+      fail: new OAuthError("invalid_grant", "User not found for identifier ops@example.com"),
+    });
+    const auth = impersonate({ resource: CALENDAR, client, userIdentifier: "ops@example.com" });
+
+    await expect(auth.getToken({ principal: appPrincipal(), connection })).rejects.toMatchObject({
+      reason: FailureReason.UNKNOWN_USER,
+    });
+  });
+
+  it("returns the localTokenEnv token without contacting the zone", async () => {
+    const client = fakeZoneClient();
+    const auth = impersonate({
+      resource: CALENDAR,
+      client,
+      userIdentifier: "ops@example.com",
+      localTokenEnv: "EVE_TEST_CALENDAR_TOKEN",
+    });
+
+    process.env.EVE_TEST_CALENDAR_TOKEN = "hydrated-by-keycard-run";
+    try {
+      const result = await auth.getToken({ principal: appPrincipal(), connection });
+      expect(result).toEqual({ token: "hydrated-by-keycard-run" });
+      expect(client.calls.impersonations).toEqual([]);
+    } finally {
+      delete process.env.EVE_TEST_CALENDAR_TOKEN;
+    }
+
+    await auth.getToken({ principal: appPrincipal(), connection });
+    expect(client.calls.impersonations).toHaveLength(1);
+  });
 });
 
 describe("asSelf", () => {
@@ -300,6 +487,19 @@ describe("asSelf", () => {
       clientAssertionType: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
       clientId: "workload-client",
     });
+  });
+
+  it("says the app cannot reach a resource that accepts only user grants", async () => {
+    const client = fakeZoneClient({
+      fail: new OAuthError("insufficient_authorization", "User authorization is required"),
+    });
+    const auth = asSelf({ resource: CALENDAR, client });
+
+    const failure = auth.getToken({ principal: appPrincipal(), connection });
+    await expect(failure).rejects.toMatchObject({
+      reason: FailureReason.USER_AUTHORIZATION_REQUIRED,
+    });
+    await expect(failure).rejects.toThrow("cannot reach it as itself");
   });
 
   it("surfaces a global zone failure as an authorization failure", async () => {
