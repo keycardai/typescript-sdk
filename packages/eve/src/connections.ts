@@ -7,6 +7,7 @@ import {
 } from "@keycardai/oauth";
 import type {
   ConnectionPrincipal,
+  CredentialOwner,
   NonInteractiveAuthorizationDefinition,
   TokenResult,
 } from "eve/connections";
@@ -17,9 +18,25 @@ import { subjectTokenExpired } from "./expiry.js";
 import { principalKey, readSubjectToken } from "./subjectTokens.js";
 
 /**
+ * A non-interactive connection auth definition as eve 0.71 accepts it:
+ * `credentialOwner` declares whether the credential belongs to the agent
+ * (`"app"`, one token per connection across sessions) or to the end user
+ * (`"user"`, one token per connection principal). eve deprecated
+ * `principalType` on non-interactive auth in favor of it; interactive
+ * definitions still use `principalType: "user"`.
+ */
+export type KeycardConnectionAuth = Omit<
+  NonInteractiveAuthorizationDefinition,
+  "principalType"
+> & {
+  readonly credentialOwner: CredentialOwner;
+};
+
+/**
  * None of these definitions carry a `displayName`. eve validates an authored
  * connection's `auth` against a closed key list (`completeAuthorization`,
- * `evict`, `getToken`, `principalType`, `startAuthorization`, `vercelConnect`),
+ * `credentialOwner`, `evict`, `getToken`, `principalType`,
+ * `startAuthorization`, `vercelConnect`),
  * and a definition carrying any other key fails the build with
  * `The "auth" field Unknown key "displayName"`. The only consumer of the field
  * is eve's `stampChallengeDisplayName`, which resolves
@@ -47,11 +64,11 @@ export interface KeycardImpersonateOptions extends KeycardConnectionOptions {
  */
 export function asSelf(
   options: KeycardConnectionOptions,
-): NonInteractiveAuthorizationDefinition {
+): KeycardConnectionAuth {
   const config = resolveConnectionConfig(options, "asSelf");
 
   return {
-    principalType: "app",
+    credentialOwner: "app",
     async getToken(): Promise<TokenResult> {
       const request: ClientCredentialsRequest = {
         resource: config.resource,
@@ -84,11 +101,11 @@ export function asSelf(
  */
 export function onBehalfOf(
   options: KeycardConnectionOptions,
-): NonInteractiveAuthorizationDefinition {
+): KeycardConnectionAuth {
   const config = resolveConnectionConfig(options, "onBehalfOf");
 
   return {
-    principalType: "user",
+    credentialOwner: "user",
     async getToken({ principal }): Promise<TokenResult> {
       requireUser(principal, config.connectionName);
 
@@ -150,7 +167,7 @@ export function onBehalfOf(
  */
 export function impersonate(
   options: KeycardImpersonateOptions,
-): NonInteractiveAuthorizationDefinition {
+): KeycardConnectionAuth {
   const config = resolveConnectionConfig(options, "impersonate");
   const identifier = options.userIdentifier;
   if (typeof identifier === "string" && !identifier.trim()) {
@@ -160,7 +177,7 @@ export function impersonate(
   }
 
   return {
-    principalType: typeof identifier === "function" ? "user" : "app",
+    credentialOwner: typeof identifier === "function" ? "user" : "app",
     async getToken({ principal }): Promise<TokenResult> {
       let userIdentifier: string;
       if (typeof identifier === "function") {

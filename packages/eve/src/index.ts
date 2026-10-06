@@ -18,7 +18,7 @@ export { keycardAuth } from "./auth.js";
 export type { KeycardAuthOptions, SubjectTokenRetention } from "./auth.js";
 
 export { asSelf, impersonate, onBehalfOf } from "./connections.js";
-export type { KeycardImpersonateOptions } from "./connections.js";
+export type { KeycardConnectionAuth, KeycardImpersonateOptions } from "./connections.js";
 
 export { interactive, memoryAuthorizedTokenStore } from "./interactive.js";
 export type {
