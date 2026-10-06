@@ -1317,9 +1317,15 @@ describe("interactive sign-in identity check", () => {
     ).rejects.toMatchObject({ name: "ConnectionAuthorizationRequiredError" });
     expect(await tokens.list(PRINCIPAL_KEY)).toHaveLength(2);
 
-    // The definition with no check reads either grant.
+    // The definition with no check is served the checked grant once it is the
+    // only one left.
+    const uncheckedGrant = (await tokens.list(PRINCIPAL_KEY)).find(
+      (grant) => grant.subject === undefined,
+    );
+    expect(uncheckedGrant).toBeDefined();
+    await tokens.remove(PRINCIPAL_KEY, uncheckedGrant!.id);
     const served = await unchecked.getToken({ principal: userPrincipal(), connection });
-    expect(["granted-token", "unchecked-token"]).toContain(served.token);
+    expect(served.token).toBe("granted-token");
 
     // The grant checked for OTHER_ZONE_USER is served to a definition expecting it.
     const matching = interactive({
