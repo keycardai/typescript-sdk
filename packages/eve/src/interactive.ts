@@ -382,9 +382,9 @@ export function interactive(
     principalType: "user",
     /**
      * No definition-level `displayName`: eve validates an authored connection's
-     * `auth` against a closed key list (`completeAuthorization`, `evict`,
-     * `getToken`, `principalType`, `startAuthorization`, `vercelConnect`) that
-     * omits it. The name rides on the challenge instead, where eve's
+     * `auth` against a closed key list (`completeAuthorization`,
+     * `credentialOwner`, `evict`, `getToken`, `principalType`,
+     * `startAuthorization`, `vercelConnect`) that omits it. The name rides on the challenge instead, where eve's
      * `stampChallengeDisplayName` falls back to it.
      */
     async getToken({ principal }): Promise<TokenResult> {

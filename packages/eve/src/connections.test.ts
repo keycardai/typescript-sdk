@@ -6,7 +6,7 @@ import {
   type ApplicationCredential,
   type TokenExchangeRequest,
 } from "@keycardai/oauth";
-import type { ConnectionPrincipal } from "eve/connections";
+import type { ConnectionAuthProvider, ConnectionPrincipal } from "eve/connections";
 
 import { asSelf, impersonate, onBehalfOf } from "./connections.js";
 import { AuthorizationFailedError, FailureReason } from "./errors.js";
@@ -61,7 +61,7 @@ describe("onBehalfOf", () => {
 
     const result = await auth.getToken({ principal: userPrincipal(), connection });
 
-    expect(auth.principalType).toBe("user");
+    expect(auth.credentialOwner).toBe("user");
     expect(client.calls.exchanges).toEqual([
       { subjectToken, resource: CALENDAR, subjectTokenType: TokenType.ACCESS_TOKEN },
     ]);
@@ -218,7 +218,9 @@ describe("impersonate", () => {
 
     const result = await auth.getToken({ principal: appPrincipal(), connection });
 
-    expect(auth.principalType).toBe("app");
+    expect(auth.credentialOwner).toBe("app");
+    const provider: ConnectionAuthProvider = auth;
+    expect(provider).toBe(auth);
     expect(client.calls.impersonations).toEqual([
       { userIdentifier: "ops@example.com", resource: CALENDAR, scope: "calendar.read" },
     ]);
@@ -235,7 +237,7 @@ describe("impersonate", () => {
         principal.type === "user" ? principal.id : "",
     });
 
-    expect(auth.principalType).toBe("user");
+    expect(auth.credentialOwner).toBe("user");
     await auth.getToken({ principal: userPrincipal("user-7"), connection });
     expect(client.calls.impersonations[0]?.userIdentifier).toBe("user-7");
 
@@ -264,7 +266,7 @@ describe("asSelf", () => {
 
     const result = await auth.getToken({ principal: appPrincipal(), connection });
 
-    expect(auth.principalType).toBe("app");
+    expect(auth.credentialOwner).toBe("app");
     expect(client.calls.clientCredentials).toEqual([
       { resource: CALENDAR, scope: "reports.read" },
     ]);

@@ -159,6 +159,7 @@ describe("interactive", () => {
     // fails the build for every connection using it.
     const allowed = [
       "completeAuthorization",
+      "credentialOwner",
       "evict",
       "getToken",
       "principalType",
@@ -168,6 +169,7 @@ describe("interactive", () => {
     expect(Object.keys(auth).filter((key) => !allowed.includes(key))).toEqual(
       [],
     );
+    expect(auth).not.toHaveProperty("displayName");
 
     // The name still reaches the sign-in prompt, on the challenge, which is
     // where eve's stampChallengeDisplayName falls back to.

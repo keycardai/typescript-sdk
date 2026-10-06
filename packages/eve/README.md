@@ -16,8 +16,9 @@ Three adapters, each one plugging into an eve primitive instead of wrapping it:
 pnpm add @keycardai/eve
 ```
 
-`eve` is a peer dependency, pinned to `>=0.54.3 <0.55.0`. This package was
-built and verified against eve `0.54.3`. eve is in public beta and ships
+`eve` is a peer dependency, pinned to `>=0.71.3 <0.72.0`: this package
+requires eve 0.71 and was built and verified against eve `0.71.3`. eve is in
+public beta and ships
 releases most days, and its connection and auth surfaces are still moving, so
 the range deliberately stops at the next minor rather than tracking `^`. Widen
 it only after re-running this package's tests against the newer eve.
@@ -27,7 +28,15 @@ range current: a consumer who runs a newer eve and installs this anyway —
 `--legacy-peer-deps` — silently loses the check, and the incompatibilities
 surface at build time instead. Two of them are what the 0.47 → 0.54 bump had to
 fix: an `auth` key list that `displayName` is not in, and a `requireAuth`
-options type with no `reason` field.
+options type with no `reason` field. The 0.54 → 0.71 bump moved non-interactive
+connection auth from `principalType` to `credentialOwner`.
+
+Upgrading an agent across eve 0.70 signs Slack users in once more: eve changed
+the Slack principal to `slack:<install team>:<user>`, and this package keys
+user-scoped tokens and grants by that principal, so the entries stored under the
+old principal are no longer found. Nothing else about the integration moves
+with the upgrade; the per-attempt callback
+(`/eve/v1/connections/:name/callback/:attemptId/:token`) is unchanged.
 
 eve itself declares `engines.node: ">=24"` and is ESM only. This package
 imports eve for types only (`import type { ... } from "eve/connections"`), so
@@ -105,6 +114,11 @@ export default defineMcpClientConnection({
   exchange for a user the agent holds no token for. A fixed identifier makes
   the connection app-scoped; a function receives the connection principal and
   makes it user-scoped.
+
+Each factory declares eve 0.71's `credentialOwner` (`"app"` or `"user"`) for
+the pattern it implements, which is how eve decides whether to cache the token
+once per connection or once per connection principal. Interactive definitions
+(below) keep eve's `principalType: "user"`.
 
 Nothing falls back to the agent's authority. A user-pattern connection with no
 user principal, a turn whose subject token was never retained, and an expired
