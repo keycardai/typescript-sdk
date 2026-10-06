@@ -148,7 +148,20 @@ function buildResourceAccessMessage(options?: ResourceAccessErrorOptions): strin
   }
 }
 
-export class AuthProviderConfigurationError extends Error {
+/**
+ * A caller or server configuration problem that retrying will not fix: for
+ * example, authorization-server metadata that lacks an endpoint the
+ * operation needs. Mirrors Python's `ConfigError` and the Go and Ruby
+ * `ConfigurationError`.
+ */
+export class ConfigurationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ConfigurationError";
+  }
+}
+
+export class AuthProviderConfigurationError extends ConfigurationError {
   constructor(message?: string) {
     super(message ?? "AuthProvider configuration is invalid");
     this.name = "AuthProviderConfigurationError";

@@ -1,6 +1,6 @@
 import base64url from "./base64url.js";
 import { fetchAuthorizationServerMetadata, type OAuthAuthorizationServerMetadata } from "./discovery.js";
-import { AuthorizationDeniedError, OAuthError, RefreshGrantError, StateMismatchError } from "./errors.js";
+import { AuthorizationDeniedError, ConfigurationError, OAuthError, RefreshGrantError, StateMismatchError } from "./errors.js";
 import { buildAuthorizeUrl, exchangeAuthorizationCode, generatePkcePair } from "./pkce.js";
 import { deserializeTokenResponse, type TokenResponse } from "./tokenExchange.js";
 
@@ -97,7 +97,7 @@ export async function beginAuthorization(
   const metadata = options.metadata
     ?? await fetchAuthorizationServerMetadata(issuer, { signal: options.signal });
   if (!metadata.authorization_endpoint) {
-    throw new Error(
+    throw new ConfigurationError(
       `Authorization server "${issuer}" does not advertise an authorization_endpoint`,
     );
   }
@@ -195,7 +195,7 @@ export async function refreshAuthorization(
   const metadata = options.metadata
     ?? await fetchAuthorizationServerMetadata(issuer, { signal: options.signal });
   if (!metadata.token_endpoint) {
-    throw new Error(
+    throw new ConfigurationError(
       `Authorization server "${issuer}" does not advertise a token_endpoint`,
     );
   }
