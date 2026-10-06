@@ -1,3 +1,10 @@
+## 0.26.0-keycardai-oauth (2026-10-06)
+
+
+- feat(oauth): throw a typed ConfigurationError when discovery lacks a required endpoint (SDK-16) (#209)
+- Co-authored-by: devin-ai-keycard <devin-ai@keycard.ai>
+Co-authored-by: Larry Osakwe <larry@keycard.ai>
+
 ## 0.25.0-keycardai-oauth (2026-09-17)
 
 
