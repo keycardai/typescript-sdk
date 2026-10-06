@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "@jest/globals";
+import { afterEach, beforeEach, describe, expect, it, jest } from "@jest/globals";
 import {
   AuthProviderConfigurationError,
   AuthorizationDeniedError,
@@ -9,10 +9,11 @@ import {
   type CompleteAuthorizationOptions,
   type RefreshAuthorizationOptions,
   type TokenResponse,
+  type UserInfoResponse,
 } from "@keycardai/oauth";
 import type { AuthorizationCallback } from "eve/connections";
 
-import { FailureReason } from "./errors.js";
+import { AuthorizationFailedError, FailureReason } from "./errors.js";
 import {
   interactive,
   memoryAuthorizedTokenStore,
@@ -40,6 +41,8 @@ interface RecordingFlow extends WebAppFlow {
   readonly completes: CompleteAuthorizationOptions[];
   readonly registrations: RegisterAttemptClientOptions[];
   readonly refreshes: RefreshAuthorizationOptions[];
+  /** Access tokens `userinfo` was asked about, in order. */
+  readonly userinfos: string[];
 }
 
 function recordingFlow(
@@ -47,17 +50,20 @@ function recordingFlow(
     completion?: Error | TokenResponse;
     registration?: Error | RegisteredClient;
     refresh?: Error | TokenResponse;
+    userinfo?: Error | UserInfoResponse;
   } = {},
 ): RecordingFlow {
   const begins: BeginAuthorizationOptions[] = [];
   const completes: CompleteAuthorizationOptions[] = [];
   const registrations: RegisterAttemptClientOptions[] = [];
   const refreshes: RefreshAuthorizationOptions[] = [];
+  const userinfos: string[] = [];
   return {
     begins,
     completes,
     registrations,
     refreshes,
+    userinfos,
     async begin(beginOptions): Promise<AuthorizationRedirect> {
       begins.push(beginOptions);
       return {
@@ -101,8 +107,18 @@ function recordingFlow(
         }
       );
     },
+    async userinfo(accessToken): Promise<UserInfoResponse> {
+      userinfos.push(accessToken);
+      const userinfo = options.userinfo;
+      if (userinfo instanceof Error) throw userinfo;
+      return userinfo ?? { sub: ZONE_USER, claims: { sub: ZONE_USER } };
+    },
   };
 }
+
+/** The zone user the test principal is expected to sign in as. */
+const ZONE_USER = "zone-user-1";
+const OTHER_ZONE_USER = "zone-user-2";
 
 /** Runs one attempt through begin and complete for `principal`. */
 async function authorize(
@@ -1023,5 +1039,500 @@ describe("interactive grant lifecycle", () => {
     ).rejects.toMatchObject({
       name: "ConnectionAuthorizationRequiredError",
     });
+  });
+});
+
+describe("interactive sign-in identity check", () => {
+  /** Fails the error if any identifier from either side leaked into it. */
+  function expectNamesNoAccount(error: unknown): void {
+    expect(error).toBeInstanceOf(AuthorizationFailedError);
+    const failure = error as AuthorizationFailedError;
+    expect(failure.message).not.toContain(ZONE_USER);
+    expect(failure.message).not.toContain(OTHER_ZONE_USER);
+    expect(failure.cause).toBeUndefined();
+  }
+
+  async function failureOf(promise: Promise<unknown>): Promise<AuthorizationFailedError> {
+    try {
+      await promise;
+    } catch (error) {
+      expect(error).toBeInstanceOf(AuthorizationFailedError);
+      return error as AuthorizationFailedError;
+    }
+    throw new Error("expected the call to fail");
+  }
+
+  it("row 24: journals no expected subject into the resume state", async () => {
+    const flow = recordingFlow();
+    const auth = interactive({
+      resource: CALENDAR,
+      flow,
+      expectedSubject: () => ZONE_USER,
+    });
+    const started = await auth.startAuthorization({
+      principal: userPrincipal(),
+      connection,
+      callbackUrl: CALLBACK,
+    });
+    expect(Object.keys(started.resume).sort()).toEqual(
+      ["callbackUrl", "clientId", "codeVerifier", "resources", "state"],
+    );
+    expect(JSON.stringify(started.resume)).not.toContain(ZONE_USER);
+  });
+
+  it("row 31: issues no link and registers no client when the expected subject is unknown", async () => {
+    const flow = recordingFlow();
+    const auth = interactive({
+      resource: CALENDAR,
+      flow,
+      expectedSubject: () => undefined,
+    });
+    const failure = await failureOf(
+      auth.startAuthorization({ principal: userPrincipal(), connection, callbackUrl: CALLBACK }),
+    );
+    expect(failure.reason).toBe(FailureReason.IDENTITY_UNVERIFIABLE);
+    expect(failure.retryable).toBe(false);
+    expect(flow.registrations).toEqual([]);
+    expect(flow.begins).toEqual([]);
+
+    // Whitespace is nothing, too.
+    const blank = interactive({
+      resource: CALENDAR,
+      connectionName: "Blank",
+      flow,
+      expectedSubject: () => "   ",
+    });
+    const blankFailure = await failureOf(
+      blank.startAuthorization({ principal: userPrincipal(), connection, callbackUrl: CALLBACK }),
+    );
+    expect(blankFailure.reason).toBe(FailureReason.IDENTITY_UNVERIFIABLE);
+    expect(flow.begins).toEqual([]);
+  });
+
+  it("row 31 (throw): a failing lookup before the link is retryable", async () => {
+    const flow = recordingFlow();
+    const auth = interactive({
+      resource: CALENDAR,
+      flow,
+      expectedSubject: async () => {
+        throw new Error(`directory lookup failed for ${ZONE_USER}`);
+      },
+    });
+    const failure = await failureOf(
+      auth.startAuthorization({ principal: userPrincipal(), connection, callbackUrl: CALLBACK }),
+    );
+    expect(failure.reason).toBe(FailureReason.IDENTITY_UNVERIFIABLE);
+    expect(failure.retryable).toBe(true);
+    expectNamesNoAccount(failure);
+    expect(flow.begins).toEqual([]);
+  });
+
+  it("row 32: requests openid alongside requestScopes, once", async () => {
+    const flow = recordingFlow();
+    const auth = interactive({
+      resource: CALENDAR,
+      requestScopes: ["calendar.read"],
+      flow,
+      expectedSubject: () => ZONE_USER,
+    });
+    await auth.startAuthorization({ principal: userPrincipal(), connection, callbackUrl: CALLBACK });
+    expect(flow.begins[0]?.scopes).toEqual(["calendar.read", "openid"]);
+    expect(flow.registrations[0]?.scopes).toEqual(["calendar.read", "openid"]);
+
+    const listed = interactive({
+      resource: CALENDAR,
+      connectionName: "Listed",
+      requestScopes: ["openid", "calendar.read"],
+      flow,
+      expectedSubject: () => ZONE_USER,
+    });
+    await listed.startAuthorization({ principal: userPrincipal(), connection, callbackUrl: CALLBACK });
+    expect(flow.begins[1]?.scopes).toEqual(["openid", "calendar.read"]);
+
+    const unchecked = interactive({
+      resource: CALENDAR,
+      connectionName: "Unchecked",
+      requestScopes: ["calendar.read"],
+      flow,
+    });
+    await unchecked.startAuthorization({ principal: userPrincipal(), connection, callbackUrl: CALLBACK });
+    expect(flow.begins[2]?.scopes).toEqual(["calendar.read"]);
+  });
+
+  it("row 33: stores nothing when UserInfo names a different user", async () => {
+    const flow = recordingFlow({
+      userinfo: { sub: OTHER_ZONE_USER, claims: { sub: OTHER_ZONE_USER, email: "other@example.com" } },
+    });
+    const tokens = memoryAuthorizedTokenStore();
+    const auth = interactive({
+      resource: CALENDAR,
+      tokens,
+      flow,
+      expectedSubject: () => ZONE_USER,
+    });
+    const failure = await failureOf(authorize(auth));
+    expect(failure.reason).toBe(FailureReason.IDENTITY_MISMATCH);
+    expect(failure.retryable).toBe(false);
+    expectNamesNoAccount(failure);
+    expect(failure.message).not.toContain("other@example.com");
+    expect(flow.userinfos).toEqual(["granted-token"]);
+    expect(await tokens.list(PRINCIPAL_KEY)).toEqual([]);
+    await expect(
+      auth.getToken({ principal: userPrincipal(), connection }),
+    ).rejects.toMatchObject({ name: "ConnectionAuthorizationRequiredError" });
+  });
+
+  it("row 33: compares sub exactly, with no case folding", async () => {
+    const flow = recordingFlow({
+      userinfo: { sub: ZONE_USER.toUpperCase(), claims: { sub: ZONE_USER.toUpperCase() } },
+    });
+    const tokens = memoryAuthorizedTokenStore();
+    const auth = interactive({ resource: CALENDAR, tokens, flow, expectedSubject: () => ZONE_USER });
+    const failure = await failureOf(authorize(auth));
+    expect(failure.reason).toBe(FailureReason.IDENTITY_MISMATCH);
+    expect(await tokens.list(PRINCIPAL_KEY)).toEqual([]);
+  });
+
+  it("row 34: stores nothing when the identity cannot be verified after redemption", async () => {
+    const cases: Array<{
+      name: string;
+      userinfo?: Error | UserInfoResponse;
+      afterStart?: () => string | undefined;
+    }> = [
+      { name: "resolver returns nothing", afterStart: () => undefined },
+      {
+        name: "resolver throws",
+        afterStart: () => {
+          throw new Error(`lookup failed for ${ZONE_USER}`);
+        },
+      },
+      { name: "UserInfo fails", userinfo: new Error("userinfo 500") },
+      { name: "UserInfo answers without sub", userinfo: { sub: "", claims: {} } },
+    ];
+    for (const [index, testCase] of cases.entries()) {
+      const flow = recordingFlow(
+        testCase.userinfo !== undefined ? { userinfo: testCase.userinfo } : {},
+      );
+      const tokens = memoryAuthorizedTokenStore();
+      let started = false;
+      const auth = interactive({
+        resource: CALENDAR,
+        connectionName: `Case ${index}`,
+        tokens,
+        flow,
+        expectedSubject: () => {
+          if (started && testCase.afterStart) return testCase.afterStart();
+          return ZONE_USER;
+        },
+      });
+      const begun = await auth.startAuthorization({
+        principal: userPrincipal(),
+        connection,
+        callbackUrl: CALLBACK,
+      });
+      started = true;
+      const failure = await failureOf(
+        auth.completeAuthorization({
+          principal: userPrincipal(),
+          connection,
+          callbackUrl: CALLBACK,
+          resume: begun.resume,
+          callback: callback({ code: "auth-code", state: "state-1" }),
+        }),
+      );
+      expect([testCase.name, failure.reason]).toEqual([testCase.name, FailureReason.IDENTITY_UNVERIFIABLE]);
+      expect([testCase.name, failure.retryable]).toEqual([testCase.name, false]);
+      expectNamesNoAccount(failure);
+      expect(flow.completes).toHaveLength(1);
+      expect(await tokens.list(PRINCIPAL_KEY)).toEqual([]);
+    }
+  });
+
+  it("row 35: a refresh keeps the verified subject and asks UserInfo nothing", async () => {
+    const flow = recordingFlow({
+      completion: {
+        accessToken: "granted-token",
+        tokenType: "Bearer",
+        expiresIn: 30,
+        refreshToken: "refresh-1",
+      },
+    });
+    const tokens = memoryAuthorizedTokenStore();
+    const auth = interactive({
+      resource: CALENDAR,
+      requestScopes: ["calendar.read"],
+      tokens,
+      flow,
+      expectedSubject: () => ZONE_USER,
+    });
+    await authorize(auth);
+    expect(flow.userinfos).toEqual(["granted-token"]);
+
+    const result = await auth.getToken({ principal: userPrincipal(), connection });
+    expect(result.token).toBe("refreshed-token");
+    // The refresh asks for what the grant was issued with, openid included.
+    expect(flow.refreshes[0]?.scopes).toEqual(["calendar.read", "openid"]);
+    expect(flow.userinfos).toEqual(["granted-token"]);
+    const held = await tokens.list(PRINCIPAL_KEY);
+    expect(held).toHaveLength(1);
+    expect(held[0]).toMatchObject({
+      accessToken: "refreshed-token",
+      refreshToken: "rotated-refresh",
+      subject: ZONE_USER,
+    });
+  });
+
+  it("row 36: serves a checking definition only a grant verified for its subject, deleting nothing", async () => {
+    const tokens = memoryAuthorizedTokenStore();
+    const checkedForOther = interactive({
+      resource: CALENDAR,
+      connectionName: "Checked for other",
+      tokens,
+      flow: recordingFlow({
+        userinfo: { sub: OTHER_ZONE_USER, claims: { sub: OTHER_ZONE_USER } },
+      }),
+      expectedSubject: () => OTHER_ZONE_USER,
+    });
+    await authorize(checkedForOther);
+    const unchecked = interactive({
+      resource: CALENDAR,
+      connectionName: "Unchecked",
+      tokens,
+      flow: recordingFlow({
+        completion: { accessToken: "unchecked-token", tokenType: "Bearer", expiresIn: 900 },
+      }),
+    });
+    await authorize(unchecked);
+    expect(await tokens.list(PRINCIPAL_KEY)).toHaveLength(2);
+
+    const checking = interactive({
+      resource: CALENDAR,
+      connectionName: "Checking",
+      tokens,
+      flow: recordingFlow(),
+      expectedSubject: () => ZONE_USER,
+    });
+    await expect(
+      checking.getToken({ principal: userPrincipal(), connection }),
+    ).rejects.toMatchObject({ name: "ConnectionAuthorizationRequiredError" });
+    expect(await tokens.list(PRINCIPAL_KEY)).toHaveLength(2);
+
+    // The definition with no check is served the checked grant once it is the
+    // only one left.
+    const uncheckedGrant = (await tokens.list(PRINCIPAL_KEY)).find(
+      (grant) => grant.subject === undefined,
+    );
+    expect(uncheckedGrant).toBeDefined();
+    await tokens.remove(PRINCIPAL_KEY, uncheckedGrant!.id);
+    const served = await unchecked.getToken({ principal: userPrincipal(), connection });
+    expect(served.token).toBe("granted-token");
+
+    // The grant checked for OTHER_ZONE_USER is served to a definition expecting it.
+    const matching = interactive({
+      resource: CALENDAR,
+      connectionName: "Matching",
+      tokens,
+      flow: recordingFlow(),
+      expectedSubject: () => OTHER_ZONE_USER,
+    });
+    const match = await matching.getToken({ principal: userPrincipal(), connection });
+    expect(match.token).toBe("granted-token");
+  });
+
+  it("row 37: insufficient_authorization on refresh removes the grant and parks", async () => {
+    for (const check of [true, false]) {
+      const flow = recordingFlow({
+        completion: {
+          accessToken: "granted-token",
+          tokenType: "Bearer",
+          expiresIn: 30,
+          refreshToken: "refresh-1",
+        },
+        refresh: new RefreshGrantError(
+          "insufficient_authorization",
+          "refresh token subject no longer resolves to a user",
+          { retryable: false, status: 400 },
+        ),
+      });
+      const tokens = memoryAuthorizedTokenStore();
+      const auth = interactive({
+        resource: CALENDAR,
+        connectionName: check ? "Checked" : "Unchecked",
+        tokens,
+        flow,
+        ...(check ? { expectedSubject: () => ZONE_USER } : {}),
+      });
+      await authorize(auth);
+      await expect(
+        auth.getToken({ principal: userPrincipal(), connection }),
+      ).rejects.toMatchObject({ name: "ConnectionAuthorizationRequiredError" });
+      expect(await tokens.list(PRINCIPAL_KEY)).toEqual([]);
+    }
+  });
+
+  it("row 38: prompt=login appears exactly once, replacing the flow's own prompt", async () => {
+    const flow = recordingFlow();
+    const base = flow.begin.bind(flow);
+    flow.begin = async (beginOptions) => {
+      const redirect = await base(beginOptions);
+      return { ...redirect, url: `${redirect.url}&prompt=consent` };
+    };
+    for (const check of [true, false]) {
+      const auth = interactive({
+        resource: CALENDAR,
+        connectionName: check ? "Checked" : "Unchecked",
+        flow,
+        prompt: "login",
+        ...(check ? { expectedSubject: () => ZONE_USER } : {}),
+      });
+      const started = await auth.startAuthorization({
+        principal: userPrincipal(),
+        connection,
+        callbackUrl: CALLBACK,
+      });
+      const url = new URL(started.challenge.url);
+      expect(url.searchParams.getAll("prompt")).toEqual(["login"]);
+      expect(url.searchParams.get("state")).toBe("state-1");
+    }
+
+    const plain = interactive({ resource: CALENDAR, connectionName: "Plain", flow });
+    const started = await plain.startAuthorization({
+      principal: userPrincipal(),
+      connection,
+      callbackUrl: CALLBACK,
+    });
+    expect(new URL(started.challenge.url).searchParams.getAll("prompt")).toEqual(["consent"]);
+  });
+
+  it("row 39: getToken with a lookup that throws is retryable and keeps the grant; nothing matches and parks", async () => {
+    const flow = recordingFlow();
+    const tokens = memoryAuthorizedTokenStore();
+    let mode: "ok" | "throw" | "nothing" = "ok";
+    const auth = interactive({
+      resource: CALENDAR,
+      tokens,
+      flow,
+      expectedSubject: () => {
+        if (mode === "throw") throw new Error(`lookup failed for ${ZONE_USER}`);
+        return mode === "ok" ? ZONE_USER : undefined;
+      },
+    });
+    await authorize(auth);
+    expect((await auth.getToken({ principal: userPrincipal(), connection })).token).toBe("granted-token");
+
+    mode = "throw";
+    const failure = await failureOf(auth.getToken({ principal: userPrincipal(), connection }));
+    expect(failure.reason).toBe(FailureReason.IDENTITY_UNVERIFIABLE);
+    expect(failure.retryable).toBe(true);
+    expectNamesNoAccount(failure);
+    expect(await tokens.list(PRINCIPAL_KEY)).toHaveLength(1);
+
+    mode = "nothing";
+    await expect(
+      auth.getToken({ principal: userPrincipal(), connection }),
+    ).rejects.toMatchObject({ name: "ConnectionAuthorizationRequiredError" });
+    expect(await tokens.list(PRINCIPAL_KEY)).toHaveLength(1);
+    const start = await failureOf(
+      auth.startAuthorization({ principal: userPrincipal(), connection, callbackUrl: CALLBACK }),
+    );
+    expect(start.reason).toBe(FailureReason.IDENTITY_UNVERIFIABLE);
+    expect(start.retryable).toBe(false);
+    expect(flow.begins).toHaveLength(1);
+  });
+
+  it("rejects a prompt other than login at definition time", () => {
+    expect(() =>
+      interactive({
+        resource: CALENDAR,
+        flow: recordingFlow(),
+        prompt: "consent" as unknown as "login",
+      }),
+    ).toThrow(AuthProviderConfigurationError);
+  });
+
+  it("rejects expectedSubject with a flow that has no userinfo at definition time", () => {
+    const { begin, complete, register } = recordingFlow();
+    expect(() =>
+      interactive({
+        resource: CALENDAR,
+        flow: { begin, complete, register },
+        expectedSubject: () => ZONE_USER,
+      }),
+    ).toThrow(AuthProviderConfigurationError);
+    // The same flow is fine without the check.
+    expect(() =>
+      interactive({ resource: CALENDAR, connectionName: "No check", flow: { begin, complete, register } }),
+    ).not.toThrow();
+  });
+});
+
+describe("interactive zone flow", () => {
+  const ZONE = "https://zone.example.com";
+  let originalFetch: typeof fetch;
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+  });
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it("discovers the zone once across begin, complete, and userinfo", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    globalThis.fetch = jest.fn(async (input: unknown, init?: unknown) => {
+      const url = String(input);
+      calls.push({ url, init: init as RequestInit | undefined });
+      const json = (body: unknown) =>
+        new Response(JSON.stringify(body), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      if (url.includes("/.well-known/")) {
+        return json({
+          issuer: ZONE,
+          authorization_endpoint: `${ZONE}/authorize`,
+          token_endpoint: `${ZONE}/token`,
+          userinfo_endpoint: `${ZONE}/userinfo`,
+        });
+      }
+      if (url === `${ZONE}/token`) {
+        return json({ access_token: "zone-token", token_type: "Bearer", expires_in: 900 });
+      }
+      if (url === `${ZONE}/userinfo`) {
+        return json({ sub: ZONE_USER, email: "user@example.com" });
+      }
+      throw new Error(`unexpected request ${url}`);
+    }) as unknown as typeof fetch;
+
+    const auth = interactive({
+      resource: CALENDAR,
+      zoneUrl: ZONE,
+      clientId: "static-client",
+      expectedSubject: () => ZONE_USER,
+    });
+    const started = await auth.startAuthorization({
+      principal: userPrincipal(),
+      connection,
+      callbackUrl: CALLBACK,
+    });
+    expect(new URL(started.challenge.url).searchParams.get("scope")).toContain("openid");
+    const result = await auth.completeAuthorization({
+      principal: userPrincipal(),
+      connection,
+      callbackUrl: CALLBACK,
+      resume: started.resume,
+      callback: callback({ code: "auth-code", state: started.resume.state }),
+    });
+    expect(result.token).toBe("zone-token");
+
+    const discoveries = calls.filter((call) => call.url.includes("/.well-known/"));
+    expect(discoveries).toHaveLength(1);
+    const userinfo = calls.find((call) => call.url === `${ZONE}/userinfo`);
+    const headers = userinfo?.init?.headers as Record<string, string>;
+    expect(headers["Authorization"]).toBe("Bearer zone-token");
+    expect(calls.map((call) => new URL(call.url).pathname)).toEqual([
+      "/.well-known/oauth-authorization-server",
+      "/token",
+      "/userinfo",
+    ]);
   });
 });

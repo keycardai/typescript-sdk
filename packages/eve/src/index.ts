@@ -23,6 +23,7 @@ export type { KeycardConnectionAuth, KeycardImpersonateOptions } from "./connect
 export { interactive, memoryAuthorizedTokenStore } from "./interactive.js";
 export type {
   AuthorizedGrant,
+  ExpectedSubjectResolver,
   GrantStore,
   KeycardInteractiveOptions,
   KeycardResumeState,

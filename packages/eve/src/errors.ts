@@ -79,6 +79,16 @@ export const FailureReason = Object.freeze({
   ACCESS_DENIED: "access_denied",
   /** The callback did not carry the state journaled at the begin step. */
   INVALID_CALLBACK: "invalid_callback",
+  /**
+   * The sign-in completed as a zone user other than the one `expectedSubject`
+   * named for the asking principal. Nothing is stored.
+   */
+  IDENTITY_MISMATCH: "identity_mismatch",
+  /**
+   * The asking principal's expected zone user could not be resolved, or the
+   * zone did not say who signed in. Nothing is stored.
+   */
+  IDENTITY_UNVERIFIABLE: "identity_unverifiable",
 } as const);
 
 /**

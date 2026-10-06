@@ -246,6 +246,84 @@ parks at expiry, as before.
 `evict` removes every grant of the principal that covers this connection's
 resource, leaving grants for other resources in place.
 
+### Binding the sign-in to the user who asked: `expectedSubject`
+
+A Slack or other chat principal is not a zone identity, and the sign-in link
+eve posts can be completed by whoever opens it, in a browser that may already
+be signed in to the zone as someone else. `expectedSubject` closes that gap.
+It is a host function from eve's `ConnectionPrincipal` to the zone user that
+principal must sign in as, meaning the `sub` the zone's UserInfo endpoint
+returns for that user, or `undefined` when the deployment knows no zone user
+for the principal:
+
+```ts
+import { Keycard } from "@keycardai/eve";
+import type { ConnectionPrincipal } from "eve/connections";
+
+// Your own mapping from the chat identity to the zone's user identifier, for
+// example a directory lookup keyed by the Slack user id in the principal.
+declare function zoneUserFor(principal: ConnectionPrincipal): Promise<string | undefined>;
+
+Keycard.interactive({
+  zoneUrl: process.env.KEYCARD_ZONE_URL!,
+  resource: "https://docs.example.com",
+  requestScopes: ["documents.read"],
+  connectionName: "Docs",
+  expectedSubject: zoneUserFor,
+  prompt: "login",
+});
+```
+
+With it set, the check runs twice around the browser flow and once on every
+use:
+
+- Before the link: `startAuthorization` resolves the expected user first. No
+  value means no client is registered and no link is posted; the attempt fails
+  with `reason: "identity_unverifiable"` and `retryable: false`, since only
+  configuration can fix it. The authorization request then adds the `openid`
+  scope, so the zone issues a token its UserInfo endpoint accepts.
+- After the sign-in: `completeAuthorization` redeems the code, resolves the
+  expected user again (it is never journaled into eve's resume state), asks
+  the zone's UserInfo endpoint who the new token belongs to, and compares that
+  `sub` to the expected value as an exact string. A different user fails with
+  `reason: "identity_mismatch"`; a lookup that returns nothing or throws, a
+  failed UserInfo call, or a response without `sub` fails with
+  `reason: "identity_unverifiable"`. Both are `retryable: false` and store
+  nothing. Who signed in is read from UserInfo, never from the token.
+- On use: `getToken` serves this definition a grant only when the grant's
+  verified `subject` equals the value resolved for the current principal. A
+  grant verified for someone else stays in the store for definitions it does
+  cover; this one parks for a fresh sign-in.
+
+Error messages name neither account, because eve shows them to the model or
+the user. A refresh keeps the verified `subject` without another UserInfo call:
+a refresh continues the same grant, and the zone resolves the user from the
+refresh token itself. A refresh the zone answers with
+`insufficient_authorization` deletes the grant and parks, like `invalid_grant`.
+
+**Setup the check depends on.** Matching works only when the zone's user
+identifier is the value your function returns. Configure a zone identity
+provider with its User Identifier Claim set to that value (for example
+`email`); users created after that setting get it as their identifier, users
+created before it keep their old one, and the Keycard-assigned default never
+matches a host value, so until the zone is configured every check fails closed
+with `identity_unverifiable` or `identity_mismatch`. Using the chat platform
+itself as the zone identity provider is the other route.
+
+Keep `expectedSubject` cheap, or cache it in the host: the package does not
+cache it and calls it on every `getToken`.
+
+`prompt: "login"` sets `prompt=login` on the sign-in URL (OIDC Core 1.0
+section 3.1.2.1), so the browser re-authenticates at the zone instead of
+silently reusing a session that belongs to someone else. It works with or
+without `expectedSubject`; `"login"` is the only accepted value.
+
+One caveat from eve itself: eve 0.71.3 emits `authorization.completed` with
+outcome `authorized` when the turn resumes after the callback, before this
+package's `completeAuthorization` runs. A sign-in the identity check rejects is
+therefore first reported as connected, then fails on first use with the reason
+above. No grant is stored in that case, so the misreport is cosmetic.
+
 ### Plugging a durable grant store
 
 The default store is process-local, so a restarted agent parks once more for
@@ -331,9 +409,10 @@ const auth = Keycard.onBehalfOf({
 credentials call, and can fail one resource or every request. `keycardAuth()`
 takes a `verify` seam in place of the JWKS-backed verifier, and
 `Keycard.interactive()` takes a `flow` seam in place of the web-flow calls:
-`begin`, `complete`, `register` for per-attempt clients, and `refresh`. A flow
-without `register` is rejected at construction unless a `clientId` is also
-given, so a test cannot accidentally exercise a combination that cannot work in
+`begin`, `complete`, `register` for per-attempt clients, `refresh`, and
+`userinfo` for the sign-in identity check. A flow without `register` is rejected
+at construction unless a `clientId` is also given, as is a flow without
+`userinfo` when `expectedSubject` is set, so a test cannot accidentally exercise a combination that cannot work in
 production. An injected `client` or `flow` supersedes `zoneUrl`, so a test needs
 no zone.
 

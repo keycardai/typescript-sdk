@@ -4,6 +4,7 @@ import {
   beginAuthorization,
   completeAuthorization,
   fetchAuthorizationServerMetadata,
+  fetchUserInfo,
   refreshAuthorization,
   RefreshGrantError,
   registerClient,
@@ -14,6 +15,7 @@ import {
   type OAuthAuthorizationServerMetadata,
   type RefreshAuthorizationOptions,
   type TokenResponse,
+  type UserInfoResponse,
 } from "@keycardai/oauth";
 import type {
   ConnectionPrincipal,
@@ -57,7 +59,8 @@ export interface KeycardResumeState {
  * `resources` and `scopes` are what the zone granted, and decide which
  * connections the grant serves. `clientId` is the client the grant was issued
  * to, and the client a refresh runs as. `id` is stable across refreshes, so a
- * store can replace the rotated pair in place.
+ * store can replace the rotated pair in place. `subject` is the zone user the
+ * sign-in was verified as, set only by a definition with `expectedSubject`.
  */
 export interface AuthorizedGrant {
   readonly id: string;
@@ -67,6 +70,7 @@ export interface AuthorizedGrant {
   readonly clientId: string;
   readonly resources: readonly string[];
   readonly scopes: readonly string[];
+  readonly subject?: string;
 }
 
 /**
@@ -120,7 +124,22 @@ export interface WebAppFlow {
    * parks for a fresh sign-in instead.
    */
   refresh?(options: RefreshAuthorizationOptions): Promise<TokenResponse>;
+  /**
+   * Fetches the signed-in user's claims for an access token (OIDC Core 1.0
+   * section 5.3). Required when `expectedSubject` is configured.
+   */
+  userinfo?(accessToken: string): Promise<UserInfoResponse>;
 }
+
+/**
+ * Names the zone user a principal must sign in as: the `sub` the zone's
+ * UserInfo endpoint returns for that user, or nothing when the deployment
+ * knows no zone user for the principal. Called on every `getToken`, so keep it
+ * cheap or cache it in the host.
+ */
+export type ExpectedSubjectResolver = (
+  principal: ConnectionPrincipal,
+) => string | undefined | Promise<string | undefined>;
 
 export interface KeycardInteractiveOptions {
   /** The resource URL the authorization is scoped to. */
@@ -175,6 +194,23 @@ export interface KeycardInteractiveOptions {
   tokens?: GrantStore;
   /** Web-flow seam. Replaces the zone calls, so tests take no network. */
   flow?: WebAppFlow;
+  /**
+   * Binds a completed sign-in to the principal that asked. A chat principal is
+   * not a zone identity, and the sign-in link can be completed by whoever
+   * opens it, in a browser already signed in as someone else. With this set,
+   * the authorization request adds the `openid` scope, and after the code is
+   * redeemed the zone's UserInfo `sub` must equal the resolved value exactly,
+   * or nothing is stored. A stored grant is served to this definition only
+   * while its `subject` equals the value resolved for the current principal.
+   * Requires `zoneUrl`, or an injected `flow` with `userinfo`.
+   */
+  expectedSubject?: ExpectedSubjectResolver;
+  /**
+   * `"login"` sets `prompt=login` on the sign-in URL (OIDC Core 1.0 section
+   * 3.1.2.1), so the browser re-authenticates instead of reusing a session
+   * signed in as someone else. The only accepted value.
+   */
+  prompt?: "login";
 }
 
 /** Connection names taken by `interactive()` definitions in this process. */
@@ -262,6 +298,25 @@ export function interactive(
   const resources = [options.resource, ...(options.additionalResources ?? [])];
   const scopes = splitScopes(options.requestScopes);
 
+  if (options.prompt !== undefined && options.prompt !== "login") {
+    throw new AuthProviderConfigurationError(
+      `interactive prompt must be "login" when set; got ${JSON.stringify(options.prompt)}`,
+    );
+  }
+  const expectedSubject = options.expectedSubject;
+  if (expectedSubject && !flow.userinfo) {
+    throw new AuthProviderConfigurationError(
+      "interactive expectedSubject requires a flow with userinfo(); the " +
+        "injected flow has no userinfo()",
+    );
+  }
+  // The identity check needs an access token the zone's UserInfo accepts, which
+  // the zone issues when the request carries openid.
+  const authScopes =
+    expectedSubject && !scopes.includes("openid")
+      ? [...scopes, "openid"]
+      : scopes;
+
   if (!staticClientId && !flow.register) {
     throw new AuthProviderConfigurationError(
       "interactive was given no clientId, so it registers a client per attempt, but the " +
@@ -275,6 +330,83 @@ export function interactive(
     scopes.every((scope) => grant.scopes.includes(scope));
 
   /**
+   * The zone user this principal must sign in as, trimmed, or undefined when
+   * the host knows none. A throwing resolver fails `identity_unverifiable`;
+   * that is retryable before anything has been issued and not once the code
+   * is redeemed. The message carries no identifier from either side, because
+   * eve shows it to the model or the user.
+   */
+  const resolveExpectedSubject = async (
+    principal: ConnectionPrincipal,
+    step: "start" | "complete" | "serve",
+  ): Promise<string | undefined> => {
+    let value: string | undefined;
+    try {
+      value = await expectedSubject!(principal);
+    } catch {
+      throw new AuthorizationFailedError(connectionName, {
+        message:
+          "The zone identity expected for this user could not be resolved, so the " +
+          "sign-in cannot be verified.",
+        reason: FailureReason.IDENTITY_UNVERIFIABLE,
+        retryable: step !== "complete",
+      });
+    }
+    const trimmed = typeof value === "string" ? value.trim() : "";
+    return trimmed.length > 0 ? trimmed : undefined;
+  };
+
+  const noExpectedSubject = (): AuthorizationFailedError =>
+    new AuthorizationFailedError(connectionName, {
+      message:
+        "No zone identity is configured for this user, so the sign-in cannot be " +
+        "verified.",
+      reason: FailureReason.IDENTITY_UNVERIFIABLE,
+      retryable: false,
+    });
+
+  /**
+   * Asks the zone who the redeemed token belongs to and compares that `sub` to
+   * the expected value as an exact string. The token itself is never decoded
+   * for this (RFC 9068 section 6). Every failure is final: the code is spent.
+   */
+  const verifySignedInUser = async (
+    accessToken: string,
+    expected: string,
+  ): Promise<string> => {
+    let info: UserInfoResponse;
+    try {
+      info = await flow.userinfo!(accessToken);
+    } catch {
+      throw new AuthorizationFailedError(connectionName, {
+        message:
+          "The zone did not confirm who completed the sign-in, so it was not kept.",
+        reason: FailureReason.IDENTITY_UNVERIFIABLE,
+        retryable: false,
+      });
+    }
+    const sub = typeof info?.sub === "string" ? info.sub : "";
+    if (sub.length === 0) {
+      throw new AuthorizationFailedError(connectionName, {
+        message:
+          "The zone did not confirm who completed the sign-in, so it was not kept.",
+        reason: FailureReason.IDENTITY_UNVERIFIABLE,
+        retryable: false,
+      });
+    }
+    if (sub !== expected) {
+      throw new AuthorizationFailedError(connectionName, {
+        message:
+          "The sign-in was completed by a different user than the one who asked, " +
+          "so it was not kept. Sign in again as yourself.",
+        reason: FailureReason.IDENTITY_MISMATCH,
+        retryable: false,
+      });
+    }
+    return sub;
+  };
+
+  /**
    * The client this attempt runs as: the configured one, or a fresh public
    * client whose single redirect URI is this attempt's callback.
    */
@@ -285,7 +417,7 @@ export function interactive(
       registered = await flow.register!({
         redirectUri: callbackUrl,
         clientName,
-        ...(scopes.length > 0 ? { scopes } : {}),
+        ...(authScopes.length > 0 ? { scopes: authScopes } : {}),
       });
     } catch (cause) {
       throw new AuthorizationFailedError(connectionName, {
@@ -339,7 +471,8 @@ export function interactive(
     } catch (cause) {
       if (
         cause instanceof RefreshGrantError &&
-        cause.errorCode === "invalid_grant"
+        (cause.errorCode === "invalid_grant" ||
+          cause.errorCode === "insufficient_authorization")
       ) {
         // A concurrent step may have rotated this grant first, in which case
         // the refresh token we sent is the stale one and the stored grant is
@@ -373,6 +506,9 @@ export function interactive(
       scopes: grant.scopes,
       // A server that rotates nothing leaves the old refresh token valid.
       refreshToken: grant.refreshToken,
+      // A refresh continues the same grant (RFC 6749 section 6), so the
+      // verified subject carries over without another UserInfo call.
+      ...(grant.subject !== undefined ? { subject: grant.subject } : {}),
     });
     await tokens.put(principal, rotated);
     return rotated;
@@ -390,7 +526,19 @@ export function interactive(
     async getToken({ principal }): Promise<TokenResult> {
       const key = storeKey(principal);
       const now = Date.now();
-      const held = (await tokens.list(key)).filter(covers);
+      const expected = expectedSubject
+        ? await resolveExpectedSubject(principal, "serve")
+        : undefined;
+      // With a check, a grant is covered only when it was verified as the
+      // user this principal must be; no expected value covers no grant, so
+      // the turn parks and startAuthorization reports why.
+      const served = expectedSubject
+        ? (grant: AuthorizedGrant): boolean =>
+            covers(grant) &&
+            expected !== undefined &&
+            grant.subject === expected
+        : covers;
+      const held = (await tokens.list(key)).filter(served);
       // A grant is usable while its access token is live or while it holds a
       // refresh token that can mint a new one; an expired grant with no refresh
       // token is dead.
@@ -415,15 +563,25 @@ export function interactive(
     },
     async startAuthorization({ principal, callbackUrl }) {
       requireUser(principal, connectionName);
+      if (expectedSubject) {
+        const expected = await resolveExpectedSubject(principal, "start");
+        if (expected === undefined) throw noExpectedSubject();
+      }
       const attemptClientId = await clientForAttempt(callbackUrl);
       const redirect = await flow.begin({
         clientId: attemptClientId,
         redirectUri: callbackUrl,
         resources,
-        ...(scopes.length > 0 ? { scopes } : {}),
+        ...(authScopes.length > 0 ? { scopes: authScopes } : {}),
       });
+      let url = redirect.url;
+      if (options.prompt) {
+        const prompted = new URL(url);
+        prompted.searchParams.set("prompt", options.prompt);
+        url = prompted.toString();
+      }
       return {
-        challenge: { url: redirect.url, displayName: connectionName },
+        challenge: { url, displayName: connectionName },
         resume: {
           state: redirect.state,
           codeVerifier: redirect.codeVerifier,
@@ -472,11 +630,21 @@ export function interactive(
         });
       }
 
+      let subject: string | undefined;
+      if (expectedSubject) {
+        // Resolved again rather than read from the resume state, so the
+        // identifier never enters eve's durable state.
+        const expected = await resolveExpectedSubject(principal, "complete");
+        if (expected === undefined) throw noExpectedSubject();
+        subject = await verifySignedInUser(response.accessToken, expected);
+      }
+
       const grant = grantFromResponse(response, {
         id: crypto.randomUUID(),
         clientId,
         resources: resume.resources.length > 0 ? resume.resources : resources,
-        scopes,
+        scopes: authScopes,
+        ...(subject !== undefined ? { subject } : {}),
       });
       await tokens.put(storeKey(principal), grant);
       return toTokenResult(grant);
@@ -554,6 +722,9 @@ function zoneWebAppFlow(
         metadata: await discover(),
       });
     },
+    async userinfo(accessToken) {
+      return fetchUserInfo(issuer, accessToken, { metadata: await discover() });
+    },
     /**
      * One public, PKCE-bound client per authorization, holding the single
      * redirect URI that attempt will come back to. `token_endpoint_auth_method:
@@ -599,6 +770,7 @@ function grantFromResponse(
     resources: readonly string[];
     scopes: readonly string[];
     refreshToken?: string;
+    subject?: string;
   },
 ): AuthorizedGrant {
   const expiry = expiresAt(response.expiresIn);
@@ -611,6 +783,7 @@ function grantFromResponse(
     clientId: issued.clientId,
     resources: [...issued.resources],
     scopes: response.scope ? splitScopes(response.scope) : [...issued.scopes],
+    ...(issued.subject !== undefined ? { subject: issued.subject } : {}),
   };
 }
 
