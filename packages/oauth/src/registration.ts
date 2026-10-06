@@ -1,5 +1,5 @@
 import { fetchAuthorizationServerMetadata } from "./discovery.js";
-import { OAuthError } from "./errors.js";
+import { ConfigurationError, OAuthError } from "./errors.js";
 
 /**
  * RFC 7591 Dynamic Client Registration request metadata.
@@ -79,7 +79,7 @@ export interface RegisterClientOptions {
  * request as JSON, and returns the issued client credentials.
  *
  * Throws:
- * - `Error` when the AS does not advertise `registration_endpoint`.
+ * - `ConfigurationError` when the AS does not advertise `registration_endpoint`.
  * - `OAuthError` when the AS returns an RFC 6749 §5.2 error response.
  * - `Error` on non-OAuth HTTP failures or malformed responses.
  */
@@ -93,7 +93,7 @@ export async function registerClient(
 
   const metadata = await fetchAuthorizationServerMetadata(issuer, { signal });
   if (!metadata.registration_endpoint) {
-    throw new Error(
+    throw new ConfigurationError(
       `Authorization server "${issuer}" does not advertise a registration_endpoint`,
     );
   }

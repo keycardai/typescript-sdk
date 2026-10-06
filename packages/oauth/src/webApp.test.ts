@@ -1,6 +1,6 @@
 import { jest } from '@jest/globals';
 import { beginAuthorization, completeAuthorization, refreshAuthorization } from './webApp.js';
-import { AuthorizationDeniedError, OAuthError, RefreshGrantError, StateMismatchError } from './errors.js';
+import { AuthorizationDeniedError, ConfigurationError, OAuthError, RefreshGrantError, StateMismatchError } from './errors.js';
 
 const ISSUER = 'https://auth.example.com';
 const AUTHORIZE_ENDPOINT = `${ISSUER}/authorize`;
@@ -44,6 +44,19 @@ describe('web-app flow', () => {
   });
 
   describe('beginAuthorization', () => {
+    it('throws ConfigurationError before any request when the metadata has no authorization_endpoint', async () => {
+      const calls = mockFetch(() => jsonResponse(200, METADATA));
+
+      await expect(
+        beginAuthorization(ISSUER, {
+          clientId: 'client-123',
+          redirectUri: REDIRECT_URI,
+          metadata: { issuer: ISSUER, token_endpoint: TOKEN_ENDPOINT },
+        }),
+      ).rejects.toThrow(ConfigurationError);
+      expect(calls).toHaveLength(0);
+    });
+
     it('discovers the authorization endpoint and returns the flow state', async () => {
       mockFetch(() => jsonResponse(200, METADATA));
 
@@ -132,6 +145,19 @@ describe('web-app flow', () => {
       redirectUri: REDIRECT_URI,
       metadata: METADATA,
     };
+
+    it('throws ConfigurationError before any request when the metadata has no token_endpoint', async () => {
+      const calls = mockFetch(() => jsonResponse(200, { access_token: 'at', token_type: 'Bearer' }));
+
+      await expect(
+        completeAuthorization(ISSUER, {
+          ...flowState,
+          metadata: { issuer: ISSUER, authorization_endpoint: AUTHORIZE_ENDPOINT },
+          callbackParams: { code: 'auth-code', state: 'stored-state' },
+        }),
+      ).rejects.toThrow(ConfigurationError);
+      expect(calls).toHaveLength(0);
+    });
 
     it('exchanges the code with the stored verifier and redirect URI', async () => {
       const calls = mockFetch(() =>

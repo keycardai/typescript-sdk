@@ -1,6 +1,6 @@
 import { jest } from '@jest/globals';
 import { registerClient } from './registration.js';
-import { OAuthError } from './errors.js';
+import { ConfigurationError, OAuthError } from './errors.js';
 
 const ISSUER = 'https://auth.example.com';
 const REGISTRATION_ENDPOINT = 'https://auth.example.com/register';
@@ -78,7 +78,7 @@ describe('registerClient', () => {
     fetchMock.mockImplementationOnce(async () => metadataResponseWithoutRegistration());
 
     await expect(registerClient(ISSUER, { clientName: 'svc' })).rejects.toThrow(
-      /does not advertise a registration_endpoint/,
+      ConfigurationError,
     );
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });

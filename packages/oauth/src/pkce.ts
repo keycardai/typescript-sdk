@@ -1,6 +1,6 @@
 import base64url from "./base64url.js";
 import { fetchAuthorizationServerMetadata, type OAuthAuthorizationServerMetadata } from "./discovery.js";
-import { OAuthError } from "./errors.js";
+import { ConfigurationError, OAuthError } from "./errors.js";
 import { deserializeTokenResponse, type TokenResponse } from "./tokenExchange.js";
 
 // =============================================================================
@@ -95,7 +95,7 @@ export async function exchangeAuthorizationCode(
     signal: options.signal,
   });
   if (!metadata.token_endpoint) {
-    throw new Error(
+    throw new ConfigurationError(
       `Authorization server "${issuer}" does not advertise a token_endpoint`,
     );
   }
@@ -246,7 +246,7 @@ export async function authenticate(
 
   const metadata = await fetchAuthorizationServerMetadata(issuer);
   if (!metadata.authorization_endpoint) {
-    throw new Error(
+    throw new ConfigurationError(
       `Authorization server "${issuer}" does not advertise an authorization_endpoint`,
     );
   }

@@ -1,7 +1,7 @@
 import { jest } from '@jest/globals';
 import { fetchUserInfo } from './userinfo.js';
 import { fetchAuthorizationServerMetadata } from './discovery.js';
-import { HTTPError, InvalidTokenError, OAuthError } from './errors.js';
+import { ConfigurationError, HTTPError, InvalidTokenError, OAuthError } from './errors.js';
 
 const ISSUER = 'https://auth.example.com';
 const USERINFO_ENDPOINT = `${ISSUER}/userinfo`;
@@ -80,7 +80,7 @@ describe('fetchUserInfo', () => {
 
     await expect(
       fetchUserInfo(ISSUER, ACCESS_TOKEN, { metadata: { issuer: ISSUER } }),
-    ).rejects.toThrow(/does not advertise a userinfo_endpoint/);
+    ).rejects.toThrow(ConfigurationError);
     expect(calls).toHaveLength(0);
   });
 

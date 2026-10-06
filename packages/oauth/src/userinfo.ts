@@ -1,5 +1,5 @@
 import { fetchAuthorizationServerMetadata, type OAuthAuthorizationServerMetadata } from "./discovery.js";
-import { HTTPError, InsufficientScopeError, InvalidTokenError, OAuthError } from "./errors.js";
+import { ConfigurationError, HTTPError, InsufficientScopeError, InvalidTokenError, OAuthError } from "./errors.js";
 
 /**
  * Claims returned by the UserInfo endpoint (OIDC Core 1.0 §5.3).
@@ -51,7 +51,7 @@ export async function fetchUserInfo(
     ?? await fetchAuthorizationServerMetadata(issuer, { signal: options.signal });
 
   if (!metadata.userinfo_endpoint) {
-    throw new Error(
+    throw new ConfigurationError(
       `Authorization server "${issuer}" does not advertise a userinfo_endpoint`,
     );
   }

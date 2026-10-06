@@ -11,6 +11,7 @@ export {
   InvalidTokenError,
   InsufficientScopeError,
   ResourceAccessError,
+  ConfigurationError,
   AuthProviderConfigurationError,
   JWKSError,
   JWKSDiscoveryError,

@@ -6,7 +6,7 @@ import {
   exchangeAuthorizationCode,
   authenticate,
 } from './pkce.js';
-import { OAuthError } from './errors.js';
+import { ConfigurationError, OAuthError } from './errors.js';
 
 const ISSUER = 'https://auth.example.com';
 const TOKEN_ENDPOINT = 'https://auth.example.com/token';
@@ -165,7 +165,8 @@ describe('exchangeAuthorizationCode', () => {
         codeVerifier: 'v',
         redirectUri: 'http://localhost:8080/callback',
       }),
-    ).rejects.toThrow(/does not advertise a token_endpoint/);
+    ).rejects.toThrow(ConfigurationError);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('sends Basic auth header when clientId and clientSecret are provided', async () => {
@@ -253,6 +254,22 @@ describe('authenticate', () => {
     const result = await authPromise;
     expect(result.accessToken).toBe('pkce-tok');
   }, 8000);
+
+  it('throws ConfigurationError before opening a browser when the AS does not advertise authorization_endpoint', async () => {
+    fetchMock.mockImplementationOnce(async () =>
+      new Response(JSON.stringify({ issuer: ISSUER, token_endpoint: TOKEN_ENDPOINT }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    const openBrowser = jest.fn();
+
+    await expect(
+      authenticate(ISSUER, { clientId: 'my-client', port: 19875, timeoutMs: 1000, openBrowser }),
+    ).rejects.toThrow(ConfigurationError);
+    expect(openBrowser).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 
   it('rejects when the redirect carries a wrong or missing state', async () => {
     const testPort = 19872;
