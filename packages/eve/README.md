@@ -84,6 +84,36 @@ zones whose connections only ever run `asSelf` or `impersonate`.
 The verifier and its JWKS keyring are built once per `keycardAuth()` call and
 cache discovery and signing keys, so a request pays no discovery round trip.
 
+### Scopes a single tool requires
+
+`keycardAuth({ requiredScopes })` gates the whole channel. For a scope only
+one tool needs, check the inbound token inside the tool body with
+`requireToolScopes` (or `missingToolScopes` for a non-throwing check). Both read
+the `scope` attribute `keycardAuth` placed on `ctx.session.auth.current`, in
+the space-delimited or the list form, and only from a Keycard principal: a
+scope attribute set by another auth entry does not count, and a turn with no
+Keycard principal is missing every scope.
+
+```ts title="agent/tools/delete-invoice.ts"
+import { requireToolScopes } from "@keycardai/eve";
+import { defineTool } from "eve/tools";
+import { z } from "zod";
+
+export default defineTool({
+  description: "Delete an invoice",
+  inputSchema: z.object({ id: z.string() }),
+  async execute({ id }, ctx) {
+    requireToolScopes(ctx, ["invoices:delete"]);
+    return deleteInvoice(id);
+  },
+});
+```
+
+`requireToolScopes` throws `InsufficientScopeError` from `@keycardai/oauth`,
+which eve hands to the model as a failed tool call naming the missing scopes.
+Pass `{ zoneUrl }` as a third argument to accept only principals from that
+zone when more than one issuer authenticates the channel.
+
 ## 2. Acquire resource tokens: connection auth
 
 ```ts title="agent/connections/calendar.ts"

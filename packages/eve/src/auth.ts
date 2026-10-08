@@ -192,12 +192,16 @@ function bearerToken(request: Request): string | null {
 
 function missingScopes(claims: JWTClaims, required: readonly string[] | undefined): string[] {
   if (!required || required.length === 0) return [];
-  const granted = new Set(tokenScopes(claims));
+  const granted = new Set(parseScopes(claims.scope));
   return required.filter((scope) => !granted.has(scope));
 }
 
-function tokenScopes(claims: JWTClaims): string[] {
-  const scope: unknown = claims.scope;
+/**
+ * Scopes carried by a `scope` value, as a space-delimited string (RFC 6749)
+ * or a list. Anything else carries no scopes.
+ * @internal
+ */
+export function parseScopes(scope: unknown): string[] {
   if (typeof scope === "string") return scope.split(" ").filter(Boolean);
   if (Array.isArray(scope)) {
     return scope.filter((entry): entry is string => typeof entry === "string");
