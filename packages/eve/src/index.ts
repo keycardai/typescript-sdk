@@ -46,6 +46,9 @@ export { decodeClaims, subjectTokenExpired } from "./expiry.js";
 export { requireAuthOnUnauthorized } from "./requireAuth.js";
 export type { RequireAuthContext } from "./requireAuth.js";
 
+export { missingToolScopes, requireToolScopes } from "./toolScopes.js";
+export type { ToolScopeContext, ToolScopeOptions } from "./toolScopes.js";
+
 export {
   defaultSubjectTokenStore,
   memorySubjectTokenStore,
