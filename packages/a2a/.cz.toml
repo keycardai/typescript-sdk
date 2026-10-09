@@ -1,6 +1,6 @@
 [tool.commitizen]
 name = "cz_customize"
-version = "0.4.1"
+version = "0.4.2"
 version_files = ["package.json:version"]
 tag_format = "${version}-keycardai-a2a"
 # Ignores sibling packages' tags only; it must not match this package's own tag, because commitizen applies ignored formats before tag_format.
