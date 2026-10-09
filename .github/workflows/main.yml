@@ -30,7 +30,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install commitizen
-        run: pip install commitizen
+        run: pip install commitizen==4.19.2
 
       - name: Detect package changes
         id: changes
