@@ -37,7 +37,7 @@
   "dependencies": {
     "@a2a-js/sdk": "^1.1.0",
     "@keycardai/express": "workspace:^",
-    "@keycardai/oauth": "workspace:*"
+    "@keycardai/oauth": "workspace:^"
   },
   "peerDependencies": {
     "express": ">=4.0.0"
