@@ -3,7 +3,8 @@ name = "cz_customize"
 version = "0.9.2"
 version_files = ["package.json:version"]
 tag_format = "${version}-keycardai-express"
-ignored_tag_formats = ["${version}-*"]
+# Ignores sibling packages' tags only; it must not match this package's own tag, because commitizen applies ignored formats before tag_format.
+ignored_tag_formats = ["${version}-keycardai-(?!express$).*"]
 update_changelog_on_bump = true
 bump_message = "bump: keycardai-express $current_version → $new_version"
 major_version_zero = true

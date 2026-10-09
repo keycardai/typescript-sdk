@@ -69,7 +69,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install commitizen
-        run: pip install commitizen
+        run: pip install commitizen==4.19.2
 
       - name: Bump version for ${{ inputs.package_name }}
         env:

@@ -18,7 +18,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install commitizen
-        run: pip install commitizen
+        run: pip install commitizen==4.19.2
 
       - name: Validate commit messages
         run: python scripts/changelog.py validate "origin/${{ github.base_ref }}"
