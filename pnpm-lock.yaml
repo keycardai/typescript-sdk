@@ -99,7 +99,7 @@ importers:
   packages/express:
     dependencies:
       '@keycardai/oauth':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../oauth
     devDependencies:
       '@jest/globals':
