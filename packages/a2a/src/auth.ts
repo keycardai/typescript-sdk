@@ -88,7 +88,7 @@ export type KeycardUserBuilderOptions = Pick<
  * When the brand is absent, the builder falls back to verifying the bearer
  * token itself using `options` (which are then required). In that standalone
  * mode auth failures throw a JSON-RPC `-32000` error, which `@a2a-js/sdk`'s
- * handlers surface as a JSON-RPC error body over HTTP 500 with no
+ * handlers return as a JSON-RPC error body over HTTP 200 with no
  * `WWW-Authenticate` challenge. Prefer the `requireBearerAuth` composition.
  *
  * Python equivalent: `KeycardServerCallContextBuilder`, the auth extension

@@ -221,7 +221,7 @@ describe('jsonRpcHandler with KeycardUser (A2A 1.0 dispatch)', () => {
       .set('Authorization', 'Bearer valid-jwt')
       .set('Content-Type', 'application/json')
       .send(sendMessageRequest('hello'));
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(200);
     expect(res.body.error?.code).toBe(-32009);
   });
 
@@ -387,8 +387,8 @@ describe('requireBearerAuth + keycardUserBuilder (end-to-end auth path)', () => 
 
   it('keycardUserBuilder verifies the token itself when no middleware ran (standalone fallback)', async () => {
     // Without requireBearerAuth in front, the builder throws a JSON-RPC -32000
-    // error which the SDK's jsonRpcHandler surfaces as HTTP 500 with a
-    // JSON-RPC error body. This documents the standalone contract; prefer
+    // error which the SDK's jsonRpcHandler (1.2.1 and later) returns as a
+    // JSON-RPC error body over HTTP 200. This documents the standalone contract; prefer
     // the requireBearerAuth composition above.
     const agentCard = buildAgentCard(CONFIG);
     const requestHandler = createKeycardRequestHandler(ECHO_EXECUTOR, agentCard);
@@ -407,7 +407,7 @@ describe('requireBearerAuth + keycardUserBuilder (end-to-end auth path)', () => 
       .set('Content-Type', 'application/json')
       .set('A2A-Version', '1.0')
       .send(sendMessageRequest());
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(200);
     expect(res.body.error?.code).toBe(UNAUTHENTICATED_JSONRPC_CODE);
   });
 
@@ -450,8 +450,8 @@ describe('requireBearerAuth + keycardUserBuilder (end-to-end auth path)', () => 
       .send(sendMessageRequest());
 
     // Without the brand the builder falls through to the standalone path;
-    // with no verifier options it rejects with JSON-RPC -32000 over HTTP 500.
-    expect(res.status).toBe(500);
+    // with no verifier options it rejects with JSON-RPC -32000 over HTTP 200.
+    expect(res.status).toBe(200);
     expect(res.body.error?.code).toBe(UNAUTHENTICATED_JSONRPC_CODE);
     expect(executed).toBe(false);
   });
