@@ -53,3 +53,65 @@ jobs:
 
       - name: Test
         run: pnpm -r run test
+
+  # Sibling floors for every package that depends on another @keycardai
+  # package (SDK-18). Inside the workspace each package resolves its siblings
+  # from source, so validate cannot see what a clean install of the published
+  # package sees. scripts/check_sibling_floors.py packs the package, reads the
+  # floor of each @keycardai dependency from the packed ranges, runs the
+  # package's tests in a scratch copy with the siblings installed from npm at
+  # exactly those floors, and loads every export of the packed tarball the same
+  # way. One matrix leg per package so a failure in one does not hide another.
+  #
+  # A floor may name a sibling version that is not on npm yet, which happens
+  # when a carrier and its consumer merge together and the carrier has not
+  # released. That case fails with its own "ahead of npm" message, with two
+  # ways to turn it into a skip:
+  #   * feature PRs: add the `floors-bootstrap` label for the sequenced merge;
+  #   * bump PRs (release-app author on a bump/<line>/<package>-<version>
+  #     branch): the script skips automatically when the missing version is
+  #     exactly the one that bump PR releases, since that version cannot reach
+  #     npm before the bump merges. Any other missing version still fails.
+  # The job never falls back to a newer version.
+  sibling-floors:
+    runs-on: ubuntu-latest
+    name: sibling floors (${{ matrix.package }})
+
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [a2a, cloudflare, eve, express, langchain, mcp, sdk]
+
+    env:
+      PACKAGE: ${{ matrix.package }}
+      FLOORS_BOOTSTRAP: ${{ contains(github.event.pull_request.labels.*.name, 'floors-bootstrap') }}
+      PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+      PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+      # The bot login of the GitHub App bump-package.yml authenticates as.
+      RELEASE_APP_LOGIN: keycard-sdk-release[bot]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # pnpm pack runs the package's prepack hooks only, so build first: the
+      # tarball ships dist/, and sibling packages that build on each other need
+      # the workspace order.
+      - name: Build
+        run: pnpm -r run build
+
+      - name: Test at sibling floors
+        run: python scripts/check_sibling_floors.py
