@@ -258,7 +258,10 @@ function buildIssuerFromZoneId(zoneId?: string): string | undefined {
  * ```
  *
  * Returns `undefined` when the host has fewer than three labels (no
- * subdomain to extract) or is an IP address or localhost.
+ * subdomain to extract), is an IP address or localhost, or when the
+ * leftmost label is not a DNS label (1 to 63 letters, digits, and
+ * hyphens, not starting or ending with a hyphen). With no zone resolved
+ * the middleware verifies against the configured base issuer.
  */
 export function subdomainZoneResolver(req: Request): string | undefined {
   const host = req.host;
@@ -273,5 +276,7 @@ export function subdomainZoneResolver(req: Request): string | undefined {
   const labels = hostname.split(".");
   if (labels.length < 3) return undefined;
   const zoneId = labels[0];
-  return zoneId.length > 0 ? zoneId : undefined;
+  return DNS_LABEL.test(zoneId) ? zoneId : undefined;
 }
+
+const DNS_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i;

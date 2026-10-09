@@ -291,6 +291,13 @@ describe('subdomainZoneResolver', () => {
     expect(subdomainZoneResolver(reqWithHost('zone-b.keycard.cloud'))).toBe('zone-b');
   });
 
+  it('returns undefined when the leftmost label is not a DNS label', () => {
+    for (const label of ['zone/a', 'zone@a', 'zone%2fa', 'zone a', 'a'.repeat(64), '-zone', 'zone-']) {
+      expect(subdomainZoneResolver(reqWithHost(`${label}.api.example.com`))).toBeUndefined();
+    }
+    expect(subdomainZoneResolver(reqWithHost('.api.example.com'))).toBeUndefined();
+  });
+
   it('strips a port before extracting the zone', () => {
     expect(subdomainZoneResolver(reqWithHost('zone-a.api.example.com:8443'))).toBe('zone-a');
   });
