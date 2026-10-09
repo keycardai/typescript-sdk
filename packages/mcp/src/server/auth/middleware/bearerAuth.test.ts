@@ -1,5 +1,6 @@
 import { jest } from '@jest/globals';
-import { Request, Response } from "express";
+import express, { Request, Response } from "express";
+import * as net from "node:net";
 import type { AuthInfo, OAuthTokenVerifier } from "@modelcontextprotocol/server";
 import { requireBearerAuth } from "./bearerAuth.js";
 import { InvalidTokenError, InsufficientScopeError, JWKSKeyNotFoundError, JWKSFetchError, JWKSDiscoveryError } from "../errors.js";
@@ -346,4 +347,58 @@ describe("requireBearerAuth middleware", () => {
     });
   });
 
+
+  describe("malformed Host header", () => {
+    async function rawRequest(host: string, authorization?: string): Promise<{ status: number; unhandled: unknown[] }> {
+      const unhandled: unknown[] = [];
+      const app = express();
+      app.use(requireBearerAuth({ verifier: mockVerifier }));
+      app.get("/", (_req, res) => { res.status(200).end(); });
+      app.use((err: unknown, _req: Request, res: Response, _next: () => void) => {
+        unhandled.push(err);
+        res.status(500).end();
+      });
+      const server = app.listen(0);
+      await new Promise<void>((resolve) => server.once("listening", resolve));
+      const { port } = server.address() as net.AddressInfo;
+      try {
+        const response = await new Promise<string>((resolve, reject) => {
+          const socket = net.connect(port, "127.0.0.1");
+          let data = "";
+          socket.on("data", (chunk) => { data += chunk.toString(); });
+          socket.on("end", () => resolve(data));
+          socket.on("error", reject);
+          const auth = authorization ? `Authorization: ${authorization}\r\n` : "";
+          socket.write(`GET / HTTP/1.1\r\nHost: ${host}\r\n${auth}Connection: close\r\n\r\n`);
+        });
+        const status = Number(response.split(" ")[1]);
+        return { status, unhandled };
+      } finally {
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+      }
+    }
+
+    it.each(["a b.example.com", "%zz.example.com", "[::1"])(
+      "answers 400 for Host %p without an unhandled error",
+      async (host) => {
+        const result = await rawRequest(host);
+        expect(result.status).toBe(400);
+        expect(result.unhandled).toEqual([]);
+        expect(mockVerifyAccessToken).not.toHaveBeenCalled();
+      },
+    );
+
+    it("still answers 401 with a challenge for a well-formed Host and no credentials", async () => {
+      const result = await rawRequest("api.example.com");
+      expect(result.status).toBe(401);
+      expect(result.unhandled).toEqual([]);
+    });
+
+    it("still passes a valid token through for a well-formed Host", async () => {
+      mockVerifyAccessToken.mockResolvedValue({ token: "t", clientId: "c", scopes: [] });
+      const result = await rawRequest("api.example.com", "Bearer t");
+      expect(result.status).toBe(200);
+      expect(result.unhandled).toEqual([]);
+    });
+  });
 });

@@ -56,9 +56,10 @@ export function requireBearerAuth({
   }
 
   return async (req, res, next) => {
-    const url = `${req.protocol}://${req.host}${req.originalUrl}`
+    let requestUrl: URL | undefined;
 
     try {
+      requestUrl = parseRequestUrl(req);
       const credentials = req.headers.authorization;
       if (!credentials) {
         throw new UnauthorizedError("No credentials");
@@ -74,7 +75,7 @@ export function requireBearerAuth({
 
       const authInfo = await verifier.verifyAccessToken(token);
 
-      if (!!authInfo.resource && new URL(url).origin !== authInfo.resource.origin) {
+      if (!!authInfo.resource && requestUrl.origin !== authInfo.resource.origin) {
         throw new InvalidTokenError("Token not intended for resource");
       }
 
@@ -95,12 +96,15 @@ export function requireBearerAuth({
       (req as Request & { auth?: AuthInfo }).auth = authInfo;
       next();
     } catch (error) {
-      let challenge;
-      const resourceMetadataUrl = getOAuthProtectedResourceMetadataUrl(new URL(url));
-
-      if (error instanceof BadRequestError) {
+      if (error instanceof BadRequestError || !requestUrl) {
         res.status(400).end();
-      } else if (error instanceof UnauthorizedError) {
+        return;
+      }
+
+      let challenge;
+      const resourceMetadataUrl = getOAuthProtectedResourceMetadataUrl(requestUrl);
+
+      if (error instanceof UnauthorizedError) {
         challenge = `Bearer resource_metadata="${resourceMetadataUrl}"`;
         res.set("WWW-Authenticate", challenge);
         res.status(401).end();
@@ -139,5 +143,18 @@ export function requireBearerAuth({
         next(error);
       }
     }
+  }
+}
+
+/**
+ * Builds the request URL from the Express request. A Host header that does
+ * not form a valid URL is a client error, answered with 400 like any other
+ * malformed request.
+ */
+function parseRequestUrl(req: Request): URL {
+  try {
+    return new URL(`${req.protocol}://${req.host}${req.originalUrl}`);
+  } catch {
+    throw new BadRequestError("Malformed request URL");
   }
 }
