@@ -172,7 +172,7 @@ function optionalStringClaim(claims: JWTClaims, name: string): string | undefine
  * A DNS label: 1 to 63 letters, digits, and hyphens, not starting or ending
  * with a hyphen. Every Keycard zone id (26 lowercase alphanumerics) is one.
  */
-export function isDnsLabel(value: string): boolean {
+function isDnsLabel(value: string): boolean {
   return /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(value);
 }
 
