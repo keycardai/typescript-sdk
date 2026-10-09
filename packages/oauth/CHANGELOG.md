@@ -1,3 +1,9 @@
+## 0.26.1-keycardai-oauth (2026-10-09)
+
+
+- fix(oauth): verifyTokenForZone accepts only DNS-label zone ids (ECO-156) (#215)
+- verifyTokenForZone fails any zone id that isn't a DNS label (1 to 63 letters, digits, and hyphens, no leading or trailing hyphen) before building an issuer or consulting the keyring. Every Keycard zone id passes.
+
 ## 0.26.0-keycardai-oauth (2026-10-06)
 
 
