@@ -21,7 +21,7 @@ importers:
         specifier: workspace:^
         version: link:../express
       '@keycardai/oauth':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../oauth
     devDependencies:
       '@jest/globals':
@@ -52,7 +52,7 @@ importers:
   packages/cloudflare:
     dependencies:
       '@keycardai/oauth':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../oauth
     devDependencies:
       '@cloudflare/workers-types':
@@ -74,7 +74,7 @@ importers:
   packages/eve:
     dependencies:
       '@keycardai/oauth':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../oauth
     devDependencies:
       '@jest/globals':
@@ -130,7 +130,7 @@ importers:
   packages/langchain:
     dependencies:
       '@keycardai/oauth':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../oauth
       zod:
         specifier: ^3.25.74
@@ -170,10 +170,10 @@ importers:
   packages/mcp:
     dependencies:
       '@keycardai/express':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../express
       '@keycardai/oauth':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../oauth
       cors:
         specifier: ^2.8.5
@@ -241,7 +241,7 @@ importers:
         specifier: workspace:^
         version: link:../mcp
       '@keycardai/oauth':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../oauth
       '@modelcontextprotocol/client':
         specifier: ^2.0.0

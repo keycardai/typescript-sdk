@@ -27,7 +27,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@keycardai/oauth": "workspace:*",
+    "@keycardai/oauth": "workspace:^",
     "@keycardai/mcp": "workspace:^"
   },
   "peerDependencies": {
