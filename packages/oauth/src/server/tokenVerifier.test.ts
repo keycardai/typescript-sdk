@@ -206,6 +206,55 @@ describe('TokenVerifier', () => {
     expect(result!.clientId).toBe('service-x');
   });
 
+  it('verifyTokenForZone fails a zone id that is not a DNS label without consulting the keyring', async () => {
+    const [pub, priv] = await Promise.all([importPublicKey(), importPrivateKey()]);
+    const token = await signWith(
+      { iss: ISSUER, sub: 'user-1', client_id: 'service-x', iat: nowSec(), exp: nowSec() + 60 },
+      priv,
+    );
+    const keyring = makeKeyring(pub);
+    const keyLookup = keyring.key as jest.Mock;
+    const verifier = new TokenVerifier({ issuer: ISSUER, keyring, enableMultiZone: true });
+    const malformed = [
+      'zone/a',
+      'zone@a',
+      'zone%2fa',
+      'zone:a',
+      'zone.a',
+      'zone a',
+      '',
+      'a'.repeat(64),
+      '-zone',
+      'zone-',
+    ];
+    for (const zoneId of malformed) {
+      expect(await verifier.verifyTokenForZone(token, zoneId)).toBeNull();
+    }
+    expect(keyLookup).not.toHaveBeenCalled();
+  });
+
+  it('verifyTokenForZone accepts a 26-character alphanumeric zone id', async () => {
+    const [pub, priv] = await Promise.all([importPublicKey(), importPrivateKey()]);
+    const zoneId = 'abcdefghij0123456789klmnop';
+    const zoneIssuer = `https://${zoneId}.auth.example.com`;
+    const token = await signWith(
+      {
+        iss: zoneIssuer,
+        sub: 'user-1',
+        client_id: 'service-x',
+        scope: 'read',
+        iat: nowSec(),
+        exp: nowSec() + 60,
+        aud: 'https://api.example.com',
+      },
+      priv,
+      KID,
+      zoneIssuer,
+    );
+    const verifier = new TokenVerifier({ issuer: ISSUER, keyring: makeKeyring(pub), enableMultiZone: true });
+    expect(await verifier.verifyTokenForZone(token, zoneId)).not.toBeNull();
+  });
+
   it('verifyTokenForZone rejects bare-host issuer when multi-zone is enabled', async () => {
     const [pub, priv] = await Promise.all([importPublicKey(), importPrivateKey()]);
     const token = await signWith(

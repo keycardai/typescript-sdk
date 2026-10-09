@@ -74,8 +74,13 @@ export class TokenVerifier {
     return this.#verify(token, undefined);
   }
 
+  /**
+   * Verifies a token against the issuer of one zone. The zone id must be a
+   * DNS label (see {@link isDnsLabel}); any other value fails verification
+   * before an issuer is built or the keyring is consulted.
+   */
   async verifyTokenForZone(token: string, zoneId: string): Promise<AccessToken | null> {
-    if (!zoneId) {
+    if (!isDnsLabel(zoneId)) {
       return null;
     }
     return this.#verify(token, zoneId);
@@ -161,6 +166,14 @@ function toAccessToken(token: string, claims: JWTClaims): AccessToken {
 function optionalStringClaim(claims: JWTClaims, name: string): string | undefined {
   const value = claims[name];
   return typeof value === "string" ? value : undefined;
+}
+
+/**
+ * A DNS label: 1 to 63 letters, digits, and hyphens, not starting or ending
+ * with a hyphen. Every Keycard zone id (26 lowercase alphanumerics) is one.
+ */
+export function isDnsLabel(value: string): boolean {
+  return /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(value);
 }
 
 function buildZoneScopedIssuer(baseIssuer: string, zoneId: string): string {
