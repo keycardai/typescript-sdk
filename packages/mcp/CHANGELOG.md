@@ -1,3 +1,9 @@
+## 2.0.3-keycardai-mcp (2026-10-09)
+
+
+- fix(mcp): requireBearerAuth answers a malformed Host with 400 instead of a 500 (ECO-156) (#217)
+- requireBearerAuth parses the request URL once, inside its try. A Host that doesn't form a valid URL is answered with 400 like any malformed request, and the catch builds the resource_metadata challenge only from a URL that parsed. Python, Go, and Ruby have no equivalent 500 path (details in the PR).
+
 ## 2.0.2-keycardai-mcp (2026-09-17)
 
 
