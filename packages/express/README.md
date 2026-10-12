@@ -106,6 +106,19 @@ app.use(keycardMetadataRouter({ issuer: "https://your-zone.keycard.cloud" }));
 | `AuthenticatedRequest` | `Request` extended with `auth: AccessToken`. |
 | `GrantedRequest` | `Request` extended with `auth: AccessToken` and `accessContext: AccessContext`. |
 
+### `requireBearerAuth` responses
+
+| Condition | Status | Body | `WWW-Authenticate` |
+|---|---|---|---|
+| Token verified | next() | | |
+| No `Authorization` header | 401 | empty | `Bearer resource_metadata="..."` |
+| Malformed `Authorization` header | 400 | empty | |
+| Invalid token (signature, issuer, audience, expiry, or a `kid` absent from a JWKS that loaded) | 401 | empty | `Bearer error="invalid_token", ...` |
+| Missing a required scope | 403 | empty | `Bearer error="insufficient_scope", ...` |
+| Zone signing keys or metadata could not be fetched | 503 | `{"error":"temporarily_unavailable"}` | none |
+
+The 503 means the token was never judged: the zone was unreachable or returned bad metadata, so clients should keep the token and retry rather than start sign-in again.
+
 ## Related Packages
 
 - [`@keycardai/oauth`](../oauth/) — Framework-free OAuth primitives this package builds on

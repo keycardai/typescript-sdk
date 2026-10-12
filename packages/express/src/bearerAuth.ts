@@ -94,8 +94,14 @@ export type BearerAuthOptions =
  * Express middleware that validates a Bearer token (RFC 6750) and sets
  * `req.auth` to the verified `AccessToken`.
  *
- * On failure: responds with a `WWW-Authenticate` challenge containing the
- * `resource_metadata` URL per RFC 9728 §3.
+ * Responses when the token is not accepted:
+ * - 401 with a `WWW-Authenticate` challenge carrying the `resource_metadata`
+ *   URL (RFC 9728 §3) when no credentials were sent or the token is invalid,
+ *   including a `kid` absent from a JWKS that loaded.
+ * - 403 `insufficient_scope` when `requiredScopes` are not all present.
+ * - 503 `{"error":"temporarily_unavailable"}` with no `WWW-Authenticate` when
+ *   the zone's signing keys or authorization-server metadata could not be
+ *   fetched: the token was never judged, so the client keeps it and retries.
  *
  * Usage with a zone URL:
  * ```ts

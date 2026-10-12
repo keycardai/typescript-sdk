@@ -23,6 +23,7 @@ import {
 import { Role, type Message } from '@a2a-js/sdk';
 import { TokenVerifier } from '@keycardai/oauth/server';
 import type { AccessToken } from '@keycardai/oauth/server';
+import { JWTSigner, type PrivateKeyring } from '@keycardai/oauth';
 
 const CONFIG = {
   serviceName: 'Test Agent',
@@ -409,6 +410,51 @@ describe('requireBearerAuth + keycardUserBuilder (end-to-end auth path)', () => 
       .send(sendMessageRequest());
     expect(res.status).toBe(200);
     expect(res.body.error?.code).toBe(UNAUTHENTICATED_JSONRPC_CODE);
+  });
+
+  it('standalone keycardUserBuilder does not turn a failed JWKS fetch into the -32000 unauthenticated error', async () => {
+    // The verifier throws when the zone's keys cannot be fetched (oauth 0.26.2),
+    // so the builder rethrows instead of answering "Invalid or expired token".
+    const issuer = 'https://zone-abc.keycard.cloud';
+    const fetchSpy = jest.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input instanceof Request ? input.url : input);
+      const body = url.endsWith('/.well-known/oauth-authorization-server')
+        ? { issuer, jwks_uri: `${issuer}/.well-known/jwks.json`, token_endpoint: `${issuer}/oauth/token` }
+        : { error: 'down' };
+      const status = url.endsWith('/.well-known/oauth-authorization-server') ? 200 : 503;
+      return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+    });
+    try {
+      const agentCard = buildAgentCard(CONFIG);
+      const requestHandler = createKeycardRequestHandler(ECHO_EXECUTOR, agentCard);
+      const app = express();
+      app.use(express.json());
+      app.use('/a2a/jsonrpc', jsonRpcHandler({ requestHandler, userBuilder: keycardUserBuilder({ issuer }) }));
+
+      const pair = await crypto.subtle.generateKey(
+        { name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' },
+        true,
+        ['sign', 'verify'],
+      );
+      const keyring: PrivateKeyring = { key: async () => ({ key: pair.privateKey, kid: 'k1', issuer }) };
+      const now = Math.floor(Date.now() / 1000);
+      const token = await new JWTSigner(keyring).sign({ iss: issuer, sub: 'u', aud: 'https://agent.example.com', client_id: 'c', iat: now, exp: now + 60 });
+      const res = await request(app)
+        .post('/a2a/jsonrpc')
+        .set('Content-Type', 'application/json')
+        .set('A2A-Version', '1.0')
+        .set('Authorization', `Bearer ${token}`)
+        .send(sendMessageRequest());
+      expect(fetchSpy).toHaveBeenCalled();
+      // @a2a-js/sdk 1.3 answers a userBuilder throw as JSON-RPC -32603 over HTTP 500,
+      // with the error's message as the JSON-RPC message.
+      expect(res.body.error?.code).not.toBe(UNAUTHENTICATED_JSONRPC_CODE);
+      expect(res.status).toBe(500);
+      expect(res.body.error?.code).toBe(-32603);
+      expect(res.body.error?.message).toMatch(/Failed to fetch JWKS/);
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 
   it('does not launder a req.auth set by foreign middleware into an authenticated KeycardUser', async () => {
