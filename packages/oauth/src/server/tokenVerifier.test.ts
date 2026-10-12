@@ -1,7 +1,8 @@
 import { jest } from '@jest/globals';
 import { TokenVerifier } from './tokenVerifier.js';
 import { JWTSigner, type JWTClaims } from '../jwt/signer.js';
-import type { OAuthKeyring, PrivateKeyring } from '../keyring.js';
+import { JWKSOAuthKeyring, type OAuthKeyring, type PrivateKeyring } from '../keyring.js';
+import { HTTPError, JWKSFetchError } from '../errors.js';
 
 const RS256_PRIVATE_JWK = {
   kty: 'RSA',
@@ -345,6 +346,85 @@ describe('TokenVerifier', () => {
     expect(await verifier.verifyToken(token)).not.toBeNull();
     verifier.clearCache();
     expect(keyring.clear).toHaveBeenCalledTimes(1);
+  });
+
+  describe('zone keys or metadata unavailable', () => {
+    // A real JWKSOAuthKeyring over a stubbed fetch, so the failure classes
+    // the verifier sees are the ones discovery and the JWKS fetch raise.
+    const DISCOVERY_URL = `${ISSUER}/.well-known/oauth-authorization-server`;
+    const JWKS_URL = `${ISSUER}/.well-known/jwks.json`;
+    const PUBLIC_JWKS = { keys: [{ ...RS256_PUBLIC_JWK, kid: KID, alg: 'RS256', use: 'sig' }] };
+    const fetchSpy = jest.spyOn(globalThis, 'fetch');
+
+    function json(body: unknown, status = 200): Response {
+      return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+    }
+
+    function stubZone(handler: (url: string) => Response): void {
+      fetchSpy.mockImplementation(async (input) => handler(String(input instanceof Request ? input.url : input)));
+    }
+
+    const metadata = { issuer: ISSUER, jwks_uri: JWKS_URL, token_endpoint: `${ISSUER}/oauth/token` };
+
+    async function validToken(): Promise<string> {
+      const now = Math.floor(Date.now() / 1000);
+      return signWith(
+        { iss: ISSUER, sub: 'user-1', aud: 'https://api.example.com', client_id: 'c1', iat: now, exp: now + 3600 },
+        await importPrivateKey(),
+      );
+    }
+
+    afterEach(() => fetchSpy.mockReset());
+    afterAll(() => fetchSpy.mockRestore());
+
+    it('throws JWKSFetchError when the JWKS fetch fails', async () => {
+      stubZone((url) => (url === DISCOVERY_URL ? json(metadata) : json({ error: 'down' }, 503)));
+      const verifier = new TokenVerifier({
+        issuer: ISSUER,
+        audience: 'https://api.example.com',
+        keyring: new JWKSOAuthKeyring(),
+      });
+      await expect(verifier.verifyToken(await validToken())).rejects.toBeInstanceOf(JWKSFetchError);
+    });
+
+    it('throws the discovery HTTPError when authorization-server metadata cannot be fetched', async () => {
+      stubZone(() => json({ error: 'down' }, 500));
+      const verifier = new TokenVerifier({
+        issuer: ISSUER,
+        audience: 'https://api.example.com',
+        keyring: new JWKSOAuthKeyring(),
+      });
+      await expect(verifier.verifyToken(await validToken())).rejects.toBeInstanceOf(HTTPError);
+    });
+
+    it('returns null for a kid absent from a JWKS that loaded', async () => {
+      stubZone((url) => (url === DISCOVERY_URL ? json(metadata) : json(PUBLIC_JWKS)));
+      const verifier = new TokenVerifier({
+        issuer: ISSUER,
+        audience: 'https://api.example.com',
+        keyring: new JWKSOAuthKeyring(),
+      });
+      const now = Math.floor(Date.now() / 1000);
+      const token = await signWith(
+        { iss: ISSUER, sub: 'user-1', aud: 'https://api.example.com', client_id: 'c1', iat: now, exp: now + 3600 },
+        await importPrivateKey(),
+        'kid-rotated',
+      );
+      await expect(verifier.verifyToken(token)).resolves.toBeNull();
+    });
+
+    it('returns null for a bad signature against loaded keys', async () => {
+      stubZone((url) => (url === DISCOVERY_URL ? json(metadata) : json(PUBLIC_JWKS)));
+      const verifier = new TokenVerifier({
+        issuer: ISSUER,
+        audience: 'https://api.example.com',
+        keyring: new JWKSOAuthKeyring(),
+      });
+      const token = await validToken();
+      const [h, p, sig] = token.split('.');
+      const flipped = (sig[0] === 'A' ? 'B' : 'A') + sig.slice(1);
+      await expect(verifier.verifyToken(`${h}.${p}.${flipped}`)).resolves.toBeNull();
+    });
   });
 
   describe('missing-audience warning', () => {

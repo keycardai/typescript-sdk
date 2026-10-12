@@ -1,4 +1,5 @@
 import { JWTVerifier } from "../jwt/verifier.js";
+import { InvalidTokenError, JWKSKeyNotFoundError } from "../errors.js";
 import { JWKSOAuthKeyring, type OAuthKeyring } from "../keyring.js";
 import type { JWTClaims } from "../jwt/signer.js";
 import type { AccessToken } from "./accessToken.js";
@@ -70,6 +71,19 @@ export class TokenVerifier {
     }
   }
 
+  /**
+   * Verifies a bearer token against the configured issuer.
+   *
+   * Resolves to null when the token is invalid: malformed, expired, wrong
+   * issuer or audience, bad signature, missing a required scope, or signed
+   * with a kid that is absent from a JWKS that loaded ({@link JWKSKeyNotFoundError}).
+   *
+   * Throws when verification could not complete because the zone's signing
+   * keys or authorization-server metadata could not be fetched
+   * ({@link JWKSError} other than key-not-found, {@link HTTPError},
+   * {@link OAuthError} from discovery). Middleware maps that to a 503 so the
+   * client keeps its token and retries instead of signing in again.
+   */
   async verifyToken(token: string): Promise<AccessToken | null> {
     return this.#verify(token, undefined);
   }
@@ -78,6 +92,9 @@ export class TokenVerifier {
    * Verifies a token against the issuer of one zone. The zone id must be a
    * DNS label (see {@link isDnsLabel}); any other value fails verification
    * before an issuer is built or the keyring is consulted.
+   *
+   * Resolves to null for an invalid token and throws when the zone's keys or
+   * metadata could not be fetched, exactly as {@link verifyToken}.
    */
   async verifyTokenForZone(token: string, zoneId: string): Promise<AccessToken | null> {
     if (!isDnsLabel(zoneId)) {
@@ -122,8 +139,11 @@ export class TokenVerifier {
         return null;
       }
       return toAccessToken(token, claims);
-    } catch {
-      return null;
+    } catch (error) {
+      if (error instanceof InvalidTokenError || error instanceof JWKSKeyNotFoundError) {
+        return null;
+      }
+      throw error;
     }
   }
 
