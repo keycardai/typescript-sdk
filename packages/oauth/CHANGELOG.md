@@ -1,3 +1,9 @@
+## 0.26.2-keycardai-oauth (2026-10-12)
+
+
+- fix(oauth): TokenVerifier throws when the zone's keys or metadata can't be fetched (SDK-20) (#230)
+- verifyToken and verifyTokenForZone still resolve to null for an invalid token, including a kid absent from a JWKS that loaded. When verification can't complete because the zone's JWKS or authorization-server metadata couldn't be fetched, the error now propagates instead of reading as an invalid token, so bearer middleware can answer 503 and the client keeps its token.
+
 ## 0.26.1-keycardai-oauth (2026-10-09)
 
 
