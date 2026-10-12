@@ -4,11 +4,8 @@ import request from 'supertest';
 import { requireBearerAuth, subdomainZoneResolver } from './bearerAuth.js';
 import { TokenVerifier } from '@keycardai/oauth/server';
 import type { AccessToken } from '@keycardai/oauth/server';
-import {
-  JWKSKeyNotFoundError,
-  JWKSFetchError,
-  JWKSDiscoveryError,
-} from '@keycardai/oauth/errors';
+import { JWKSKeyNotFoundError } from '@keycardai/oauth/errors';
+import { JWKSOAuthKeyring, JWTSigner, type PrivateKeyring } from '@keycardai/oauth';
 
 const VALID_TOKEN: AccessToken = {
   token: 'valid-jwt',
@@ -208,19 +205,6 @@ describe('requireBearerAuth', () => {
     );
   });
 
-  it.each([
-    ['JWKSFetchError', new JWKSFetchError('JWKS endpoint returned 503')],
-    ['JWKSDiscoveryError', new JWKSDiscoveryError('Failed to discover authorization server metadata')],
-  ])('returns 503 (not 500) when the verifier throws %s', async (_name, error) => {
-    const app = makeApp(makeThrowingVerifier(error));
-    const res = await request(app)
-      .get('/resource')
-      .set('Authorization', 'Bearer valid-looking-token');
-    expect(res.status).toBe(503);
-    expect(res.body).toEqual({ error: 'temporarily_unavailable' });
-    expect(res.headers['www-authenticate']).toBeUndefined();
-  });
-
   it('delegates genuinely unexpected verifier errors to the app error handler', async () => {
     const app = makeApp(makeThrowingVerifier(new Error('database on fire')));
     // Express's default error handler answers 500; the point is that the
@@ -229,6 +213,101 @@ describe('requireBearerAuth', () => {
       .get('/resource')
       .set('Authorization', 'Bearer valid-jwt');
     expect(res.status).toBe(500);
+  });
+});
+
+describe('requireBearerAuth when the zone is unavailable (real TokenVerifier)', () => {
+  // A real TokenVerifier over a JWKSOAuthKeyring and a stubbed fetch, so the
+  // responses below come from the failures discovery and the JWKS fetch raise,
+  // not from a verifier mock.
+  const ISSUER = 'https://zone.example.com';
+  const AUDIENCE = 'https://api.example.com';
+  const DISCOVERY_URL = `${ISSUER}/.well-known/oauth-authorization-server`;
+  const JWKS_URL = `${ISSUER}/.well-known/jwks.json`;
+  const KID = 'test-key-1';
+  const metadata = { issuer: ISSUER, jwks_uri: JWKS_URL, token_endpoint: `${ISSUER}/oauth/token` };
+  const fetchSpy = jest.spyOn(globalThis, 'fetch');
+
+  let privateKey: CryptoKey;
+  let publicJwks: { keys: JsonWebKey[] };
+
+  beforeAll(async () => {
+    const pair = await crypto.subtle.generateKey(
+      { name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' },
+      true,
+      ['sign', 'verify'],
+    );
+    privateKey = pair.privateKey;
+    const jwk = await crypto.subtle.exportKey('jwk', pair.publicKey);
+    publicJwks = { keys: [{ kty: jwk.kty, n: jwk.n, e: jwk.e, kid: KID, alg: 'RS256', use: 'sig' }] };
+  });
+  afterEach(() => fetchSpy.mockReset());
+  afterAll(() => fetchSpy.mockRestore());
+
+  function json(body: unknown, status = 200): Response {
+    return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+  }
+
+  function stubZone(handler: (url: string) => Response): void {
+    fetchSpy.mockImplementation(async (input) => handler(String(input instanceof Request ? input.url : input)));
+  }
+
+  async function signToken(kid = KID): Promise<string> {
+    const keyring: PrivateKeyring = {
+      key: async () => ({ key: privateKey, kid, issuer: ISSUER }),
+    };
+    const now = Math.floor(Date.now() / 1000);
+    return new JWTSigner(keyring).sign({
+      iss: ISSUER,
+      sub: 'user-1',
+      aud: AUDIENCE,
+      client_id: 'svc-x',
+      iat: now,
+      exp: now + 3600,
+    });
+  }
+
+  function realApp() {
+    const verifier = new TokenVerifier({ issuer: ISSUER, audience: AUDIENCE, keyring: new JWKSOAuthKeyring() });
+    return makeApp(verifier);
+  }
+
+  it('answers 503 temporarily_unavailable with no challenge when the JWKS fetch fails', async () => {
+    stubZone((url) => (url === DISCOVERY_URL ? json(metadata) : json({ error: 'down' }, 503)));
+    const res = await request(realApp())
+      .get('/resource')
+      .set('Authorization', `Bearer ${await signToken()}`);
+    expect(res.status).toBe(503);
+    expect(res.body).toEqual({ error: 'temporarily_unavailable' });
+    expect(res.headers['www-authenticate']).toBeUndefined();
+  });
+
+  it('answers 503 temporarily_unavailable with no challenge when discovery fails', async () => {
+    stubZone(() => json({ error: 'down' }, 500));
+    const res = await request(realApp())
+      .get('/resource')
+      .set('Authorization', `Bearer ${await signToken()}`);
+    expect(res.status).toBe(503);
+    expect(res.body).toEqual({ error: 'temporarily_unavailable' });
+    expect(res.headers['www-authenticate']).toBeUndefined();
+  });
+
+  it('answers 401 invalid_token for a kid absent from a JWKS that loaded', async () => {
+    stubZone((url) => (url === DISCOVERY_URL ? json(metadata) : json(publicJwks)));
+    const res = await request(realApp())
+      .get('/resource')
+      .set('Authorization', `Bearer ${await signToken('kid-rotated')}`);
+    expect(res.status).toBe(401);
+    expect(res.headers['www-authenticate']).toMatch(/^Bearer error="invalid_token"/);
+  });
+
+  it('answers 200 for a token signed by a key the JWKS carries', async () => {
+    stubZone((url) => (url === DISCOVERY_URL ? json(metadata) : json(publicJwks)));
+    const res = await request(realApp())
+      .get('/resource')
+      .set('Authorization', `Bearer ${await signToken()}`);
+    expect(res.status).toBe(200);
+    expect(res.body.clientId).toBe('svc-x');
   });
 });
 
