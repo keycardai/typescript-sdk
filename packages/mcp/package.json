@@ -99,7 +99,7 @@
   },
   "devDependencies": {
     "@jest/globals": "^30.0.4",
-    "@modelcontextprotocol/client": "^2.0.0",
+    "@modelcontextprotocol/client": "^2.2.0",
     "@modelcontextprotocol/server": "^2.0.0",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.3",
