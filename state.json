@@ -6,5 +6,14 @@
   "eve:eve": {
     "run": "https://github.com/keycardai/typescript-sdk/actions/runs/38457950943",
     "version": "0.79.0"
+  },
+  "langchain:langchain+@langchain/core+@langchain/langgraph+@langchain/langgraph-sdk": {
+    "run": "https://github.com/keycardai/typescript-sdk/actions/runs/38478229089",
+    "versions": {
+      "@langchain/core": "1.2.17",
+      "@langchain/langgraph": "1.5.0",
+      "@langchain/langgraph-sdk": "1.12.4",
+      "langchain": "1.5.16"
+    }
   }
 }
