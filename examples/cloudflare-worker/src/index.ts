@@ -13,7 +13,7 @@
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import {
   createKeycardWorker,
   IsolateSafeTokenCache,
@@ -109,7 +109,10 @@ export default createKeycardWorker<Env>({
         };
       });
 
-      const transport = new StreamableHTTPServerTransport("/mcp");
+      // Stateless: each request is served by a fresh server and transport.
+      const transport = new WebStandardStreamableHTTPServerTransport({
+        sessionIdGenerator: undefined,
+      });
       await server.connect(transport);
       return transport.handleRequest(request);
     }
