@@ -11,6 +11,13 @@
       "upstream": "@a2a-js/sdk",
       "field": "dependencies",
       "companions": []
+    },
+    {
+      "package": "langchain",
+      "upstreams": ["langchain", "@langchain/core", "@langchain/langgraph", "@langchain/langgraph-sdk"],
+      "field": "peerDependencies",
+      "companions": [],
+      "dev_companions": ["@langchain/langgraph-api"]
     }
   ]
 }

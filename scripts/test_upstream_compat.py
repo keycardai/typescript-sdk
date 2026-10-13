@@ -8,6 +8,14 @@ import upstream_compat as uc
 
 EVE = uc.Entry(package="eve", upstream="eve", field="peerDependencies", companions=["ai"])
 A2A = uc.Entry(package="a2a", upstream="@a2a-js/sdk", field="dependencies")
+LC = uc.Entry(
+    package="langchain",
+    upstreams=["langchain", "@langchain/core", "@langchain/langgraph", "@langchain/langgraph-sdk"],
+    field="peerDependencies",
+    dev_companions=["@langchain/langgraph-api"],
+)
+LC_SET = {"langchain": "1.5.16", "@langchain/core": "1.2.17", "@langchain/langgraph": "1.5.0", "@langchain/langgraph-sdk": "1.12.4"}
+LC_DECLARED = {m: ">=1.0.0" for m in LC.members}
 
 
 class RangeMathTests(unittest.TestCase):
@@ -54,8 +62,8 @@ class DecisionTests(unittest.TestCase):
         self.assertEqual(uc.decide(green=False, inside=False), "issue")
 
     def test_issue_body_says_whether_users_already_get_the_break(self) -> None:
-        inside = uc.issue_body(EVE, "0.79.0", ">=0.71.3 <0.80.0", True, "FAIL", "https://run")
-        outside = uc.issue_body(EVE, "0.55.0", ">=0.71.3 <0.80.0", False, "FAIL", "https://run")
+        inside = uc.issue_body(EVE, {"eve": "0.79.0"}, {"eve": ">=0.71.3 <0.80.0"}, True, "FAIL", "https://run")
+        outside = uc.issue_body(EVE, {"eve": "0.55.0"}, {"eve": ">=0.71.3 <0.80.0"}, False, "FAIL", "https://run")
         self.assertIn("users installing @keycardai/eve today already get this", inside)
         self.assertIn("not affected until the range widens", outside)
 
@@ -66,9 +74,53 @@ class DecisionTests(unittest.TestCase):
 
 class DedupeTests(unittest.TestCase):
     def test_branch_and_titles_name_the_exact_version(self) -> None:
-        self.assertEqual(uc.branch_name(A2A, "1.4.0"), "upstream/a2a-a2a-js-sdk-1.4.0")
-        self.assertEqual(uc.pr_title(A2A, "1.4.0"), "fix(a2a): support @a2a-js/sdk 1.4.0")
-        self.assertEqual(uc.issue_title(EVE, "0.55.0"), "eve 0.55.0 breaks @keycardai/eve")
+        self.assertEqual(uc.branch_name(A2A, {"@a2a-js/sdk": "1.4.0"}), "upstream/a2a-a2a-js-sdk-1.4.0")
+        self.assertEqual(uc.pr_title(A2A, {"@a2a-js/sdk": "1.4.0"}), "fix(a2a): support @a2a-js/sdk 1.4.0")
+        self.assertEqual(uc.issue_title(EVE, {"eve": "0.55.0"}), "eve 0.55.0 breaks @keycardai/eve")
+
+    def test_set_titles_and_branch_name_every_member(self) -> None:
+        self.assertEqual(
+            uc.issue_title(LC, LC_SET),
+            "langchain 1.5.16 + @langchain/core 1.2.17 + @langchain/langgraph 1.5.0 + @langchain/langgraph-sdk 1.12.4 break @keycardai/langchain",
+        )
+        self.assertEqual(
+            uc.pr_title(LC, LC_SET),
+            "fix(langchain): support langchain 1.5.16, @langchain/core 1.2.17, @langchain/langgraph 1.5.0, @langchain/langgraph-sdk 1.12.4",
+        )
+        self.assertEqual(
+            uc.branch_name(LC, LC_SET),
+            "upstream/langchain-langchain-1.5.16-langchain-core-1.2.17-langchain-langgraph-1.5.0-langchain-langgraph-sdk-1.12.4",
+        )
+
+    def test_set_is_inside_only_when_every_member_is(self) -> None:
+        self.assertTrue(uc.all_inside(LC_DECLARED, LC_SET))
+        capped = {**LC_DECLARED, "@langchain/langgraph": ">=1.0.0 <1.5.0"}
+        self.assertFalse(uc.all_inside(capped, LC_SET))
+        self.assertTrue(uc.all_inside({"eve": ">=0.71.3 <0.80.0"}, {"eve": "0.79.0"}))
+
+    def test_set_resolution_reads_back_what_the_resolver_installed(self) -> None:
+        wanted = {m: "latest" for m in LC.members}
+        installed = {**LC_SET, "@langchain/langgraph": "1.4.13"}
+        latest = {**LC_SET}
+        resolved = uc.resolve_set("/repo", LC, wanted, installed, latest)
+        self.assertEqual(resolved["@langchain/langgraph"], "1.4.13")
+        self.assertEqual(resolved["langchain"], "1.5.16")
+        self.assertEqual(uc.parse_requested(LC, "latest"), wanted)
+        self.assertEqual(
+            uc.parse_requested(LC, "langchain@1.2.0, @langchain/langgraph@1.0.0"),
+            {**wanted, "langchain": "1.2.0", "@langchain/langgraph": "1.0.0"},
+        )
+        self.assertEqual(uc.parse_requested(EVE, "0.55.0"), {"eve": "0.55.0"})
+        with self.assertRaises(SystemExit):
+            uc.parse_requested(LC, "eve@0.55.0")
+
+    def test_single_upstream_entries_keep_their_keys_and_records(self) -> None:
+        self.assertEqual(EVE.key, "eve:eve")
+        self.assertEqual(EVE.members, ["eve"])
+        self.assertFalse(EVE.is_set)
+        self.assertEqual(uc.state_record(EVE, {"eve": "0.79.0"}, "r"), {"version": "0.79.0", "run": "r"})
+        self.assertEqual(LC.key, "langchain:langchain+@langchain/core+@langchain/langgraph+@langchain/langgraph-sdk")
+        self.assertEqual(uc.state_record(LC, LC_SET, "r"), {"versions": LC_SET, "run": "r"})
 
     def test_existing_item_is_found_by_exact_title_only(self) -> None:
         items = [{"number": 7, "title": "eve 0.55.0 breaks @keycardai/eve"}]
@@ -76,15 +128,20 @@ class DedupeTests(unittest.TestCase):
         self.assertIsNone(uc.find_by_title(items, "eve 0.56.0 breaks @keycardai/eve"))
 
     def test_same_failure_does_not_comment_but_a_different_one_does(self) -> None:
-        body = uc.issue_body(EVE, "0.55.0", ">=0.71.3 <0.80.0", False, "error TS2305: x", "")
+        body = uc.issue_body(EVE, {"eve": "0.55.0"}, {"eve": ">=0.71.3 <0.80.0"}, False, "error TS2305: x", "")
         self.assertFalse(uc.failed_differently(body, "error TS2305: x"))
         self.assertTrue(uc.failed_differently(body, "error TS2345: y"))
 
     def test_already_tested_version_is_skipped(self) -> None:
         state = {"eve:eve": {"version": "0.79.0", "run": ""}}
-        self.assertTrue(uc.already_tested(state, EVE, "0.79.0"))
-        self.assertFalse(uc.already_tested(state, EVE, "0.79.1"))
-        self.assertFalse(uc.already_tested(state, A2A, "0.79.0"))
+        self.assertTrue(uc.already_tested(state, EVE, {"eve": "0.79.0"}))
+        self.assertFalse(uc.already_tested(state, EVE, {"eve": "0.79.1"}))
+        self.assertFalse(uc.already_tested(state, A2A, {"@a2a-js/sdk": "0.79.0"}))
+
+    def test_set_is_skipped_only_when_the_exact_resolved_set_passed(self) -> None:
+        state = {LC.key: {"versions": LC_SET, "run": ""}}
+        self.assertTrue(uc.already_tested(state, LC, LC_SET))
+        self.assertFalse(uc.already_tested(state, LC, {**LC_SET, "@langchain/langgraph": "1.4.13"}))
 
 
 class StateWriteTests(unittest.TestCase):

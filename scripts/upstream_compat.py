@@ -74,13 +74,24 @@ VERSION_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)(?:-(?P<pre>[0-9A-Za-z.-]+))?(?:\+
 @dataclass
 class Entry:
     package: str
-    upstream: str
     field: str
+    upstream: str = ""
+    upstreams: list[str] = field(default_factory=list)
     companions: list[str] = field(default_factory=list)
+    dev_companions: list[str] = field(default_factory=list)
+
+    @property
+    def members(self) -> list[str]:
+        """The upstreams tested together: the set, or the single upstream."""
+        return self.upstreams or [self.upstream]
+
+    @property
+    def is_set(self) -> bool:
+        return bool(self.upstreams)
 
     @property
     def key(self) -> str:
-        return f"{self.package}:{self.upstream}"
+        return f"{self.package}:{'+'.join(self.members)}"
 
     @property
     def name(self) -> str:
@@ -196,16 +207,47 @@ def decide(green: bool, inside: bool) -> str:
 # --- dedupe -----------------------------------------------------------------
 
 
-def branch_name(entry: Entry, version: str) -> str:
-    return f"upstream/{entry.package}-{entry.upstream.replace('@', '').replace('/', '-')}-{version}"
+def _slug(name: str) -> str:
+    return name.replace("@", "").replace("/", "-")
 
 
-def pr_title(entry: Entry, version: str) -> str:
-    return f"fix({entry.package}): support {entry.upstream} {version}"
+def branch_name(entry: Entry, versions: dict[str, str]) -> str:
+    parts = "-".join(f"{_slug(m)}-{v}" for m, v in versions.items())
+    return f"upstream/{entry.package}-{parts}"
 
 
-def issue_title(entry: Entry, version: str) -> str:
-    return f"{entry.upstream} {version} breaks {entry.name}"
+def pr_title(entry: Entry, versions: dict[str, str]) -> str:
+    return f"fix({entry.package}): support " + ", ".join(f"{m} {v}" for m, v in versions.items())
+
+
+def issue_title(entry: Entry, versions: dict[str, str]) -> str:
+    named = " + ".join(f"{m} {v}" for m, v in versions.items())
+    return f"{named} {'break' if len(versions) > 1 else 'breaks'} {entry.name}"
+
+
+def set_label(versions: dict[str, str]) -> str:
+    return " + ".join(f"{m} {v}" for m, v in versions.items())
+
+
+def all_inside(declared: dict[str, str], versions: dict[str, str]) -> bool:
+    """A set is inside only when every member is inside its own declared range."""
+    return all(in_range(declared[m], v) for m, v in versions.items())
+
+
+def parse_requested(entry: Entry, requested: str) -> dict[str, str]:
+    """``VERSION`` as ``member@version`` pairs (comma separated; a bare version names a single upstream); ``latest`` where unnamed."""
+    wanted = {m: "latest" for m in entry.members}
+    if not requested or requested == "latest":
+        return wanted
+    for part in requested.split(","):
+        part = part.strip()
+        name, at, version = part.rpartition("@")
+        if not at or not name:
+            name, version = entry.members[0], part
+        if name not in wanted:
+            raise SystemExit(f"VERSION names {name!r}, which is not an upstream of {entry.key}")
+        wanted[name] = version
+    return wanted
 
 
 def find_by_title(items: list[dict], title: str) -> int | None:
@@ -215,35 +257,47 @@ def find_by_title(items: list[dict], title: str) -> int | None:
     return None
 
 
-def already_tested(state: dict, entry: Entry, version: str) -> bool:
-    return state.get(entry.key, {}).get("version") == version
+def state_record(entry: Entry, versions: dict[str, str], run_url: str) -> dict:
+    if entry.is_set:
+        return {"versions": versions, "run": run_url}
+    return {"version": versions[entry.upstream], "run": run_url}
+
+
+def already_tested(state: dict, entry: Entry, versions: dict[str, str]) -> bool:
+    record = state.get(entry.key, {})
+    if entry.is_set:
+        return record.get("versions") == versions
+    return record.get("version") == versions[entry.upstream]
 
 
 def tail(text: str, lines: int = TAIL_LINES) -> str:
     return "\n".join(text.rstrip().splitlines()[-lines:])
 
 
-def issue_body(entry: Entry, version: str, declared: str, inside: bool, out: str, run_url: str) -> str:
+def issue_body(entry: Entry, versions: dict[str, str], declared: dict[str, str], inside: bool, out: str, run_url: str) -> str:
+    ranges = "; ".join(f"{m} {v} is {'inside' if in_range(declared[m], v) else 'outside'} `{declared[m]}`" for m, v in versions.items())
     where = (
-        f"inside the declared range `{declared}`, so users installing {entry.name} today already get this"
+        f"inside the declared {'ranges' if len(versions) > 1 else 'range'} ({ranges}), so users installing {entry.name} today already get this"
         if inside
-        else f"outside the declared range `{declared}`, so users are not affected until the range widens"
+        else f"not fully inside the declared {'ranges' if len(versions) > 1 else 'range'} ({ranges}), so users are not affected until the range widens"
     )
     return (
-        f"{entry.upstream} {version} is {where}.\n\n"
+        f"{set_label(versions)} is {where}.\n\n"
         f"Typecheck and tests of `packages/{entry.package}` against it, tail of the output:\n\n"
         f"```\n{out}\n```\n\n"
         f"Run: {run_url or '(local run)'}\n"
     )
 
 
-def pr_body(entry: Entry, version: str, old: str, new: str, run_url: str) -> str:
+def pr_body(entry: Entry, versions: dict[str, str], old: dict[str, str], new: dict[str, str], run_url: str) -> str:
+    moves = "\n".join(
+        f"- `{m}` {versions[m]}: `{old[m]}` to `{new[m]}`" for m in versions if old[m] != new[m]
+    )
     return (
         "## Summary\n\n"
-        f"{entry.upstream} {version} is the latest stable release and sits outside "
-        f"{entry.name}'s declared range `{old}`. The package's typecheck and tests pass against it "
-        f"with no code change, so the `{entry.field}` range moves to `{new}` and the lockfile "
-        f"resolves {version}.\n\n"
+        f"{set_label(versions)} is the latest stable release set and sits outside "
+        f"{entry.name}'s declared `{entry.field}`. The package's typecheck and tests pass against it "
+        f"with no code change, so these ranges move and the lockfile resolves the set:\n\n{moves}\n\n"
         f"Opened by the upstream compatibility check (ECO-409). Run: {run_url or '(local run)'}\n"
     )
 
@@ -265,8 +319,17 @@ def latest_stable(upstream: str, cwd: str) -> str:
     versions = json.loads(out)
     if isinstance(versions, str):
         versions = [versions]
-    stable = [v for v in versions if VERSION_RE.match(v) and not is_prerelease(v)]
-    return max(stable, key=parse_version)
+    stable = sorted((v for v in versions if VERSION_RE.match(v) and not is_prerelease(v)), key=parse_version, reverse=True)
+    for v in stable:
+        if not is_deprecated(upstream, v, cwd):
+            return v
+    return stable[0]
+
+
+def is_deprecated(upstream: str, version: str, cwd: str) -> bool:
+    """Whether the registry marks that version deprecated (npm's counterpart to a yanked release)."""
+    out = run(["npm", "view", f"{upstream}@{version}", "deprecated"], cwd, capture_output=True).stdout
+    return bool(out.strip())
 
 
 def read_package(pkg_dir: str) -> dict:
@@ -291,12 +354,47 @@ def companion_specs(companions: list[str], peers: dict[str, str]) -> list[str]:
     return [f"{c}@{peers[c]}" if c in peers else f"{c}@latest" for c in companions]
 
 
-def install_and_test(repo_root: str, entry: Entry, version: str) -> Outcome:
+def installed_version(pkg_dir: str, name: str) -> str:
+    with open(os.path.join(pkg_dir, "node_modules", *name.split("/"), "package.json")) as f:
+        return json.load(f)["version"]
+
+
+def resolve_set(repo_root: str, entry: Entry, wanted: dict[str, str], installed: dict[str, str], latest: dict[str, str]) -> dict[str, str]:
+    """The versions the resolver gave the set, with a note for each member held below the latest it was asked for."""
+    resolved = {m: installed[m] for m in entry.members}
+    notes = [
+        f"{m} held back: asked for latest {latest[m]}, the resolver installed {resolved[m]} alongside the other members"
+        for m in entry.members
+        if wanted[m] == "latest" and resolved[m] != latest[m]
+    ]
+    for note in notes:
+        print(note, flush=True)
+    summary = os.environ.get("GITHUB_STEP_SUMMARY")
+    if summary and notes:
+        with open(summary, "a") as f:
+            f.write(f"### {entry.key}\n\n" + "\n".join(f"- {n}" for n in notes) + "\n")
+    return resolved
+
+
+def install_set(repo_root: str, entry: Entry, wanted: dict[str, str]) -> dict[str, str]:
+    """Install every member (and dev companion) in one ``pnpm add`` and read back what it resolved."""
     pkg_dir = os.path.join(repo_root, "packages", entry.package)
-    peers = upstream_peers(entry.upstream, version, repo_root) if entry.companions else {}
-    specs = [f"{entry.upstream}@{version}", *companion_specs(entry.companions, peers)]
+    specs = [f"{m}@{wanted[m]}" for m in entry.members] + [f"{c}@latest" for c in entry.dev_companions]
     flag = ["-D"] if entry.field == "peerDependencies" else []
     run(["pnpm", "add", *flag, *specs], pkg_dir)
+    installed = {m: installed_version(pkg_dir, m) for m in entry.members}
+    latest = {m: latest_stable(m, repo_root) for m in entry.members if wanted[m] == "latest"}
+    return resolve_set(repo_root, entry, wanted, installed, {**installed, **latest})
+
+
+def install_and_test(repo_root: str, entry: Entry, versions: dict[str, str]) -> Outcome:
+    pkg_dir = os.path.join(repo_root, "packages", entry.package)
+    if not entry.is_set:
+        version = versions[entry.upstream]
+        peers = upstream_peers(entry.upstream, version, repo_root) if entry.companions else {}
+        specs = [f"{entry.upstream}@{version}", *companion_specs(entry.companions, peers)]
+        flag = ["-D"] if entry.field == "peerDependencies" else []
+        run(["pnpm", "add", *flag, *specs], pkg_dir)
     output = []
     steps = [
         (["pnpm", "-r", "--filter", f"{entry.name}...", "run", "build"], repo_root),
@@ -311,11 +409,12 @@ def install_and_test(repo_root: str, entry: Entry, version: str) -> Outcome:
     return Outcome(True, tail("\n".join(output)))
 
 
-def apply_range(pkg_dir: str, entry: Entry, version: str, new_range: str) -> None:
+def apply_range(pkg_dir: str, entry: Entry, versions: dict[str, str], new_ranges: dict[str, str]) -> None:
     data = read_package(pkg_dir)
-    data[entry.field][entry.upstream] = new_range
-    if entry.field == "peerDependencies":
-        data.setdefault("devDependencies", {})[entry.upstream] = version
+    for m, new_range in new_ranges.items():
+        data[entry.field][m] = new_range
+        if entry.field == "peerDependencies":
+            data.setdefault("devDependencies", {})[m] = versions[m]
     write_package(pkg_dir, data)
     run(["pnpm", "install", "--no-frozen-lockfile"], os.path.dirname(os.path.dirname(pkg_dir)))
 
@@ -325,8 +424,8 @@ def gh_json(args: list[str], cwd: str) -> list[dict]:
     return json.loads(out) if out.strip() else []
 
 
-def open_or_update_pr(repo_root: str, entry: Entry, version: str, title: str, body: str, dry_run: bool) -> None:
-    branch = branch_name(entry, version)
+def open_or_update_pr(repo_root: str, entry: Entry, versions: dict[str, str], title: str, body: str, dry_run: bool) -> None:
+    branch = branch_name(entry, versions)
     if dry_run:
         print(f"dry run: would push {branch} and open or update PR {title!r}\n{body}")
         return
@@ -450,37 +549,44 @@ def main() -> None:
     run_url = os.environ.get("RUN_URL", "")
     state_branch = os.environ.get("STATE_BRANCH") or DEFAULT_STATE_BRANCH
     requested = os.environ.get("VERSION", "").strip()
+    wanted = parse_requested(entry, requested)
 
-    version = requested if requested and requested != "latest" else latest_stable(entry.upstream, repo_root)
+    if entry.is_set:
+        versions = install_set(repo_root, entry, wanted)
+    else:
+        versions = {m: v if v != "latest" else latest_stable(m, repo_root) for m, v in wanted.items()}
     pkg_dir = os.path.join(repo_root, "packages", entry.package)
-    declared = read_package(pkg_dir)[entry.field][entry.upstream]
-    inside = in_range(declared, version)
-    print(f"{entry.name}: {entry.upstream} {version} is {'inside' if inside else 'outside'} the declared {entry.field} range {declared}")
+    declared = {m: read_package(pkg_dir)[entry.field][m] for m in entry.members}
+    inside = all_inside(declared, versions)
+    for m, v in versions.items():
+        print(f"{entry.name}: {m} {v} is {'inside' if in_range(declared[m], v) else 'outside'} the declared {entry.field} range {declared[m]}")
+    if entry.is_set:
+        print(f"set {set_label(versions)} is {'inside' if inside else 'outside'} (inside only when every member is)")
 
     state = read_state(repo_root, state_branch)
-    if not requested and already_tested(state, entry, version):
-        print(f"{entry.upstream} {version} already passed on main; nothing to do")
+    if not requested and already_tested(state, entry, versions):
+        print(f"{set_label(versions)} already passed on main; nothing to do")
         return
 
-    outcome = install_and_test(repo_root, entry, version)
+    outcome = install_and_test(repo_root, entry, versions)
     action = decide(outcome.green, inside)
     print(f"outcome: {'green' if outcome.green else 'red'}; action: {action}")
 
     if action == "issue":
-        body = issue_body(entry, version, declared, inside, outcome.tail, run_url)
-        open_or_update_issue(repo_root, issue_title(entry, version), body, outcome.tail, dry_run)
+        body = issue_body(entry, versions, declared, inside, outcome.tail, run_url)
+        open_or_update_issue(repo_root, issue_title(entry, versions), body, outcome.tail, dry_run)
         sys.exit(1)
 
     if action == "pr":
-        new_range = widened_range(declared, version)
-        apply_range(pkg_dir, entry, version, new_range)
-        open_or_update_pr(repo_root, entry, version, pr_title(entry, version), pr_body(entry, version, declared, new_range, run_url), dry_run)
+        new_ranges = {m: widened_range(declared[m], versions[m]) for m in entry.members}
+        apply_range(pkg_dir, entry, versions, new_ranges)
+        open_or_update_pr(repo_root, entry, versions, pr_title(entry, versions), pr_body(entry, versions, declared, new_ranges, run_url), dry_run)
         return
 
     if dry_run:
-        print(f"dry run: would record {entry.key} = {version} on {state_branch}")
+        print(f"dry run: would record {entry.key} = {set_label(versions)} on {state_branch}")
         return
-    record_state(repo_root, state_branch, entry.key, {"version": version, "run": run_url}, f"{entry.name}: {entry.upstream} {version} passes")
+    record_state(repo_root, state_branch, entry.key, state_record(entry, versions, run_url), f"{entry.name}: {set_label(versions)} passes")
 
 
 if __name__ == "__main__":
