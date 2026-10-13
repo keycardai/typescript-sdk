@@ -19,6 +19,10 @@ one to the other.
 npm install @keycardai/langchain langchain @langchain/core @langchain/langgraph
 ```
 
+Requires `langchain` 1.5.3, `@langchain/core` 1.2.1, `@langchain/langgraph` 1.4.7,
+and `@langchain/langgraph-sdk` 1.9.25 or newer (the package's peer floors). Older
+releases fail the package's tests, so installing against them gives a peer warning.
+
 ## Quick start
 
 ```typescript
