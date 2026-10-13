@@ -1,0 +1,97 @@
+name: Upstream compatibility
+
+# Tests each framework integration against its upstream's latest release
+# (ECO-409). Pairs live in .github/upstream-compat.json; the logic in
+# scripts/upstream_compat.py opens the PR that supports a new version or the
+# issue that records what it broke.
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+    inputs:
+      entry:
+        description: "Config entry (package name) to check, or all"
+        required: false
+        default: all
+      version:
+        description: "Upstream version to test, or latest"
+        required: false
+        default: latest
+      dry_run:
+        description: "Print the PR or issue instead of opening it"
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  entries:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.pick.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: pick
+        env:
+          ENTRY: ${{ inputs.entry || 'all' }}
+        run: |
+          matrix=$(python3 -c '
+          import json, os
+          entries = [e["package"] for e in json.load(open(".github/upstream-compat.json"))["entries"]]
+          pick = os.environ["ENTRY"]
+          print(json.dumps(entries if pick == "all" else [pick]))
+          ')
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+  check:
+    needs: entries
+    runs-on: ubuntu-latest
+    name: upstream (${{ matrix.entry }})
+    strategy:
+      fail-fast: false
+      matrix:
+        entry: ${{ fromJSON(needs.entries.outputs.matrix) }}
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    steps:
+      # The release app's token, as in bump-package.yml: a PR opened with the
+      # default GITHUB_TOKEN triggers no CI, and the support PR needs pr.yml.
+      - name: Generate GitHub App token
+        id: generate-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.SDK_RELEASE_APP_ID }}
+          private-key: ${{ secrets.SDK_RELEASE_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ steps.generate-token.outputs.token }}
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check ${{ matrix.entry }} against its upstream
+        env:
+          GH_TOKEN: ${{ steps.generate-token.outputs.token }}
+          ENTRY: ${{ matrix.entry }}
+          VERSION: ${{ inputs.version || 'latest' }}
+          DRY_RUN: ${{ inputs.dry_run && 'true' || 'false' }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          git config user.name "keycard-sdk-release[bot]"
+          git config user.email "keycard-sdk-release[bot]@users.noreply.github.com"
+          python scripts/upstream_compat.py

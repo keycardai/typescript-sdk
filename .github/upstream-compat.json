@@ -1,0 +1,16 @@
+{
+  "entries": [
+    {
+      "package": "eve",
+      "upstream": "eve",
+      "field": "peerDependencies",
+      "companions": ["ai"]
+    },
+    {
+      "package": "a2a",
+      "upstream": "@a2a-js/sdk",
+      "field": "dependencies",
+      "companions": []
+    }
+  ]
+}
