@@ -16,12 +16,12 @@ Three adapters, each one plugging into an eve primitive instead of wrapping it:
 pnpm add @keycardai/eve
 ```
 
-`eve` is a peer dependency, pinned to `>=0.71.3 <0.72.0`: this package
-requires eve 0.71 and was built and verified against eve `0.71.3`. eve is in
-public beta and ships
-releases most days, and its connection and auth surfaces are still moving, so
-the range deliberately stops at the next minor rather than tracking `^`. Widen
-it only after re-running this package's tests against the newer eve.
+`eve` is a peer dependency, pinned to `>=0.71.3 <0.80.0`: this package was
+built and verified against eve `0.79.0`, and its typecheck and tests also pass
+at the floor, `0.71.3`. eve is in public beta and ships releases most days, and
+its connection and auth surfaces are still moving, so the range deliberately
+stops at the next untested minor rather than tracking `^`. Widen it only after
+re-running this package's tests against the newer eve.
 
 The narrowness is the point rather than an oversight, and so is keeping the
 range current: a consumer who runs a newer eve and installs this anyway —
