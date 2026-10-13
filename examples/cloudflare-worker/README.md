@@ -11,7 +11,7 @@ A Cloudflare Worker protected by Keycard OAuth authentication with delegated acc
 
 ## Prerequisites
 
-- **Node.js 18+** and **wrangler CLI** (`npm install -g wrangler`)
+- **Node.js 22+** (wrangler 4 requires it) and **wrangler CLI** (`npm install -g wrangler`)
 - **Cloudflare account** — sign up at [dash.cloudflare.com](https://dash.cloudflare.com)
 - **Keycard account** — sign up at [console.keycard.ai](https://console.keycard.ai)
 - **Configured zone** with an identity provider (Okta, Auth0, Google, etc.)

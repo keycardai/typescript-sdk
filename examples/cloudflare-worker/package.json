@@ -10,12 +10,12 @@
     "deploy": "wrangler deploy"
   },
   "dependencies": {
-    "@keycardai/cloudflare": "^0.1.0",
-    "@keycardai/oauth": "^0.2.0",
-    "@modelcontextprotocol/sdk": "^1.15.0"
+    "@keycardai/cloudflare": "^0.4.3",
+    "@keycardai/oauth": "^0.26.2",
+    "@modelcontextprotocol/sdk": "^1.25.0"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20250327.0",
+    "@cloudflare/workers-types": "^5.20261012.1",
     "typescript": "^5.8.3",
     "wrangler": "^4.14.0"
   }
