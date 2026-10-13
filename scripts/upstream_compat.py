@@ -34,7 +34,8 @@ keeps its floor and moves the upper bound to the next minor
 version.
 
 State lives on the ``upstream-compat-state`` branch as state.json, keyed by
-``<package>:<upstream>``: it is readable with one fetch, writable with the same
+``<package>:<upstream>`` and merged by key, with the push retried from a fresh
+fetch when a parallel matrix job moved the branch first: it is readable with one fetch, writable with the same
 token the workflow already has, and keeps a history, which a step summary does
 not offer and a repository variable needs admin rights for.
 
@@ -51,15 +52,19 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import re
 import subprocess
 import sys
 import tempfile
+import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 CONFIG_PATH = ".github/upstream-compat.json"
 DEFAULT_STATE_BRANCH = "upstream-compat-state"
 STATE_FILE = "state.json"
+STATE_WRITE_ATTEMPTS = 4
 ISSUE_LABEL = "upstream-compat"
 TAIL_LINES = 60
 
@@ -373,7 +378,15 @@ def read_state(repo_root: str, state_branch: str) -> dict:
     return json.loads(shown.stdout) if shown.returncode == 0 and shown.stdout.strip() else {}
 
 
-def write_state(repo_root: str, state_branch: str, state: dict, message: str) -> None:
+def merge_state(current: dict, key: str, record: dict) -> dict:
+    """The branch state with this entry's record set; every other key is left as the branch has it."""
+    merged = dict(current)
+    merged[key] = record
+    return merged
+
+
+def write_state_once(repo_root: str, state_branch: str, state: dict, message: str) -> bool:
+    """Commit state on top of origin/<state_branch> (an orphan when the branch is absent) and push; False when the push is rejected."""
     with tempfile.TemporaryDirectory(prefix="upstream-compat-state-") as wt:
         exists = run(["git", "rev-parse", "--verify", f"origin/{state_branch}"], repo_root, check=False, capture_output=True)
         if exists.returncode == 0:
@@ -383,13 +396,47 @@ def write_state(repo_root: str, state_branch: str, state: dict, message: str) ->
             run(["git", "worktree", "add", "--detach", wt], repo_root)
             run(["git", "checkout", "--orphan", state_branch], wt)
             run(["git", "rm", "-rfq", "."], wt, check=False)
-        with open(os.path.join(wt, STATE_FILE), "w") as f:
-            json.dump(state, f, indent=2, sort_keys=True)
-            f.write("\n")
-        run(["git", "add", STATE_FILE], wt)
-        run(["git", "commit", "-m", message], wt)
-        run(["git", "push", "origin", state_branch], wt)
-        run(["git", "worktree", "remove", "--force", wt], repo_root)
+        try:
+            with open(os.path.join(wt, STATE_FILE), "w") as f:
+                json.dump(state, f, indent=2, sort_keys=True)
+                f.write("\n")
+            run(["git", "add", STATE_FILE], wt)
+            run(["git", "commit", "-m", message], wt)
+            pushed = run(["git", "push", "origin", state_branch], wt, check=False)
+        finally:
+            run(["git", "worktree", "remove", "--force", wt], repo_root)
+    return pushed.returncode == 0
+
+
+def record_state(
+    repo_root: str,
+    state_branch: str,
+    key: str,
+    record: dict,
+    message: str,
+    attempts: int = STATE_WRITE_ATTEMPTS,
+    read: Callable[[str, str], dict] = read_state,
+    write_once: Callable[[str, str, dict, str], bool] = write_state_once,
+    sleep: Callable[[float], None] = time.sleep,
+) -> dict:
+    """Set key on the branch's current state and push, re-reading the tip and retrying when another job pushed first.
+
+    The matrix jobs run in parallel and all write the same branch, so a push
+    can be rejected because a sibling moved the tip (or created the branch
+    this job found absent). Each attempt starts from a fresh fetch, so the
+    merge builds on whatever landed, never on a second orphan.
+    """
+    for attempt in range(1, attempts + 1):
+        state = merge_state(read(repo_root, state_branch), key, record)
+        if write_once(repo_root, state_branch, state, message):
+            return state
+        print(f"state push rejected (attempt {attempt} of {attempts}); another job moved {state_branch}", flush=True)
+        if attempt < attempts:
+            sleep(random.uniform(1.0, 4.0))
+    sys.exit(
+        f"state write failed after {attempts} attempts: could not record {key} on {state_branch}. "
+        "The compatibility test itself was green; this is a state-branch write failure."
+    )
 
 
 # --- main -------------------------------------------------------------------
@@ -430,11 +477,10 @@ def main() -> None:
         open_or_update_pr(repo_root, entry, version, pr_title(entry, version), pr_body(entry, version, declared, new_range, run_url), dry_run)
         return
 
-    state[entry.key] = {"version": version, "run": run_url}
     if dry_run:
         print(f"dry run: would record {entry.key} = {version} on {state_branch}")
         return
-    write_state(repo_root, state_branch, state, f"{entry.name}: {entry.upstream} {version} passes")
+    record_state(repo_root, state_branch, entry.key, {"version": version, "run": run_url}, f"{entry.name}: {entry.upstream} {version} passes")
 
 
 if __name__ == "__main__":

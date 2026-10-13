@@ -87,5 +87,45 @@ class DedupeTests(unittest.TestCase):
         self.assertFalse(uc.already_tested(state, A2A, "0.79.0"))
 
 
+class StateWriteTests(unittest.TestCase):
+    def test_merge_by_key_keeps_the_other_entries(self) -> None:
+        start = {"a2a:@a2a-js/sdk": {"version": "1.3.0", "run": "r1"}}
+        from_eve = uc.merge_state(start, "eve:eve", {"version": "0.79.0", "run": "r2"})
+        from_a2a = uc.merge_state(start, "a2a:@a2a-js/sdk", {"version": "1.3.1", "run": "r3"})
+        self.assertEqual(set(from_eve), {"a2a:@a2a-js/sdk", "eve:eve"})
+        self.assertEqual(from_eve["a2a:@a2a-js/sdk"]["version"], "1.3.0")
+        self.assertEqual(from_a2a, {"a2a:@a2a-js/sdk": {"version": "1.3.1", "run": "r3"}})
+        self.assertEqual(start, {"a2a:@a2a-js/sdk": {"version": "1.3.0", "run": "r1"}})
+
+    def test_rejected_push_rereads_the_tip_and_retries_once(self) -> None:
+        tips = iter([{}, {"a2a:@a2a-js/sdk": {"version": "1.3.0", "run": "r1"}}])
+        results = iter([False, True])
+        writes: list[dict] = []
+        sleeps: list[float] = []
+
+        def write_once(repo_root: str, branch: str, state: dict, message: str) -> bool:
+            writes.append(state)
+            return next(results)
+
+        final = uc.record_state(
+            "/repo", "upstream-compat-state", "eve:eve", {"version": "0.79.0", "run": "r2"}, "msg",
+            read=lambda root, branch: next(tips), write_once=write_once, sleep=sleeps.append,
+        )
+        self.assertEqual(len(writes), 2)
+        self.assertEqual(writes[0], {"eve:eve": {"version": "0.79.0", "run": "r2"}})
+        self.assertEqual(set(final), {"a2a:@a2a-js/sdk", "eve:eve"})
+        self.assertEqual(final, writes[1])
+        self.assertEqual(len(sleeps), 1)
+
+    def test_exhausted_attempts_fail_as_a_state_write_not_a_compat_failure(self) -> None:
+        with self.assertRaises(SystemExit) as ctx:
+            uc.record_state(
+                "/repo", "upstream-compat-state", "eve:eve", {"version": "0.79.0", "run": ""}, "msg",
+                attempts=3, read=lambda root, branch: {}, write_once=lambda *a: False, sleep=lambda s: None,
+            )
+        self.assertIn("state write failed after 3 attempts", str(ctx.exception))
+        self.assertIn("test itself was green", str(ctx.exception))
+
+
 if __name__ == "__main__":
     unittest.main()
