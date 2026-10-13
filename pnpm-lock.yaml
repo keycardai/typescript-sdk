@@ -84,8 +84,8 @@ importers:
         specifier: ^25.6.0
         version: 25.6.0
       eve:
-        specifier: 0.71.3
-        version: 0.71.3(ai@7.0.85(zod@4.4.3))
+        specifier: 0.79.0
+        version: 0.79.0(ai@7.0.85(zod@4.4.3))
       jest:
         specifier: ^30.0.4
         version: 30.2.0(@types/node@25.6.0)
@@ -1718,13 +1718,13 @@ packages:
     resolution: {integrity: sha512-aIL5Fx7mawVa300al2BnEE4iNvo1qETxLrPI/o05L7z6go7fCw1J6EQmbK4FmJ2AS7kgVF/KEZWufBfdClMcPg==}
     engines: {node: '>= 0.6'}
 
-  eve@0.71.3:
-    resolution: {integrity: sha512-n0IdHqthlSTZvWjRtyaai0dQQB6K441JUbBbk9N63zsZrVkOkaJrLxh0hY9AfPb+TlJINOlhd/BcIQIHgf5w4g==}
+  eve@0.79.0:
+    resolution: {integrity: sha512-H+SERBdpVUh3w5r/KQxOMnN/fyXiE3UXyBL56yviVON5UHLbBZBbobCzdOUog5OsP3hw1iZzjcSuHC0XF2YJ4Q==}
     engines: {node: '>=24'}
     hasBin: true
     peerDependencies:
       '@opentelemetry/api': ^1.0.0
-      ai: ^7.0.105
+      ai: ^7.0.137
       braintrust: ^3.0.0
       chat: ^4.41.0
       dd-trace: ^6.13.0
@@ -4521,7 +4521,7 @@ snapshots:
 
   etag@1.8.1: {}
 
-  eve@0.71.3(ai@7.0.85(zod@4.4.3)):
+  eve@0.79.0(ai@7.0.85(zod@4.4.3)):
     dependencies:
       ai: 7.0.85(zod@4.4.3)
       nitro: 3.0.260903-beta
