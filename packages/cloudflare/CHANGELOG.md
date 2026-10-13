@@ -1,3 +1,9 @@
+## 0.4.3-keycardai-cloudflare (2026-10-13)
+
+
+- fix(cloudflare): publish a caret @keycardai/oauth range, workers-types v5, and the Worker example on current packages (SDK-10) (#234)
+- @keycardai/cloudflare 0.4.2 depends on @keycardai/oauth exactly 0.24.1 (published before #224), so an app that also installs current oauth gets two copies and can't pass its TokenExchangeClient into IsolateSafeTokenCache. This release publishes "@keycardai/oauth": "^0.26.2". Also: @cloudflare/workers-types v5 in the package and the example (no source changes; ExecutionContext and ExportedHandler still exist), and the example moves to @keycardai/cloudflare ^0.4.3, @keycardai/oauth ^0.26.2, and @modelcontextprotocol/sdk ^1.25.0 with WebStandardStreamableHTTPServerTransport, since it no longer installed on main and its old transport call matched no MCP SDK release.
+
 ## 0.4.2-keycardai-cloudflare (2026-09-17)
 
 
