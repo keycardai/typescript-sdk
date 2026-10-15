@@ -20,6 +20,9 @@ export type { KeycardAuthOptions, SubjectTokenRetention } from "./auth.js";
 export { asSelf, impersonate, onBehalfOf } from "./connections.js";
 export type { KeycardConnectionAuth, KeycardImpersonateOptions } from "./connections.js";
 
+export { keycardCallbackRoute } from "./callbackRoute.js";
+export type { KeycardCallbackRouteOptions } from "./callbackRoute.js";
+
 export { interactive, memoryAuthorizedTokenStore } from "./interactive.js";
 export type {
   AuthorizedGrant,

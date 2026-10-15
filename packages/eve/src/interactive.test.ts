@@ -8,11 +8,13 @@ import {
   type BeginAuthorizationOptions,
   type CompleteAuthorizationOptions,
   type RefreshAuthorizationOptions,
+  type ApplicationCredential,
   type TokenResponse,
   type UserInfoResponse,
 } from "@keycardai/oauth";
 import type { AuthorizationCallback } from "eve/connections";
 
+import { encodeCallbackState } from "./callbackRoute.js";
 import { AuthorizationFailedError, FailureReason } from "./errors.js";
 import {
   interactive,
@@ -30,6 +32,9 @@ import {
 
 const CALENDAR = "https://calendar.example.com";
 const CALLBACK = "https://agent.example.com/connections/calendar/callback";
+/** Where a configured clientId sends the zone: the stable route on CALLBACK's origin. */
+const STABLE_ROUTE = "https://agent.example.com/keycard/callback";
+const STABLE_STATE = encodeCallbackState("state-1", CALLBACK);
 const connection = connectionContext();
 const PRINCIPAL_KEY = "https://zone.example.com|user-1";
 
@@ -197,7 +202,7 @@ describe("interactive", () => {
     expect(started.challenge.displayName).toBe("Calendar");
   });
 
-  it("begins the flow against eve's callback URL with the resource list", async () => {
+  it("begins the flow against the stable route for a configured client, with the resource list", async () => {
     const flow = recordingFlow();
     const auth = interactive({
       resource: CALENDAR,
@@ -217,7 +222,7 @@ describe("interactive", () => {
     expect(flow.begins).toEqual([
       {
         clientId: "web-client",
-        redirectUri: CALLBACK,
+        redirectUri: STABLE_ROUTE,
         resources: [CALENDAR, "https://docs.example.com"],
         scopes: ["calendar.read"],
       },
@@ -226,10 +231,10 @@ describe("interactive", () => {
       "https://zone.example.com/authorize",
     );
     expect(started.resume).toEqual({
-      state: "state-1",
+      state: STABLE_STATE,
       codeVerifier: "verifier-1",
       resources: [CALENDAR, "https://docs.example.com"],
-      callbackUrl: CALLBACK,
+      callbackUrl: STABLE_ROUTE,
       clientId: "web-client",
     });
     // A configured client is used as given; nothing is registered for it.
@@ -260,16 +265,16 @@ describe("interactive", () => {
       connection,
       callbackUrl: CALLBACK,
       resume: started.resume,
-      callback: callback({ code: "auth-code", state: "state-1" }),
+      callback: callback({ code: "auth-code", state: STABLE_STATE }),
     });
 
     expect(flow.completes).toEqual([
       {
-        callbackParams: { code: "auth-code", state: "state-1" },
-        state: "state-1",
+        callbackParams: { code: "auth-code", state: STABLE_STATE },
+        state: STABLE_STATE,
         codeVerifier: "verifier-1",
         clientId: "web-client",
-        redirectUri: CALLBACK,
+        redirectUri: STABLE_ROUTE,
         clientSecret: "shh",
       },
     ]);
@@ -644,8 +649,6 @@ describe("interactive per-attempt client registration", () => {
     const auth = interactive({
       resource: CALENDAR,
       zoneUrl: "https://zone.example.com",
-      // Configured but unusable: it belongs to a static client that is not in play.
-      clientSecret: "shh",
       flow,
     });
     const started = await auth.startAuthorization({
@@ -671,6 +674,247 @@ describe("interactive per-attempt client registration", () => {
  * resource, refreshed silently while it holds a refresh token, and never shared
  * through a connection name.
  */
+describe("interactive confidential client through the stable callback route", () => {
+  const ATTEMPT = "https://agent.example.com/eve/v1/connections/docs/callback/attempt-1/token-1";
+  const ROUTE = "https://agent.example.com/keycard/callback";
+
+  it("row 47: registers nothing, sends the stable route as redirect_uri, and redeems and refreshes with the secret", async () => {
+    const flow = recordingFlow({
+      completion: {
+        accessToken: "granted-token",
+        tokenType: "Bearer",
+        expiresIn: 30,
+        refreshToken: "refresh-1",
+      },
+    });
+    const tokens = memoryAuthorizedTokenStore();
+    const auth = interactive({
+      resource: CALENDAR,
+      zoneUrl: "https://zone.example.com",
+      clientId: "app-credential-1",
+      clientSecret: "app-secret",
+      tokens,
+      flow,
+    });
+
+    const started = await auth.startAuthorization({
+      principal: userPrincipal(),
+      connection,
+      callbackUrl: ATTEMPT,
+    });
+
+    expect(flow.registrations).toEqual([]);
+    expect(flow.begins).toEqual([
+      { clientId: "app-credential-1", redirectUri: ROUTE, resources: [CALENDAR] },
+    ]);
+    // state is the flow's random value, then the attempt callback URL.
+    expect(started.resume.state).toBe(encodeCallbackState("state-1", ATTEMPT));
+    expect(new URL(started.challenge.url).searchParams.get("state")).toBe(started.resume.state);
+    expect(started.resume.callbackUrl).toBe(ROUTE);
+    expect(started.resume.clientId).toBe("app-credential-1");
+    expect(Object.keys(started.resume).sort()).toEqual([
+      "callbackUrl",
+      "clientId",
+      "codeVerifier",
+      "resources",
+      "state",
+    ]);
+
+    await auth.completeAuthorization({
+      principal: userPrincipal(),
+      connection,
+      callbackUrl: ATTEMPT,
+      resume: started.resume,
+      callback: callback({ code: "auth-code", state: started.resume.state }),
+    });
+    expect(flow.completes).toEqual([
+      {
+        callbackParams: { code: "auth-code", state: started.resume.state },
+        state: started.resume.state,
+        codeVerifier: "verifier-1",
+        clientId: "app-credential-1",
+        redirectUri: ROUTE,
+        clientSecret: "app-secret",
+      },
+    ]);
+    expect((await tokens.list(PRINCIPAL_KEY))[0]?.clientId).toBe("app-credential-1");
+
+    // The grant expires in 30 s, inside the refresh skew, so the next getToken refreshes.
+    const result = await auth.getToken({ principal: userPrincipal(), connection });
+    expect(result.token).toBe("refreshed-token");
+    expect(flow.refreshes).toEqual([
+      {
+        refreshToken: "refresh-1",
+        clientId: "app-credential-1",
+        resources: [CALENDAR],
+        clientSecret: "app-secret",
+      },
+    ]);
+  });
+
+  it("row 47: a mismatched state is still rejected on the confidential path", async () => {
+    const flow = recordingFlow();
+    const auth = interactive({
+      resource: CALENDAR,
+      zoneUrl: "https://zone.example.com",
+      clientId: "app-credential-1",
+      clientSecret: "app-secret",
+      flow,
+    });
+    const started = await auth.startAuthorization({
+      principal: userPrincipal(),
+      connection,
+      callbackUrl: ATTEMPT,
+    });
+    flow.completes.length = 0;
+    const realFlow = recordingFlow();
+    const strict = interactive({
+      resource: CALENDAR,
+      connectionName: "Strict",
+      clientId: "app-credential-1",
+      clientSecret: "app-secret",
+      flow: {
+        ...realFlow,
+        async complete(options) {
+          if (options.callbackParams.state !== options.state) {
+            throw new StateMismatchError("state mismatch");
+          }
+          return realFlow.complete(options);
+        },
+      },
+    });
+    await expect(
+      strict.completeAuthorization({
+        principal: userPrincipal(),
+        connection,
+        callbackUrl: ATTEMPT,
+        resume: started.resume,
+        callback: callback({ code: "auth-code", state: "state-1" }),
+      }),
+    ).rejects.toMatchObject({ reason: FailureReason.INVALID_CALLBACK });
+  });
+
+  it("row 49: without clientId the per-attempt path is byte-for-byte unchanged", async () => {
+    const run = async (): Promise<unknown> => {
+      resetInteractiveDefinitions();
+      const flow = recordingFlow({
+        completion: {
+          accessToken: "granted-token",
+          tokenType: "Bearer",
+          expiresIn: 30,
+          refreshToken: "refresh-1",
+        },
+      });
+      const auth = interactive({
+        resource: CALENDAR,
+        zoneUrl: "https://zone.example.com",
+        connectionName: "Calendar",
+        requestScopes: ["calendar.read"],
+        flow,
+      });
+      const started = await auth.startAuthorization({
+        principal: userPrincipal(),
+        connection,
+        callbackUrl: ATTEMPT,
+      });
+      await auth.completeAuthorization({
+        principal: userPrincipal(),
+        connection,
+        callbackUrl: ATTEMPT,
+        resume: started.resume,
+        callback: callback({ code: "auth-code", state: "state-1" }),
+      });
+      await auth.getToken({ principal: userPrincipal(), connection });
+      return JSON.parse(
+        JSON.stringify({
+          challenge: started.challenge,
+          resume: started.resume,
+          registrations: flow.registrations,
+          begins: flow.begins,
+          completes: flow.completes,
+          refreshes: flow.refreshes,
+        }),
+      );
+    };
+
+    const observed = await run();
+    // The record rows 23, 24 and 26 pin, spelled out rather than derived.
+    expect(observed).toEqual({
+      challenge: {
+        url: `https://zone.example.com/authorize?state=state-1&redirect_uri=${ATTEMPT}`,
+        displayName: "Calendar",
+      },
+      resume: {
+        state: "state-1",
+        codeVerifier: "verifier-1",
+        resources: [CALENDAR],
+        callbackUrl: ATTEMPT,
+        clientId: "attempt-client-1",
+      },
+      registrations: [
+        { redirectUri: ATTEMPT, clientName: "Calendar", scopes: ["calendar.read"] },
+      ],
+      begins: [
+        {
+          clientId: "attempt-client-1",
+          redirectUri: ATTEMPT,
+          resources: [CALENDAR],
+          scopes: ["calendar.read"],
+        },
+      ],
+      completes: [
+        {
+          callbackParams: { code: "auth-code", state: "state-1" },
+          state: "state-1",
+          codeVerifier: "verifier-1",
+          clientId: "attempt-client-1",
+          redirectUri: ATTEMPT,
+        },
+      ],
+      refreshes: [
+        {
+          refreshToken: "refresh-1",
+          clientId: "attempt-client-1",
+          resources: [CALENDAR],
+          scopes: ["calendar.read"],
+        },
+      ],
+    });
+  });
+
+  it("row 50: applicationCredential is not supported yet, and clientSecret needs clientId", () => {
+    const credential = {
+      clientId: "app-credential-1",
+      clientSecret: "app-secret",
+    } as unknown as ApplicationCredential;
+    for (const extra of [
+      { applicationCredential: credential, clientSecret: "app-secret", clientId: "c" },
+      { applicationCredential: credential, clientId: "c" },
+      { applicationCredential: credential },
+    ]) {
+      expect(() =>
+        interactive({ resource: CALENDAR, flow: staticOnlyFlow(), ...extra }),
+      ).toThrow(/applicationCredential is not supported yet/);
+    }
+    expect(() =>
+      interactive({
+        resource: CALENDAR,
+        zoneUrl: "https://zone.example.com",
+        clientSecret: "app-secret",
+        flow: recordingFlow(),
+      }),
+    ).toThrow(AuthProviderConfigurationError);
+    expect(() =>
+      interactive({
+        resource: CALENDAR,
+        zoneUrl: "https://zone.example.com",
+        clientSecret: "app-secret",
+        flow: recordingFlow(),
+      }),
+    ).toThrow(/clientSecret requires clientId/);
+  });
+});
+
 describe("interactive grant lifecycle", () => {
   it("serves later steps from the stored grant without a second sign-in", async () => {
     const flow = recordingFlow();

@@ -197,31 +197,74 @@ export default defineMcpClientConnection({
 });
 ```
 
-**There is no `clientId`, and adding one usually breaks the flow.** eve mints a
+**Without `clientId`, a client is registered per attempt.** eve mints a
 fresh callback URL for every attempt
 (`/eve/v1/connections/:name/callback/:attemptId/:token`) while
 [RFC 9700][rfc9700] requires the authorization server to match `redirect_uri`
-against the client's registered list by exact string comparison. A client
-registered ahead of time cannot name a URL that is generated later, so the
-request is rejected with something like `Unauthorized redirect URI`. Leaving
-`clientId` unset registers a client per attempt instead (RFC 7591), whose
-single redirect URI is the callback that attempt will return to. Each client is
-public and PKCE-bound, so nothing secret enters eve's durable resume state; if
-the server issues a confidential client anyway, the attempt is abandoned rather
-than journaling a secret.
+against the client's registered list by exact string comparison, so no client
+registered ahead of time can name eve's callback. Leaving `clientId` unset
+registers a client per attempt instead (RFC 7591), whose single redirect URI is
+the callback that attempt will return to. Each client is public and PKCE-bound,
+so nothing secret enters eve's durable resume state; if the server issues a
+confidential client anyway, the attempt is abandoned rather than journaling a
+secret. Per-attempt clients accumulate in the zone, and a stored grant on this
+path pairs its refresh token with a public client id, so whoever can read a
+durable grant store can refresh it with no secret.
 
-Set `clientId` only when that client's registered redirect URIs already cover
-eve's callback. Note that a Keycard application `identifier` is not a client id:
-zones identify clients by [Client ID Metadata Document][cimd], an HTTPS URL
-with a path serving the client's metadata, so a value like `urn:app:my-agent`
-fails with `Unsupported client identifier prefix: urn`.
+### Signing users in as the agent's Application
 
-Per-attempt clients accumulate in the zone. They hold no secret and their
-callback is single-use, but a server returning `registration_client_uri` and
-`registration_access_token` allows RFC 7592 deletion once a grant settles.
+With a `clientId` and `clientSecret`, the agent signs users in as its own
+Keycard Application, a confidential client, through one stable callback URL
+this package serves. Three pieces:
+
+1. Mount the route from a channel file. `defineChannel` is eve runtime code,
+   so this package exports the route object, not the channel:
+
+   ```ts title="agent/channels/keycard.ts"
+   import { defineChannel } from "eve/channels";
+   import { keycardCallbackRoute } from "@keycardai/eve";
+
+   export default defineChannel({ routes: [keycardCallbackRoute()] });
+   ```
+
+   The default path is `/keycard/callback`; pass `{ path }` to move it, and
+   name the same value in `callbackPath` on every definition that uses it.
+
+2. On the Application in your zone, add `<origin>/keycard/callback` to its
+   redirect URIs (`protocols.oauth2.redirect_uris`). Redirect URIs match
+   exactly, so a preview deployment whose URL is not registered keeps the
+   per-attempt path: leave `clientId` unset there.
+
+3. Use a password credential of that Application: its identifier is the
+   `clientId` and its secret the `clientSecret`. The Application's own
+   `identifier` (`urn:app:...`) is not a client id and is rejected at
+   `/authorize`.
+
+   ```ts
+   auth: Keycard.interactive({
+     zoneUrl: process.env.KEYCARD_ZONE_URL!,
+     resource: "https://docs.example.com",
+     clientId: process.env.KEYCARD_CLIENT_ID!,
+     clientSecret: process.env.KEYCARD_CLIENT_SECRET!,
+   }),
+   ```
+
+On this path nothing is registered. `redirect_uri` is the attempt callback's
+origin plus `callbackPath`, and `state` carries the attempt's eve callback URL
+after the flow's random value, so the route can forward the zone's redirect
+(`code` and `state`, or `error` and `error_description`) to that URL with a
+`302`. The route forwards only to its own origin under
+`/eve/v1/connections/<name>/callback/` and answers `400` otherwise; behind a
+proxy that rewrites `Host` without forwarding it, pass `{ origin }` so the
+check runs against the public origin eve's callback URLs carry. The code is
+redeemed and every refresh runs as `clientId` with the secret, and the stored
+grant records `clientId`, so a grant on this path cannot be refreshed by a
+reader of a durable store that lacks the secret. `applicationCredential` on
+`Keycard.interactive()` is not supported yet (code redemption and refresh
+authenticate with a secret only) and is rejected at definition time, as is
+`clientSecret` without `clientId`.
 
 [rfc9700]: https://datatracker.ietf.org/doc/html/rfc9700
-[cimd]: https://datatracker.ietf.org/doc/html/draft-ietf-oauth-client-id-metadata-document-02
 
 The definition implements the same three-method form as eve's
 `defineInteractiveAuthorization`, over `@keycardai/oauth`'s v3 web-app flow:
@@ -442,7 +485,8 @@ takes a `verify` seam in place of the JWKS-backed verifier, and
 `begin`, `complete`, `register` for per-attempt clients, `refresh`, and
 `userinfo` for the sign-in identity check. A flow without `register` is rejected
 at construction unless a `clientId` is also given, as is a flow without
-`userinfo` when `expectedSubject` is set, so a test cannot accidentally exercise a combination that cannot work in
+`userinfo` when `expectedSubject` is set, `clientSecret` without `clientId`,
+and `applicationCredential` on `Keycard.interactive()`, so a test cannot accidentally exercise a combination that cannot work in
 production. An injected `client` or `flow` supersedes `zoneUrl`, so a test needs
 no zone.
 

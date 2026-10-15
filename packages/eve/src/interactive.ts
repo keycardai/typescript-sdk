@@ -9,6 +9,7 @@ import {
   RefreshGrantError,
   registerClient,
   StateMismatchError,
+  type ApplicationCredential,
   type AuthorizationRedirect,
   type BeginAuthorizationOptions,
   type CompleteAuthorizationOptions,
@@ -24,6 +25,7 @@ import type {
   TokenResult,
 } from "eve/connections";
 
+import { DEFAULT_CALLBACK_PATH, encodeCallbackState } from "./callbackRoute.js";
 import { expiresAt } from "./config.js";
 import {
   AuthorizationFailedError,
@@ -48,6 +50,7 @@ export interface KeycardResumeState {
   readonly state: string;
   readonly codeVerifier: string;
   readonly resources: readonly string[];
+  /** The `redirect_uri` the authorization request carried. */
   readonly callbackUrl: string;
   readonly clientId: string;
   readonly [key: string]: JsonValue;
@@ -147,23 +150,38 @@ export interface KeycardInteractiveOptions {
   /** Keycard zone URL (issuer). Required unless `flow` is given. */
   zoneUrl?: string;
   /**
-   * OAuth client the browser flow runs as.
+   * The client id of one of the agent's Keycard Application credentials (a
+   * password credential's identifier). Set, the browser flow runs as that
+   * Application, a confidential client, through the stable callback route
+   * (`keycardCallbackRoute`): no client is registered, `redirect_uri` is the
+   * attempt callback's origin plus `callbackPath`, and `clientSecret`
+   * authenticates the code redemption and every refresh. The Application must
+   * register `<origin><callbackPath>` as a redirect URI.
    *
-   * Leave this unset unless the client's registered redirect URIs already
-   * cover eve's callback. eve mints a fresh callback URL per attempt
-   * (`/eve/v1/connections/:name/callback/:attemptId/:token`) while RFC 9700
-   * requires the authorization server to match `redirect_uri` by exact string
-   * comparison, so a statically registered client cannot name the URL the next
-   * attempt will use. Unset, the client is registered per attempt instead.
+   * Unset, the client is registered per attempt instead: eve mints a fresh
+   * callback URL per attempt and RFC 9700 requires `redirect_uri` to match a
+   * registered value exactly, so without the stable route no fixed client can
+   * name it. That path stays for an agent with no Application credential and
+   * for a preview deployment whose URL is not registered on the Application.
    *
-   * A Keycard application `identifier` is not a client id. Zones identify
-   * clients by Client ID Metadata Document, an HTTPS URL with a path that
-   * serves the client's metadata, so a value like `urn:app:my-agent` fails
-   * with `Unsupported client identifier prefix: urn`.
+   * A Keycard application `identifier` is not a client id: the zone rejects a
+   * value like `urn:app:my-agent` at `/authorize`.
    */
   clientId?: string;
-  /** Client secret, for a confidential static client. Public clients omit it. */
+  /** Secret of the `clientId` credential. Requires `clientId`. */
   clientSecret?: string;
+  /**
+   * Client assertion for the redemption and refresh, as an alternative to
+   * `clientSecret`. Not supported yet: `@keycardai/oauth`'s code redemption
+   * and refresh authenticate with a client secret only, so setting this is a
+   * definition-time configuration error until that lands.
+   */
+  applicationCredential?: ApplicationCredential;
+  /**
+   * Path of the stable callback route (`keycardCallbackRoute({ path })`).
+   * Read only when `clientId` is set. Defaults to `/keycard/callback`.
+   */
+  callbackPath?: string;
   /**
    * Name shown on the zone's consent screen for a per-attempt client.
    * Defaults to `connectionName`.
@@ -232,10 +250,12 @@ export function resetInteractiveDefinitions(): void {
  *   refresh token. Otherwise it throws `ConnectionAuthorizationRequiredError`,
  *   and eve emits `authorization.required`, runs `startAuthorization` in a
  *   durable step, and parks the turn on its own callback webhook.
- * - `startAuthorization` registers the attempt's client, begins the
- *   authorization-code flow with PKCE for the connection's resources against
- *   eve's minted callback URL, and returns the challenge URL plus the state,
- *   verifier, resources, callback URL and client id as resume state.
+ * - `startAuthorization` registers the attempt's client (unless `clientId` is
+ *   set), begins the authorization-code flow with PKCE for the connection's
+ *   resources against the redirect URI (eve's minted callback URL, or the
+ *   stable `keycardCallbackRoute` with `clientId`), and returns the challenge
+ *   URL plus the state, verifier, resources, redirect URI and client id as
+ *   resume state.
  * - `completeAuthorization` redeems the callback as the journaled client and
  *   stores the resulting grant.
  *
@@ -254,6 +274,13 @@ export function resetInteractiveDefinitions(): void {
  * records accumulate in the zone; a server that returns
  * `registration_client_uri` and `registration_access_token` allows RFC 7592
  * deletion once a grant settles.
+ *
+ * With `clientId` and `clientSecret`, the agent signs users in as its own
+ * Keycard Application instead: `redirect_uri` is the stable
+ * `keycardCallbackRoute` on the attempt callback's origin, `state` is the
+ * flow's random value followed by the base64url attempt callback URL, the
+ * route forwards the zone's redirect to that URL, and the redemption and
+ * every refresh authenticate with the secret. No client is registered.
  *
  * Grants are keyed by principal, never by `connectionName`, so two connections
  * never share a token through a shared name and `evict` on one cannot clear the
@@ -294,6 +321,19 @@ export function interactive(
         : {}),
     });
   const staticClientId = options.clientId ?? "";
+  if (options.applicationCredential !== undefined) {
+    throw new AuthProviderConfigurationError(
+      "interactive applicationCredential is not supported yet: code redemption and " +
+        "refresh authenticate with clientSecret only. Use clientId with clientSecret.",
+    );
+  }
+  if (options.clientSecret !== undefined && !staticClientId) {
+    throw new AuthProviderConfigurationError(
+      "interactive clientSecret requires clientId: the secret belongs to the " +
+        "Application credential whose client id signs the user in",
+    );
+  }
+  const callbackPath = options.callbackPath ?? DEFAULT_CALLBACK_PATH;
   const clientName = options.clientName ?? connectionName;
   const resources = [options.resource, ...(options.additionalResources ?? [])];
   const scopes = splitScopes(options.requestScopes);
@@ -568,13 +608,26 @@ export function interactive(
         if (expected === undefined) throw noExpectedSubject();
       }
       const attemptClientId = await clientForAttempt(callbackUrl);
+      // Confidential path: the Application's registered redirect URI is the
+      // stable route on this deployment's origin, and `state` carries the
+      // attempt callback URL so the route can forward there.
+      const redirectUri = staticClientId
+        ? `${new URL(callbackUrl).origin}${callbackPath}`
+        : callbackUrl;
       const redirect = await flow.begin({
         clientId: attemptClientId,
-        redirectUri: callbackUrl,
+        redirectUri,
         resources,
         ...(authScopes.length > 0 ? { scopes: authScopes } : {}),
       });
       let url = redirect.url;
+      let state = redirect.state;
+      if (staticClientId) {
+        state = encodeCallbackState(redirect.state, callbackUrl);
+        const routed = new URL(url);
+        routed.searchParams.set("state", state);
+        url = routed.toString();
+      }
       if (options.prompt) {
         const prompted = new URL(url);
         prompted.searchParams.set("prompt", options.prompt);
@@ -583,10 +636,10 @@ export function interactive(
       return {
         challenge: { url, displayName: connectionName },
         resume: {
-          state: redirect.state,
+          state,
           codeVerifier: redirect.codeVerifier,
           resources: redirect.resources,
-          callbackUrl,
+          callbackUrl: redirectUri,
           clientId: attemptClientId,
         },
       };
