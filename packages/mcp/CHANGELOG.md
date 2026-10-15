@@ -1,3 +1,9 @@
+## 2.0.5-keycardai-mcp (2026-10-15)
+
+
+- fix(mcp): require @modelcontextprotocol/client 2.2.0 and refresh vulnerable lockfile entries
+- GHSA-6qxp-vccf-f47h: @keycardai/mcp and @keycardai/sdk now require @modelcontextprotocol/client ^2.2.0. Lockfile moves qs, js-yaml, browserslist, brace-expansion and baseline-browser-mapping to patched versions. @keycardai/sdk is released by a separate patch bump. Supersedes #195-#203 and #229.
+
 ## 2.0.4-keycardai-mcp (2026-10-13)
 
 ## 2.0.3-keycardai-mcp (2026-10-09)
