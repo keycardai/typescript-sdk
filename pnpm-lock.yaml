@@ -44,7 +44,7 @@ importers:
         version: 7.2.2
       ts-jest:
         specifier: ^29.4.7
-        version: 29.4.7(@babel/core@7.29.6)(@jest/transform@30.2.0)(@jest/types@30.2.0)(babel-jest@30.2.0(@babel/core@7.29.6))(jest-util@30.2.0)(jest@30.2.0)(typescript@5.9.3)
+        version: 29.4.7(@babel/core@7.29.6)(@jest/transform@30.2.0)(@jest/types@30.2.0)(babel-jest@30.2.0(@babel/core@7.29.6))(jest-util@30.2.0)(jest@30.2.0(@types/node@25.6.0))(typescript@5.9.3)
       typescript:
         specifier: ^5.8.3
         version: 5.9.3
@@ -66,7 +66,7 @@ importers:
         version: 30.2.0(@types/node@25.6.0)
       ts-jest:
         specifier: ^29.4.7
-        version: 29.4.7(@babel/core@7.29.6)(@jest/transform@30.2.0)(@jest/types@30.2.0)(babel-jest@30.2.0(@babel/core@7.29.6))(jest-util@30.2.0)(jest@30.2.0)(typescript@5.9.3)
+        version: 29.4.7(@babel/core@7.29.6)(@jest/transform@30.2.0)(@jest/types@30.2.0)(babel-jest@30.2.0(@babel/core@7.29.6))(jest-util@30.2.0)(jest@30.2.0(@types/node@25.6.0))(typescript@5.9.3)
       typescript:
         specifier: ^5.8.3
         version: 5.9.3
@@ -94,7 +94,7 @@ importers:
         version: 30.2.0(@types/node@25.6.0)
       ts-jest:
         specifier: ^29.4.7
-        version: 29.4.7(@babel/core@7.29.6)(@jest/transform@30.2.0)(@jest/types@30.2.0)(babel-jest@30.2.0(@babel/core@7.29.6))(jest-util@30.2.0)(jest@30.2.0)(typescript@5.9.3)
+        version: 29.4.7(@babel/core@7.29.6)(@jest/transform@30.2.0)(@jest/types@30.2.0)(babel-jest@30.2.0(@babel/core@7.29.6))(jest-util@30.2.0)(jest@30.2.0(@types/node@25.6.0))(typescript@5.9.3)
       typescript:
         specifier: ^5.8.3
         version: 5.9.3
@@ -125,7 +125,7 @@ importers:
         version: 7.2.2
       ts-jest:
         specifier: ^29.4.7
-        version: 29.4.7(@babel/core@7.29.6)(@jest/transform@30.2.0)(@jest/types@30.2.0)(babel-jest@30.2.0(@babel/core@7.29.6))(jest-util@30.2.0)(jest@30.2.0)(typescript@5.9.3)
+        version: 29.4.7(@babel/core@7.29.6)(@jest/transform@30.2.0)(@jest/types@30.2.0)(babel-jest@30.2.0(@babel/core@7.29.6))(jest-util@30.2.0)(jest@30.2.0(@types/node@25.6.0))(typescript@5.9.3)
       typescript:
         specifier: ^5.8.3
         version: 5.9.3
@@ -165,7 +165,7 @@ importers:
         version: 1.5.10(@langchain/core@1.2.9(ws@8.21.3))(ws@8.21.3)
       ts-jest:
         specifier: ^29.4.7
-        version: 29.4.7(@babel/core@7.29.6)(@jest/transform@30.2.0)(@jest/types@30.2.0)(babel-jest@30.2.0(@babel/core@7.29.6))(jest-util@30.2.0)(jest@30.2.0)(typescript@5.9.3)
+        version: 29.4.7(@babel/core@7.29.6)(@jest/transform@30.2.0)(@jest/types@30.2.0)(babel-jest@30.2.0(@babel/core@7.29.6))(jest-util@30.2.0)(jest@30.2.0(@types/node@25.6.0))(typescript@5.9.3)
       typescript:
         specifier: ^5.8.3
         version: 5.9.3
@@ -211,7 +211,7 @@ importers:
         version: 7.2.2
       ts-jest:
         specifier: ^29.4.7
-        version: 29.4.7(@babel/core@7.29.6)(@jest/transform@30.2.0)(@jest/types@30.2.0)(babel-jest@30.2.0(@babel/core@7.29.6))(jest-util@30.2.0)(jest@30.2.0)(typescript@5.9.3)
+        version: 29.4.7(@babel/core@7.29.6)(@jest/transform@30.2.0)(@jest/types@30.2.0)(babel-jest@30.2.0(@babel/core@7.29.6))(jest-util@30.2.0)(jest@30.2.0(@types/node@25.6.0))(typescript@5.9.3)
       typescript:
         specifier: ^5.8.3
         version: 5.9.3
@@ -233,7 +233,7 @@ importers:
         version: 30.2.0(@types/node@25.6.0)
       ts-jest:
         specifier: ^29.4.7
-        version: 29.4.7(@babel/core@7.29.6)(@jest/transform@30.2.0)(@jest/types@30.2.0)(babel-jest@30.2.0(@babel/core@7.29.6))(jest-util@30.2.0)(jest@30.2.0)(typescript@5.9.3)
+        version: 29.4.7(@babel/core@7.29.6)(@jest/transform@30.2.0)(@jest/types@30.2.0)(babel-jest@30.2.0(@babel/core@7.29.6))(jest-util@30.2.0)(jest@30.2.0(@types/node@25.6.0))(typescript@5.9.3)
       typescript:
         specifier: ^5.8.3
         version: 5.9.3
@@ -1914,8 +1914,8 @@ packages:
     resolution: {integrity: sha512-T2UbfbBEF32wiepXIsMlTW9+dDYC6wMh/t/vYA4tuOMKqWz/n3vr1NFSxQiyP+zk2mXsoMA/i/7qV6LKut1t1A==}
     engines: {node: '>= 0.4'}
 
-  hono@4.13.5:
-    resolution: {integrity: sha512-O6+/eCYRkzzzy0rPWwKLiGBR1nFuUPZynnwjxN1MBA62NNqbT0wQEzQyK2gSO5yDIDB336sXQleAhOHrzlYyKw==}
+  hono@4.13.7:
+    resolution: {integrity: sha512-c8/gF9ac8Y78/agExVocyLevgR+JlpNB444Py0FSX8pJoPdYUfUzRcXtYEYGwt6l19qIlVZPN5Mfsw9jFShmQQ==}
     engines: {node: '>=16.9.0'}
 
   hookable@6.1.1:
@@ -3403,22 +3403,22 @@ snapshots:
   '@esbuild/win32-x64@0.28.2':
     optional: true
 
-  '@hono/node-server@2.1.1(hono@4.13.5)':
+  '@hono/node-server@2.1.1(hono@4.13.7)':
     dependencies:
-      hono: 4.13.5
+      hono: 4.13.7
 
-  '@hono/node-ws@1.3.1(@hono/node-server@2.1.1(hono@4.13.5))(hono@4.13.5)':
+  '@hono/node-ws@1.3.1(@hono/node-server@2.1.1(hono@4.13.7))(hono@4.13.7)':
     dependencies:
-      '@hono/node-server': 2.1.1(hono@4.13.5)
-      hono: 4.13.5
+      '@hono/node-server': 2.1.1(hono@4.13.7)
+      hono: 4.13.7
       ws: 8.21.3
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
 
-  '@hono/zod-validator@0.7.6(hono@4.13.5)(zod@3.25.76)':
+  '@hono/zod-validator@0.7.6(hono@4.13.7)(zod@3.25.76)':
     dependencies:
-      hono: 4.13.5
+      hono: 4.13.7
       zod: 3.25.76
 
   '@isaacs/cliui@8.0.2':
@@ -3657,9 +3657,9 @@ snapshots:
   '@langchain/langgraph-api@1.4.5(@langchain/core@1.2.9(ws@8.21.3))(@langchain/langgraph-checkpoint@1.1.5(@langchain/core@1.2.9(ws@8.21.3)))(@langchain/langgraph-sdk@1.10.0(@langchain/core@1.2.9(ws@8.21.3)))(@langchain/langgraph@1.4.13(@langchain/core@1.2.9(ws@8.21.3))(zod@3.25.76))(typescript@5.9.3)(ws@8.21.3)':
     dependencies:
       '@babel/code-frame': 7.29.7
-      '@hono/node-server': 2.1.1(hono@4.13.5)
-      '@hono/node-ws': 1.3.1(@hono/node-server@2.1.1(hono@4.13.5))(hono@4.13.5)
-      '@hono/zod-validator': 0.7.6(hono@4.13.5)(zod@3.25.76)
+      '@hono/node-server': 2.1.1(hono@4.13.7)
+      '@hono/node-ws': 1.3.1(@hono/node-server@2.1.1(hono@4.13.7))(hono@4.13.7)
+      '@hono/zod-validator': 0.7.6(hono@4.13.7)(zod@3.25.76)
       '@langchain/core': 1.2.9(ws@8.21.3)
       '@langchain/langgraph': 1.4.13(@langchain/core@1.2.9(ws@8.21.3))(zod@3.25.76)
       '@langchain/langgraph-checkpoint': 1.1.5(@langchain/core@1.2.9(ws@8.21.3))
@@ -3670,7 +3670,7 @@ snapshots:
       dedent: 1.7.1
       dotenv: 16.6.1
       exit-hook: 4.0.0
-      hono: 4.13.5
+      hono: 4.13.7
       langsmith: 0.9.0(ws@8.21.3)
       open: 10.2.0
       semver: 7.7.4
@@ -4713,7 +4713,7 @@ snapshots:
     dependencies:
       function-bind: 1.1.2
 
-  hono@4.13.5: {}
+  hono@4.13.7: {}
 
   hookable@6.1.1: {}
 
@@ -5781,7 +5781,7 @@ snapshots:
 
   triple-beam@1.4.1: {}
 
-  ts-jest@29.4.7(@babel/core@7.29.6)(@jest/transform@30.2.0)(@jest/types@30.2.0)(babel-jest@30.2.0(@babel/core@7.29.6))(jest-util@30.2.0)(jest@30.2.0)(typescript@5.9.3):
+  ts-jest@29.4.7(@babel/core@7.29.6)(@jest/transform@30.2.0)(@jest/types@30.2.0)(babel-jest@30.2.0(@babel/core@7.29.6))(jest-util@30.2.0)(jest@30.2.0(@types/node@25.6.0))(typescript@5.9.3):
     dependencies:
       bs-logger: 0.2.6
       fast-json-stable-stringify: 2.1.0
