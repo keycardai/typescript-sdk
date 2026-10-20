@@ -1,3 +1,17 @@
+## 0.26.3-keycardai-oauth (2026-10-20)
+
+
+- fix(oauth): impersonate() authenticates with the credential's client assertion (ECO-455) (#265)
+- * fix(oauth): impersonate() authenticates with the credential's client assertion (ECO-455)
+- impersonate() built its request by hand and only applied Basic auth from getAuth(), so WorkloadIdentity, EKSWorkloadIdentity and WebIdentity sent the substitute-user exchange unauthenticated. It now builds the request through credential.prepareTokenExchangeRequest() with the resolved token endpoint and per-call issuer, keeping every client-auth field and overriding subject_token_type to substitute-user. Basic auth and the no-credential path are unchanged.
+- Co-Authored-By: Larry Osakwe <larry@keycard.ai>
+- * fix(oauth): drop the eve wire-level impersonation test until eve's oauth floor includes this fix
+- The sibling-floors job runs @keycardai/eve against its declared @keycardai/oauth floor (0.26.2), where impersonate() still ignores the credential's assertion, so the eve test can only land once the oauth release ships and eve's floor moves. The oauth package tests cover the behavior.
+- Co-Authored-By: Larry Osakwe <larry@keycard.ai>
+- ---------
+- Co-authored-by: devin-ai-keycard <devin-ai@keycard.ai>
+Co-authored-by: Larry Osakwe <larry@keycard.ai>
+
 ## 0.26.2-keycardai-oauth (2026-10-12)
 
 
