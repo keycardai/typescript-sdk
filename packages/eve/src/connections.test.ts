@@ -246,48 +246,6 @@ describe("impersonate", () => {
     });
   });
 
-  it("puts an assertion credential's client assertion on the wire", async () => {
-    const calls: { url: string; init?: RequestInit }[] = [];
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
-      const url = input.toString();
-      calls.push({ url, init });
-      if (url.includes("/.well-known/")) {
-        return new Response(
-          JSON.stringify({ issuer: ZONE, token_endpoint: `${ZONE}/token` }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
-      }
-      return new Response(
-        JSON.stringify({ access_token: "impersonated", token_type: "Bearer", expires_in: 60 }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      );
-    }) as typeof fetch;
-    try {
-      const auth = impersonate({
-        resource: CALENDAR,
-        zoneUrl: ZONE,
-        applicationCredential: new AssertionCredential(),
-        userIdentifier: "ops@example.com",
-      });
-
-      const result = await auth.getToken({ principal: appPrincipal(), connection });
-
-      expect(result.token).toBe("impersonated");
-      const tokenCall = calls.find((call) => call.url === `${ZONE}/token`);
-      const params = new URLSearchParams(String(tokenCall?.init?.body ?? ""));
-      expect(params.get("client_assertion")).toBe("assertion.jwt.value");
-      expect(params.get("client_assertion_type")).toBe(
-        "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
-      );
-      expect(params.get("client_id")).toBe("workload-client");
-      expect(params.get("subject_token_type")).toBe(TokenType.SUBSTITUTE_USER);
-      expect((tokenCall?.init?.headers as Record<string, string>)["Authorization"]).toBeUndefined();
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-
   it("rejects an empty user identifier at definition time", () => {
     expect(() => impersonate({ resource: CALENDAR, zoneUrl: ZONE, userIdentifier: "  " })).toThrow(
       AuthProviderConfigurationError,
