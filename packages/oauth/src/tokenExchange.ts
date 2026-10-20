@@ -55,6 +55,9 @@ export interface TokenExchangeClientOptions extends TokenEndpointCacheOptions {
    * Application credential provider. When set, takes precedence over
    * static `clientId`/`clientSecret` and resolves the per-request
    * Authorization header from the credential's `getAuth(issuer)`.
+   * `impersonate` also builds its request through the credential's
+   * `prepareTokenExchangeRequest`, so an assertion-based credential
+   * authenticates the substitute-user exchange with its client assertion.
    */
   credential?: ApplicationCredential;
 }
@@ -196,13 +199,18 @@ export class TokenExchangeClient {
       throw new Error("impersonate: resource is required");
     }
     const subjectToken = buildSubstituteUserToken(req.userIdentifier);
-    return this.exchangeToken(
-      {
+    let request: TokenExchangeRequest = { subjectToken, resource: req.resource };
+    if (this.#credential) {
+      const tokenEndpoint = await this.#tokenEndpoint.resolve();
+      const prepared = await this.#credential.prepareTokenExchangeRequest(
         subjectToken,
-        subjectTokenType: TokenType.SUBSTITUTE_USER,
-        resource: req.resource,
-        scope: req.scope,
-      },
+        req.resource,
+        { tokenEndpoint, issuer: req.issuer },
+      );
+      request = { ...prepared, subjectToken, resource: req.resource };
+    }
+    return this.exchangeToken(
+      { ...request, subjectTokenType: TokenType.SUBSTITUTE_USER, scope: req.scope },
       { issuer: req.issuer },
     );
   }
