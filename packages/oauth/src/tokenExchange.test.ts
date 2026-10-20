@@ -1,7 +1,11 @@
 import { jest } from '@jest/globals';
 import { TokenExchangeClient, TokenType } from './tokenExchange.js';
 import { ClientSecret } from './server/clientSecret.js';
+import { WorkloadIdentity } from './server/workloadIdentity.js';
 import { OAuthError } from './errors.js';
+import { buildSubstituteUserToken } from './jwt/substituteUser.js';
+import type { ApplicationCredential } from './credentials.js';
+import type { TokenExchangeRequest } from './tokenExchange.js';
 
 const ISSUER = 'https://auth.example.com';
 const TOKEN_ENDPOINT = 'https://auth.example.com/token';
@@ -148,6 +152,99 @@ describe('TokenExchangeClient.impersonate', () => {
     const tokenCall = fetchMock.mock.calls.find(([url]) => url === TOKEN_ENDPOINT);
     const headers = (tokenCall![1] as RequestInit).headers as Record<string, string>;
     expect(headers['Authorization']).toBe(`Basic ${btoa('alice:shh')}`);
+  });
+
+  it('authenticates with the credential\'s client assertion, not Basic auth', async () => {
+    const credential = new WorkloadIdentity(async () => 'workload-oidc-jwt');
+    const client = new TokenExchangeClient(ISSUER, { credential });
+
+    await client.impersonate({
+      userIdentifier: 'user@example.com',
+      resource: 'https://api.example.com',
+      scope: 'calendar.read',
+    });
+
+    const tokenCall = fetchMock.mock.calls.find(([url]) => url === TOKEN_ENDPOINT);
+    const headers = (tokenCall![1] as RequestInit).headers as Record<string, string>;
+    expect(headers['Authorization']).toBeUndefined();
+    const params = new URLSearchParams(((tokenCall![1] as RequestInit).body ?? '') as string);
+    expect(params.get('client_assertion')).toBe('workload-oidc-jwt');
+    expect(params.get('client_assertion_type')).toBe(
+      'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',
+    );
+    expect(params.get('client_id')).toBeNull();
+    expect(params.get('subject_token_type')).toBe(TokenType.SUBSTITUTE_USER);
+    expect(params.get('subject_token')).toBe(buildSubstituteUserToken('user@example.com'));
+    expect(params.get('resource')).toBe('https://api.example.com');
+    expect(params.get('scope')).toBe('calendar.read');
+    expect(params.has('actor_token')).toBe(false);
+    expect(params.has('audience')).toBe(false);
+  });
+
+  it('sends the credential\'s clientId as client_id alongside the assertion', async () => {
+    const credential = new WorkloadIdentity(async () => 'workload-oidc-jwt', { clientId: 'acr_123' });
+    const client = new TokenExchangeClient(ISSUER, { credential });
+
+    await client.impersonate({
+      userIdentifier: 'user@example.com',
+      resource: 'https://api.example.com',
+    });
+
+    const tokenCall = fetchMock.mock.calls.find(([url]) => url === TOKEN_ENDPOINT);
+    const params = new URLSearchParams(((tokenCall![1] as RequestInit).body ?? '') as string);
+    expect(params.get('client_id')).toBe('acr_123');
+    expect(params.get('client_assertion')).toBe('workload-oidc-jwt');
+  });
+
+  it('keeps Basic auth and sends no assertion for a ClientSecret credential', async () => {
+    const credential = new ClientSecret('app', 'shh');
+    const client = new TokenExchangeClient(ISSUER, { credential });
+
+    await client.impersonate({
+      userIdentifier: 'user@example.com',
+      resource: 'https://api.example.com',
+    });
+
+    const tokenCall = fetchMock.mock.calls.find(([url]) => url === TOKEN_ENDPOINT);
+    const headers = (tokenCall![1] as RequestInit).headers as Record<string, string>;
+    expect(headers['Authorization']).toBe(`Basic ${btoa('app:shh')}`);
+    const params = new URLSearchParams(((tokenCall![1] as RequestInit).body ?? '') as string);
+    expect(params.has('client_assertion')).toBe(false);
+    expect(params.has('client_assertion_type')).toBe(false);
+    expect(params.has('client_id')).toBe(false);
+    expect(params.get('subject_token_type')).toBe(TokenType.SUBSTITUTE_USER);
+  });
+
+  it('passes the resolved token endpoint and per-call issuer to the credential', async () => {
+    const prepare = jest.fn(
+      async (subjectToken: string, resource: string): Promise<TokenExchangeRequest> => ({
+        subjectToken,
+        resource,
+        subjectTokenType: TokenType.ACCESS_TOKEN,
+        clientAssertion: 'prepared-assertion',
+        clientAssertionType: 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',
+      }),
+    );
+    const getAuth = jest.fn((_issuer?: string) => null);
+    const credential: ApplicationCredential = { getAuth, prepareTokenExchangeRequest: prepare };
+    const client = new TokenExchangeClient(ISSUER, { credential });
+
+    await client.impersonate({
+      userIdentifier: 'user@example.com',
+      resource: 'https://api.example.com',
+      issuer: 'https://zone-b.keycard.cloud',
+    });
+
+    expect(prepare).toHaveBeenCalledWith(
+      buildSubstituteUserToken('user@example.com'),
+      'https://api.example.com',
+      { tokenEndpoint: TOKEN_ENDPOINT, issuer: 'https://zone-b.keycard.cloud' },
+    );
+    expect(getAuth).toHaveBeenCalledWith('https://zone-b.keycard.cloud');
+    const tokenCall = fetchMock.mock.calls.find(([url]) => url === TOKEN_ENDPOINT);
+    const params = new URLSearchParams(((tokenCall![1] as RequestInit).body ?? '') as string);
+    expect(params.get('client_assertion')).toBe('prepared-assertion');
+    expect(params.get('subject_token_type')).toBe(TokenType.SUBSTITUTE_USER);
   });
 
   it('throws on missing userIdentifier', async () => {
