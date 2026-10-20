@@ -87,8 +87,8 @@ importers:
         specifier: ^7.0.139
         version: 7.0.139(zod@4.4.3)
       eve:
-        specifier: 0.80.0
-        version: 0.80.0(ai@7.0.139(zod@4.4.3))
+        specifier: 0.81.1
+        version: 0.81.1(ai@7.0.139(zod@4.4.3))
       jest:
         specifier: ^30.0.4
         version: 30.2.0(@types/node@25.6.0)
@@ -1713,8 +1713,8 @@ packages:
     resolution: {integrity: sha512-aIL5Fx7mawVa300al2BnEE4iNvo1qETxLrPI/o05L7z6go7fCw1J6EQmbK4FmJ2AS7kgVF/KEZWufBfdClMcPg==}
     engines: {node: '>= 0.6'}
 
-  eve@0.80.0:
-    resolution: {integrity: sha512-ocFBHm5swGuTyW/JXW72Ze6wge8yI8Le6FoDuQG6me3QNyPckYKakxAjqlw53jasrIRfxvNxvjBVLQXGuEyB8g==}
+  eve@0.81.1:
+    resolution: {integrity: sha512-kOjykogXDocRtz65OJtxFvkvoSXai/sWDonzTVXA2NKkJr4/Nnxt1RAuwQo2haf614CX54oQy1eY4y9pHbc1Iw==}
     engines: {node: '>=24'}
     hasBin: true
     peerDependencies:
@@ -4492,7 +4492,7 @@ snapshots:
 
   etag@1.8.1: {}
 
-  eve@0.80.0(ai@7.0.139(zod@4.4.3)):
+  eve@0.81.1(ai@7.0.139(zod@4.4.3)):
     dependencies:
       ai: 7.0.139(zod@4.4.3)
       nitro: 3.0.260903-beta
