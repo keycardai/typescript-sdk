@@ -111,9 +111,15 @@
   ],
   "typesVersions": {
     "*": {
-      "server": ["./dist/esm/server/index.d.ts"],
-      "server/*": ["./dist/esm/server/*.d.ts"],
-      "*": ["./dist/esm/*"]
+      "server": [
+        "./dist/esm/server/index.d.ts"
+      ],
+      "server/*": [
+        "./dist/esm/server/*.d.ts"
+      ],
+      "*": [
+        "./dist/esm/*"
+      ]
     }
   },
   "scripts": {
@@ -128,9 +134,9 @@
     "zod": "^3.25.74"
   },
   "devDependencies": {
-    "@jest/globals": "^30.0.4",
+    "@jest/globals": "^30.5.2",
     "@types/node": "^25.6.0",
-    "jest": "^30.0.4",
+    "jest": "^30.5.2",
     "ts-jest": "^29.4.7",
     "typescript": "^5.8.3"
   }
