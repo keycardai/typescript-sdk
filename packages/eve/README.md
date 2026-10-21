@@ -391,11 +391,14 @@ section 3.1.2.1), so the browser re-authenticates at the zone instead of
 silently reusing a session that belongs to someone else. It works with or
 without `expectedSubject`; `"login"` is the only accepted value.
 
-One caveat from eve itself: eve 0.71.3 emits `authorization.completed` with
-outcome `authorized` when the turn resumes after the callback, before this
-package's `completeAuthorization` runs. A sign-in the identity check rejects is
-therefore first reported as connected, then fails on first use with the reason
-above. No grant is stored in that case, so the misreport is cosmetic.
+One caveat from eve itself, on eve before 0.81.0: those versions emit
+`authorization.completed` with outcome `authorized` when the turn resumes after
+the callback, before this package's `completeAuthorization` runs. A sign-in the
+identity check rejects is therefore first reported as connected, then fails on
+first use with the reason above. No grant is stored in that case, so the
+misreport is cosmetic. Eve 0.81.0 and later report the sign-in after
+`completeAuthorization` settles (vercel/eve#4762), and the peer range still
+admits the older releases.
 
 ### Plugging a durable grant store
 
