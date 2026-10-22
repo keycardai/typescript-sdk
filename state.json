@@ -8,11 +8,11 @@
     "version": "0.81.1"
   },
   "langchain:langchain+@langchain/core+@langchain/langgraph+@langchain/langgraph-sdk": {
-    "run": "https://github.com/keycardai/typescript-sdk/actions/runs/39557061405",
+    "run": "https://github.com/keycardai/typescript-sdk/actions/runs/39735612983",
     "versions": {
       "@langchain/core": "1.2.20",
-      "@langchain/langgraph": "1.5.1",
-      "@langchain/langgraph-sdk": "1.12.5",
+      "@langchain/langgraph": "1.5.2",
+      "@langchain/langgraph-sdk": "1.12.6",
       "langchain": "1.5.18"
     }
   }
