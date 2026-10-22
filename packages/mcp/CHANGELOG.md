@@ -1,3 +1,9 @@
+## 2.0.6-keycardai-mcp (2026-10-22)
+
+
+- fix(mcp): require @modelcontextprotocol/server 2.3.0 for three security advisories (#272)
+- Raises the @modelcontextprotocol/server floor in packages/mcp to ^2.3.0 for GHSA-rvq5-wwqv-78pq, GHSA-46jr-4wx8-v453 and GHSA-jm63-cq47-j5jp.
+
 ## 2.0.5-keycardai-mcp (2026-10-15)
 
 
