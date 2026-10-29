@@ -80,7 +80,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        package: [a2a, cloudflare, eve, express, langchain, mcp, sdk]
+        package: [a2a, cloudflare, cursor-agent-sdk, eve, express, langchain, mcp, sdk]
 
     env:
       PACKAGE: ${{ matrix.package }}

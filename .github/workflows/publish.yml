@@ -23,6 +23,7 @@ on:
       - "*-keycardai-a2a"
       - "*-keycardai-langchain"
       - "*-keycardai-eve"
+      - "*-keycardai-cursor-agent-sdk"
       - "*-keycardai-pi-mono"
       - "*-keycardai-sdk"
 
@@ -79,6 +80,9 @@ jobs:
           elif [[ "$TAG" == *-keycardai-eve ]]; then
             echo "name=@keycardai/eve" >> $GITHUB_OUTPUT
             echo "dir=packages/eve" >> $GITHUB_OUTPUT
+          elif [[ "$TAG" == *-keycardai-cursor-agent-sdk ]]; then
+            echo "name=@keycardai/cursor-agent-sdk" >> $GITHUB_OUTPUT
+            echo "dir=packages/cursor-agent-sdk" >> $GITHUB_OUTPUT
           elif [[ "$TAG" == *-keycardai-pi-mono ]]; then
             echo "name=@keycardai/pi-mono" >> $GITHUB_OUTPUT
             echo "dir=packages/pi-mono" >> $GITHUB_OUTPUT
