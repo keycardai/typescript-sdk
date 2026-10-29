@@ -1,0 +1,17 @@
+{
+  "name": "calendar-agent",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "agent-sdk serve",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@grok/agent-sdk": "0.3.0",
+    "@keycardai/cursor-agent-sdk": "^0.1.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3"
+  }
+}

@@ -7,6 +7,12 @@
       "companions": ["ai"]
     },
     {
+      "package": "cursor-agent-sdk",
+      "upstream": "@grok/agent-sdk",
+      "field": "peerDependencies",
+      "companions": []
+    },
+    {
       "package": "a2a",
       "upstream": "@a2a-js/sdk",
       "field": "dependencies",

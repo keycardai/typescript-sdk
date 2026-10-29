@@ -1,0 +1,34 @@
+[tool.commitizen]
+name = "cz_customize"
+version = "0.1.0"
+version_files = ["package.json:version"]
+tag_format = "${version}-keycardai-cursor-agent-sdk"
+# Ignores sibling packages' tags only; it must not match this package's own tag, because commitizen applies ignored formats before tag_format.
+ignored_tag_formats = ["${version}-keycardai-(?!cursor-agent-sdk$).*"]
+update_changelog_on_bump = true
+bump_message = "bump: keycardai-cursor-agent-sdk $current_version \u2192 $new_version"
+major_version_zero = true
+
+[tool.commitizen.customize]
+changelog_pattern = "^(feat|fix|refactor|perf|test|build|ci|revert)\\(cursor-agent-sdk\\)(!)?:"
+# Increment detection is scope-local: commits for other packages match
+# nothing here, so they cannot move this package's version.
+bump_pattern = "^((BREAKING[\\-\\ ]CHANGE|feat|fix|refactor|perf|revert)\\(cursor-agent-sdk\\)!?):"
+
+[tool.commitizen.customize.bump_map]
+"^.+!$" = "MAJOR"
+"^BREAKING[\\-\\ ]CHANGE" = "MAJOR"
+"^feat" = "MINOR"
+"^fix" = "PATCH"
+"^refactor" = "PATCH"
+"^perf" = "PATCH"
+"^revert" = "PATCH"
+
+[tool.commitizen.customize.bump_map_major_version_zero]
+"^.+!$" = "MINOR"
+"^BREAKING[\\-\\ ]CHANGE" = "MINOR"
+"^feat" = "MINOR"
+"^fix" = "PATCH"
+"^refactor" = "PATCH"
+"^perf" = "PATCH"
+"^revert" = "PATCH"
