@@ -17,6 +17,17 @@ export function subjectTokenExpired(token: string): boolean {
 }
 
 /**
+ * When a JWT subject token expires, in epoch milliseconds, or undefined for an
+ * opaque token or one with no `exp`. Decode-only, like the check above: it
+ * only caps how long an exchanged token is cached.
+ */
+export function subjectTokenExpiresAt(token: string): number | undefined {
+  const claims = decodeClaims(token);
+  const exp = claims?.exp;
+  return typeof exp === "number" && Number.isFinite(exp) ? exp * 1000 : undefined;
+}
+
+/**
  * The unverified claims of a JWT, or null when the value is not a JWT.
  *
  * Used for the expiry check above and for the issuer peek that decides whether

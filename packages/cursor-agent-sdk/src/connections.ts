@@ -14,7 +14,7 @@ import {
 
 import { resolveConnectionConfig, type KeycardConnectionOptions, type ResolvedConnectionConfig } from "./config.js";
 import { ConnectionAuthError, FailureReason } from "./errors.js";
-import { subjectTokenExpired } from "./expiry.js";
+import { subjectTokenExpiresAt, subjectTokenExpired } from "./expiry.js";
 import { KEYCARD_AUTHENTICATOR } from "./keycardAuth.js";
 import { principalKey, readSubjectToken } from "./subjectTokens.js";
 
@@ -54,14 +54,16 @@ export function asSelf(options: KeycardConnectionOptions): KeycardConnectionAuth
   const cache = new Map<string, CachedToken>();
 
   return async (): Promise<ConnectionAuthResult> =>
-    withCache(config, cache, "app", async () => {
-      const request: ClientCredentialsRequest = {
-        resource: config.resource,
-        ...(config.scope ? { scope: config.scope } : {}),
-        ...(await config.clientAuthFields()),
-      };
-      return acquire(config, () => config.zoneClient().clientCredentialsGrant(request));
-    });
+    withCache(config, cache, "app", () =>
+      acquire(config, async () => {
+        const request: ClientCredentialsRequest = {
+          resource: config.resource,
+          ...(config.scope ? { scope: config.scope } : {}),
+          ...(await config.clientAuthFields()),
+        };
+        return config.zoneClient().clientCredentialsGrant(request);
+      }),
+    );
 }
 
 /**
@@ -78,41 +80,53 @@ export function onBehalfOf(options: KeycardConnectionOptions): KeycardConnection
 
   return async (session: SessionLike): Promise<ConnectionAuthResult> => {
     const auth = requireKeycardUser(session.auth, config);
-    return withCache(config, cache, principalKey(auth), async () => {
-      const subjectToken = readSubjectToken(auth, config.subjectTokens);
-      if (!subjectToken) {
-        throw new ConnectionAuthError(
-          FailureReason.SUBJECT_TOKEN_UNAVAILABLE,
-          config.connectionName,
-          "no Keycard subject token is retained for this session's principal in this " +
-            "process; add keycardAuth() to the channel's auth chain, or use " +
-            'retainSubjectToken: "attributes" when turns run outside the process that ' +
-            "authenticated the caller",
-        );
-      }
-      if (subjectTokenExpired(subjectToken)) {
-        config.subjectTokens.delete(principalKey(auth));
-        throw new ConnectionAuthError(
-          FailureReason.SUBJECT_TOKEN_EXPIRED,
-          config.connectionName,
-          "the caller's Keycard token has expired; call the agent again with a fresh token",
-        );
-      }
+    const key = principalKey(auth);
+    // The caller's own token bounds every turn, so it is checked before the
+    // cache: a cached exchange never outlives the token it was exchanged from.
+    const subjectToken = readSubjectToken(auth, config.subjectTokens);
+    if (!subjectToken) {
+      cache.delete(key);
+      throw new ConnectionAuthError(
+        FailureReason.SUBJECT_TOKEN_UNAVAILABLE,
+        config.connectionName,
+        "no Keycard subject token is retained for this session's principal in this " +
+          "process; add keycardAuth() to the channel's auth chain, or use " +
+          'retainSubjectToken: "attributes" when turns run outside the process that ' +
+          "authenticated the caller",
+      );
+    }
+    if (subjectTokenExpired(subjectToken)) {
+      config.subjectTokens.delete(key);
+      cache.delete(key);
+      throw new ConnectionAuthError(
+        FailureReason.SUBJECT_TOKEN_EXPIRED,
+        config.connectionName,
+        "the caller's Keycard token has expired; call the agent again with a fresh token",
+      );
+    }
 
-      const credential = config.credential();
-      let request: TokenExchangeRequest;
-      if (credential) {
-        request = await credential.prepareTokenExchangeRequest(subjectToken, config.resource);
-      } else {
-        request = {
-          subjectToken,
-          resource: config.resource,
-          subjectTokenType: TokenType.ACCESS_TOKEN,
-        };
-      }
-      if (config.scope) request = { ...request, scope: config.scope };
-      return acquire(config, () => config.zoneClient().exchangeToken(request));
-    });
+    return withCache(
+      config,
+      cache,
+      key,
+      () =>
+        acquire(config, async () => {
+          const credential = config.credential();
+          let request: TokenExchangeRequest;
+          if (credential) {
+            request = await credential.prepareTokenExchangeRequest(subjectToken, config.resource);
+          } else {
+            request = {
+              subjectToken,
+              resource: config.resource,
+              subjectTokenType: TokenType.ACCESS_TOKEN,
+            };
+          }
+          if (config.scope) request = { ...request, scope: config.scope };
+          return config.zoneClient().exchangeToken(request);
+        }),
+      subjectTokenExpiresAt(subjectToken),
+    );
   };
 }
 
@@ -179,18 +193,28 @@ export function headersFor(
 
 /**
  * The Keycard-principal check: `authenticator` is `keycard`, `principalType`
- * is `user`, and, when the provider knows its zone, `attributes.iss` is that
- * zone. Another auth policy's principal never feeds a user pattern.
+ * is `user`, and `attributes.iss` is the provider's zone. Another auth
+ * policy's principal, or another zone's, never feeds a user pattern. A
+ * provider with no `zoneUrl` (an injected `client` alone) cannot check the
+ * zone, so it fails closed rather than skip the check.
  */
 function requireKeycardUser(
   auth: AuthContext | null | undefined,
   config: ResolvedConnectionConfig,
 ): AuthContext {
+  if (config.issuer === undefined) {
+    throw new ConnectionAuthError(
+      FailureReason.PRINCIPAL_REQUIRED,
+      config.connectionName,
+      "this connection acts for a user but has no zoneUrl to check the principal's zone against; " +
+        "pass zoneUrl alongside client",
+    );
+  }
   if (
     auth &&
     auth.authenticator === KEYCARD_AUTHENTICATOR &&
     auth.principalType === "user" &&
-    (config.issuer === undefined || auth.attributes?.iss === config.issuer)
+    auth.attributes?.iss === config.issuer
   ) {
     return auth;
   }
@@ -201,21 +225,33 @@ function requireKeycardUser(
   );
 }
 
+/**
+ * Serves a cached token for `key` until a skew before it expires, minting a
+ * new one otherwise. `notAfter` (epoch milliseconds) caps the cached lifetime,
+ * so an exchanged token is never served past the subject token it came from.
+ */
 async function withCache(
   config: ResolvedConnectionConfig,
   cache: Map<string, CachedToken>,
   key: string,
   mint: () => Promise<TokenResponse>,
+  notAfter?: number,
 ): Promise<ConnectionAuthResult> {
   const cached = cache.get(key);
   if (cached && (cached.expiresAt === undefined || cached.expiresAt - config.skewMs > Date.now())) {
     return headers(config, cached.token);
   }
   const response = await mint();
-  const expiresAt =
+  const zoneExpiry =
     typeof response.expiresIn === "number" && Number.isFinite(response.expiresIn)
       ? Date.now() + response.expiresIn * 1000
       : undefined;
+  const expiresAt =
+    notAfter === undefined
+      ? zoneExpiry
+      : zoneExpiry === undefined
+        ? notAfter
+        : Math.min(zoneExpiry, notAfter);
   cache.set(key, { token: response.accessToken, ...(expiresAt !== undefined ? { expiresAt } : {}) });
   return headers(config, response.accessToken);
 }

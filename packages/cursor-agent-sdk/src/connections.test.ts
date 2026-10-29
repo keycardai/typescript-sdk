@@ -1,4 +1,4 @@
-import { describe, expect, it } from "@jest/globals";
+import { afterEach, describe, expect, it, jest } from "@jest/globals";
 import type { AuthContext } from "@grok/agent-sdk";
 import {
   AuthProviderConfigurationError,
@@ -283,6 +283,60 @@ describe("onBehalfOf", () => {
     expect(store.get(`${ZONE}|user-1`)).toBeUndefined();
     const auth = onBehalfOf({ resource: CALENDAR, zoneUrl: ZONE, client: fakeZoneClient(), subjectTokens: store });
     expect((await failure(auth(session(keycardPrincipal())))).reason).toBe(FailureReason.SUBJECT_TOKEN_UNAVAILABLE);
+  });
+
+  describe("the caller's token bounds a cached exchange", () => {
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it("a cached exchange is not served once the caller's token has expired", async () => {
+      jest.useFakeTimers({ now: Date.now() });
+      const client = fakeZoneClient({ expiresIn: 3600 });
+      const auth = onBehalfOf({ resource: CALENDAR, zoneUrl: ZONE, client, subjectTokens: storeWith(validJwt(60)) });
+      await auth(session(keycardPrincipal()));
+      jest.setSystemTime(Date.now() + 120_000);
+      expect((await failure(auth(session(keycardPrincipal())))).reason).toBe(FailureReason.SUBJECT_TOKEN_EXPIRED);
+      expect(client.calls.exchanges).toHaveLength(1);
+    });
+
+    it("a cached exchange is not served once the caller's token is gone", async () => {
+      const client = fakeZoneClient({ expiresIn: 3600 });
+      const store = storeWith(validJwt());
+      const auth = onBehalfOf({ resource: CALENDAR, zoneUrl: ZONE, client, subjectTokens: store });
+      await auth(session(keycardPrincipal()));
+      store.delete(`${ZONE}|user-1`);
+      expect((await failure(auth(session(keycardPrincipal())))).reason).toBe(FailureReason.SUBJECT_TOKEN_UNAVAILABLE);
+      expect(client.calls.exchanges).toHaveLength(1);
+    });
+
+    it("the cached exchange expires with the token it came from, so a fresh token is exchanged again", async () => {
+      jest.useFakeTimers({ now: Date.now() });
+      const client = fakeZoneClient({ expiresIn: 3600 });
+      const store = storeWith(validJwt(60));
+      const auth = onBehalfOf({ resource: CALENDAR, zoneUrl: ZONE, client, subjectTokens: store });
+      await auth(session(keycardPrincipal()));
+      jest.setSystemTime(Date.now() + 120_000);
+      const fresh = validJwt(3600);
+      store.set(`${ZONE}|user-1`, fresh);
+      await auth(session(keycardPrincipal()));
+      expect(client.calls.exchanges.map((e) => e.subjectToken)).toHaveLength(2);
+      expect(client.calls.exchanges[1]?.subjectToken).toBe(fresh);
+    });
+  });
+
+  it("row 21: a provider with client and no zoneUrl fails closed instead of skipping the zone check", async () => {
+    const client = fakeZoneClient();
+    const obo = onBehalfOf({ resource: CALENDAR, client, subjectTokens: storeWith(validJwt()) });
+    expect((await failure(obo(session(keycardPrincipal())))).reason).toBe(FailureReason.PRINCIPAL_REQUIRED);
+    const otherZone = keycardPrincipal({ attributes: { iss: "https://other-zone.example.com" } });
+    const imp = impersonate({ resource: CALENDAR, client });
+    expect((await failure(imp(session(otherZone)))).reason).toBe(FailureReason.PRINCIPAL_REQUIRED);
+    expect(client.calls.exchanges).toHaveLength(0);
+    expect(client.calls.impersonations).toHaveLength(0);
+    const mapped = impersonate({ resource: CALENDAR, client, userIdentifier: () => "user-9" });
+    await mapped(session(null));
+    expect(client.calls.impersonations).toEqual([{ userIdentifier: "user-9", resource: CALENDAR }]);
   });
 
   it("row 33: the attributes retention mode is read from the principal", async () => {
