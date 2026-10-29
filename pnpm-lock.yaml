@@ -112,8 +112,8 @@ importers:
         specifier: ^7.0.139
         version: 7.0.139(zod@4.4.3)
       eve:
-        specifier: 0.82.0
-        version: 0.82.0(@opentelemetry/api@1.10.0)(ai@7.0.139(zod@4.4.3))
+        specifier: 0.83.2
+        version: 0.83.2(@opentelemetry/api@1.10.0)(ai@7.0.139(zod@4.4.3))
       jest:
         specifier: ^30.5.2
         version: 30.5.2(@types/node@25.6.0)
@@ -2397,8 +2397,8 @@ packages:
     resolution: {integrity: sha512-aIL5Fx7mawVa300al2BnEE4iNvo1qETxLrPI/o05L7z6go7fCw1J6EQmbK4FmJ2AS7kgVF/KEZWufBfdClMcPg==}
     engines: {node: '>= 0.6'}
 
-  eve@0.82.0:
-    resolution: {integrity: sha512-HQqjGebljxuO0EYX0XkQaY3/lHmn/oaFe8ggPAkcNIgVW9elyH7x+NjhABAqCO+Tz4azhurq87KeZzbRphJosA==}
+  eve@0.83.2:
+    resolution: {integrity: sha512-NiAHLbmq0etahDN8BKpmwLr8gZrILMq9XSGne8u+DCqdCTxSJBcDCkdvB+8XaHxgCrWLyH8igrqeS1mg5R6bVQ==}
     engines: {node: '>=24'}
     hasBin: true
     peerDependencies:
@@ -2408,7 +2408,6 @@ packages:
       chat: ^4.42.0
       dd-trace: ^6.13.0
       just-bash: ^3.1.0
-      microsandbox: ^0.5.0
     peerDependenciesMeta:
       '@opentelemetry/api':
         optional: true
@@ -2419,8 +2418,6 @@ packages:
       dd-trace:
         optional: true
       just-bash:
-        optional: true
-      microsandbox:
         optional: true
 
   eventemitter3@4.0.7:
@@ -2453,8 +2450,8 @@ packages:
     resolution: {integrity: sha512-0LNuMvs8/5mRYhnCR4k+lGV7fqPMs6Bnksda4S3zsCUmdxBpAn4zU4NNzXdq1pMKe/H4W5t/zVIDSJ/H3e0vDA==}
     engines: {node: ^18.14.0 || ^20.0.0 || ^22.0.0 || >=24.0.0}
 
-  express-rate-limit@8.7.1:
-    resolution: {integrity: sha512-2FXbqkygil3mZiXzEtM0IjE/UBmBNot0J1GEVrJT4JbrvwOSoEtqtO+wHbiMQELWe1eNvHoYRg2dkjOid+6JkA==}
+  express-rate-limit@8.7.2:
+    resolution: {integrity: sha512-U1ScocxDD9WI09LaBVypvNkOtNR5yWAmZLkuKJdAzIchA4YKFYF6GT5IKER7epG58oXtjvGlV0/6ii0F83EyZg==}
     engines: {node: '>= 16'}
     peerDependencies:
       express: '>= 4.11'
@@ -4850,7 +4847,7 @@ snapshots:
       eventsource: 3.0.7
       eventsource-parser: 3.1.1
       express: 5.2.1
-      express-rate-limit: 8.7.1(express@5.2.1)
+      express-rate-limit: 8.7.2(express@5.2.1)
       hono: 4.13.13
       jose: 6.2.12
       json-schema-typed: 8.0.2
@@ -6117,7 +6114,7 @@ snapshots:
 
   etag@1.8.1: {}
 
-  eve@0.82.0(@opentelemetry/api@1.10.0)(ai@7.0.139(zod@4.4.3)):
+  eve@0.83.2(@opentelemetry/api@1.10.0)(ai@7.0.139(zod@4.4.3)):
     dependencies:
       ai: 7.0.139(zod@4.4.3)
       nitro: 3.0.260903-beta
@@ -6160,7 +6157,7 @@ snapshots:
       jest-mock: 30.5.2
       jest-util: 30.5.1
 
-  express-rate-limit@8.7.1(express@5.2.1):
+  express-rate-limit@8.7.2(express@5.2.1):
     dependencies:
       debug: 4.4.3
       express: 5.2.1
