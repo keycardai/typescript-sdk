@@ -9,9 +9,6 @@ Two adapters, each one plugging into an SDK primitive instead of wrapping it:
 | `keycardAuth()` | `bearerAuth(verify)` in a channel's auth policy chain | Verifies a zone-issued bearer and returns the SDK's `AuthContext` for the caller. |
 | `Keycard.asSelf()`, `Keycard.onBehalfOf()`, `Keycard.impersonate()` | `defineConnection({ auth })` | Returns the headers a connection sends on this turn, minted by the zone for the agent, the caller, or a mapped user. |
 
-Spec: `specs/framework-integrations/cursor-agent-sdk.md` in
-[keycard-sdk-spec](https://github.com/keycardai/keycard-sdk-spec).
-
 ## Installation
 
 ```bash
