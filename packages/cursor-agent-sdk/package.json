@@ -1,6 +1,6 @@
 {
   "name": "@keycardai/cursor-agent-sdk",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "[Preview] Keycard auth adapters for Cursor Agent SDK agents: a zone token verifier for bearerAuth, and Keycard-backed connection auth that acts as the agent, on behalf of the caller, or for a mapped user",
   "license": "MIT",
   "repository": {
