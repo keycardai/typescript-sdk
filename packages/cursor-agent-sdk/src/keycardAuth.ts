@@ -104,11 +104,24 @@ export function keycardAuth(options: KeycardAuthOptions): KeycardTokenVerifier {
     if (typeof claims.sub !== "string" || !claims.sub) return null;
     if (missingScopes(claims, options.requiredScopes).length > 0) return null;
 
-    const attributes: Record<string, string> = {
-      ...claimAttributes(claims),
-      ...options.attributes?.(claims),
-    };
+    let extra: Readonly<Record<string, string>> = {};
+    if (options.attributes) {
+      try {
+        extra = options.attributes(claims);
+      } catch {
+        // The verifier never throws into the policy chain.
+        return null;
+      }
+    }
+    const attributes: Record<string, string> = { ...claimAttributes(claims), ...extra };
     delete attributes[SUBJECT_TOKEN_ATTRIBUTE];
+    // `iss` keys the subject-token store and the connections' zone check, so it
+    // always comes from the verified claims, never from the attributes callback.
+    if (typeof claims.iss === "string") {
+      attributes.iss = claims.iss;
+    } else {
+      delete attributes.iss;
+    }
 
     const context: AuthContext = {
       authenticator: KEYCARD_AUTHENTICATOR,
