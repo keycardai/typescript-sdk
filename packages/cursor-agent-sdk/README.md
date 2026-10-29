@@ -189,14 +189,21 @@ const client = fakeZoneClient();
 const subjectTokens = memorySubjectTokenStore();
 subjectTokens.set("https://zone.example.com|user-1", validJwt(3600));
 
-const auth = Keycard.onBehalfOf({ resource: "https://calendar.example.com", client, subjectTokens });
+const auth = Keycard.onBehalfOf({
+  zoneUrl: "https://zone.example.com",
+  resource: "https://calendar.example.com",
+  client,
+  subjectTokens,
+});
 const { headers } = await auth(session(keycardPrincipal()));
 client.calls.exchanges; // one exchange for user-1's token
 ```
 
 `fakeZoneClient()` records every exchange, impersonation and client-credentials
-call and can fail one resource or every call; an injected `client` supersedes
-`zoneUrl`. `keycardAuth()` takes a `verify` seam in place of the JWKS-backed
+call and can fail one resource or every call. An injected `client` replaces the
+zone's token endpoint, but `onBehalfOf` and `impersonate` still need `zoneUrl`:
+it's the zone they check the caller's principal against, and without it they
+fail closed with `principal_required`. `keycardAuth()` takes a `verify` seam in place of the JWKS-backed
 verifier. The SDK's own seam also works: a connection under test can declare
 `auth: async () => ({ headers: { authorization: "Bearer test-token" } })`.
 

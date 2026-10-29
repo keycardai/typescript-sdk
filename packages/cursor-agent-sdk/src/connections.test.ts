@@ -146,6 +146,11 @@ describe("impersonate", () => {
     expect(error.message).toContain("unauthorized_client");
     expect(error.message).toContain(CALENDAR);
     expect(error.message).not.toContain("token-");
+
+    const unknownUser = impersonate({ resource: CALENDAR, zoneUrl: ZONE, client: fakeZoneClient({ fail: new Error("invalid_grant") }) });
+    const unknown = await failure(unknownUser(session(keycardPrincipal())));
+    expect(unknown.reason).toBe(FailureReason.ACQUISITION_FAILED);
+    expect(unknown.message).toContain("invalid_grant");
   });
 
   it("row 25: headerName changes the header", async () => {
@@ -222,6 +227,7 @@ describe("asSelf", () => {
   it("row 13: configuration errors at definition time", () => {
     expect(() => asSelf({ resource: CALENDAR, zoneUrl: ZONE, clientId: "a", clientSecret: "b", applicationCredential: new AssertionCredential() })).toThrow(AuthProviderConfigurationError);
     expect(() => asSelf({ resource: CALENDAR, zoneUrl: ZONE, clientId: "a" })).toThrow(AuthProviderConfigurationError);
+    expect(() => asSelf({ resource: CALENDAR, zoneUrl: ZONE, clientSecret: "b" })).toThrow(AuthProviderConfigurationError);
     expect(() => asSelf({ resource: " ", zoneUrl: ZONE })).toThrow(AuthProviderConfigurationError);
     expect(() => asSelf({ resource: CALENDAR })).toThrow(AuthProviderConfigurationError);
   });
@@ -248,6 +254,16 @@ describe("onBehalfOf", () => {
     expect((await failure(auth(session({ authenticator: "local-dev", principalId: "u", principalType: "user" })))).reason).toBe(FailureReason.PRINCIPAL_REQUIRED);
     expect(client.calls.exchanges).toHaveLength(0);
     expect(client.calls.clientCredentials).toHaveLength(0);
+  });
+
+  it("row 34: a session with no Keycard principal fails before the store is read", async () => {
+    const reads: string[] = [];
+    const store = memorySubjectTokenStore();
+    const spy = { ...store, get: (key: string) => { reads.push(key); return store.get(key); } };
+    const auth = onBehalfOf({ resource: CALENDAR, zoneUrl: ZONE, client: fakeZoneClient(), subjectTokens: spy });
+    expect((await failure(auth(session(null)))).reason).toBe(FailureReason.PRINCIPAL_REQUIRED);
+    expect((await failure(auth(session({ authenticator: "local-dev", principalId: "u", principalType: "user" })))).reason).toBe(FailureReason.PRINCIPAL_REQUIRED);
+    expect(reads).toEqual([]);
   });
 
   it("rows 29 and 30: an expired JWT is not sent; opaque tokens proceed", async () => {
