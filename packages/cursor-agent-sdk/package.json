@@ -40,10 +40,10 @@
     "@keycardai/oauth": "workspace:^"
   },
   "peerDependencies": {
-    "@grok/agent-sdk": ">=0.3.0 <0.4.0"
+    "@grok/agent-sdk": ">=0.3.0 <0.6.0"
   },
   "devDependencies": {
-    "@grok/agent-sdk": "0.3.0",
+    "@grok/agent-sdk": "0.5.0",
     "@jest/globals": "^30.5.2",
     "@types/node": "^25.6.0",
     "jest": "^30.5.2",
