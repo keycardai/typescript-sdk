@@ -34,6 +34,13 @@ function mockTokenResponse(): Response {
   );
 }
 
+/** A token endpoint that never answers: settles only when the request is aborted. */
+function hangUntilAborted(init?: FetchInit): Promise<Response> {
+  return new Promise((_, reject) => {
+    init?.signal?.addEventListener('abort', () => reject(init.signal!.reason));
+  });
+}
+
 describe('TokenExchangeClient.impersonate', () => {
   let originalFetch: typeof fetch;
   let fetchMock: jest.Mock;
@@ -245,6 +252,27 @@ describe('TokenExchangeClient.impersonate', () => {
     const params = new URLSearchParams(((tokenCall![1] as RequestInit).body ?? '') as string);
     expect(params.get('client_assertion')).toBe('prepared-assertion');
     expect(params.get('subject_token_type')).toBe(TokenType.SUBSTITUTE_USER);
+  });
+
+  it('bounds the token request with a timeout by default', async () => {
+    const client = new TokenExchangeClient(ISSUER, { clientId: 'app', clientSecret: 'shh' });
+    await client.exchangeToken({ subjectToken: 'subject' });
+
+    const tokenCall = fetchMock.mock.calls.find(([url]) => url === TOKEN_ENDPOINT);
+    expect((tokenCall![1] as RequestInit).signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('rejects with a TimeoutError when the token endpoint does not answer within fetchTimeoutMs', async () => {
+    fetchMock.mockImplementation(async (input: FetchInput, init?: FetchInit) => {
+      const url = typeof input === 'string' ? input : (input as URL | Request).toString();
+      if (url.includes('/.well-known/oauth-authorization-server')) {
+        return mockMetadataResponse();
+      }
+      return hangUntilAborted(init);
+    });
+
+    const client = new TokenExchangeClient(ISSUER, { clientId: 'app', clientSecret: 'shh', fetchTimeoutMs: 50 });
+    await expect(client.exchangeToken({ subjectToken: 'subject' })).rejects.toMatchObject({ name: 'TimeoutError' });
   });
 
   it('throws on missing userIdentifier', async () => {
