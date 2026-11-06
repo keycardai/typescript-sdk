@@ -22,6 +22,8 @@ export {
   StateMismatchError,
   RefreshGrantError,
   TokenEndpointDiscoveryError,
+  DeviceGrantError,
+  DevicePollError,
 } from "./errors.js";
 export type { TokenEndpointCacheOptions } from "./tokenEndpoint.js";
 export { JWTSigner } from "./jwt/signer.js";
@@ -42,7 +44,8 @@ export type {
   ClientCredentialsClientOptions,
   RequestTokenOptions,
 } from "./clientCredentials.js";
-export type { ApplicationCredential } from "./credentials.js";
+export type { ApplicationCredential, ClientAuthentication, ClientAuthenticator } from "./credentials.js";
+export { providesClientAuthentication } from "./credentials.js";
 export { registerClient } from "./registration.js";
 export type {
   ClientRegistrationRequest,
@@ -78,6 +81,20 @@ export type {
   RefreshAuthorizationOptions,
   AuthorizationRedirect,
 } from "./webApp.js";
+export {
+  requestDeviceAuthorization,
+  pollDeviceToken,
+  waitForDeviceToken,
+  systemClock,
+} from "./deviceAuthorization.js";
+export type {
+  Clock,
+  DeviceAuthorization,
+  DeviceClientOptions,
+  RequestDeviceAuthorizationOptions,
+  PollDeviceTokenOptions,
+  WaitForDeviceTokenOptions,
+} from "./deviceAuthorization.js";
 export { fetchUserInfo } from "./userinfo.js";
 export type { UserInfoResponse, FetchUserInfoOptions } from "./userinfo.js";
 export { resolveIssuerFromChallenge, authenticateFromChallenge } from "./challenge.js";

@@ -1,7 +1,15 @@
 import { requestSignal } from "./requestSignal.js";
 import base64url from "./base64url.js";
 import { fetchAuthorizationServerMetadata, type OAuthAuthorizationServerMetadata } from "./discovery.js";
-import { AuthorizationDeniedError, ConfigurationError, OAuthError, RefreshGrantError, StateMismatchError } from "./errors.js";
+import {
+  AuthorizationDeniedError,
+  ConfigurationError,
+  isPermanentErrorCode,
+  OAuthError,
+  RefreshGrantError,
+  StateMismatchError,
+} from "./errors.js";
+import { requireClientAuthentication, type ApplicationCredential, type ClientAuthenticator } from "./credentials.js";
 import { buildAuthorizeUrl, exchangeAuthorizationCode, generatePkcePair } from "./pkce.js";
 import { deserializeTokenResponse, type TokenResponse } from "./tokenExchange.js";
 
@@ -63,12 +71,19 @@ export interface CompleteAuthorizationOptions {
 }
 
 export interface RefreshAuthorizationOptions {
-  /** The `refresh_token` a previous token response carried. */
+  /** The `refresh_token` a previous token response returned. */
   refreshToken: string;
-  /** The client the grant was issued to. */
-  clientId: string;
+  /** The client the grant was issued to. Required unless `credential` is set. */
+  clientId?: string;
   /** Client secret for confidential clients. Public clients omit it. */
   clientSecret?: string;
+  /**
+   * Authenticates the refresh with the credential's `clientAuthentication`,
+   * in place of `clientId` and `clientSecret`. Setting it together with
+   * either of them, or passing a credential without `clientAuthentication`,
+   * throws `ConfigurationError` before any request.
+   */
+  credential?: ApplicationCredential;
   /**
    * RFC 8707 resource indicators, one `resource` parameter per entry, to
    * narrow the refreshed token to a subset of the granted resources.
@@ -189,8 +204,9 @@ export async function completeAuthorization(
  * Renew a grant the authorization-code flow issued (RFC 6749 §6).
  *
  * POSTs `grant_type=refresh_token` to the token endpoint, authenticating the
- * client the way `completeAuthorization` does: `client_id` in the body for a
- * public client, HTTP Basic for a confidential one. The response is the same
+ * client the way the grant that issued the refresh token did: `client_id` in
+ * the body for a public client, HTTP Basic for a confidential one, or the
+ * headers and form fields from `credential.clientAuthentication`. The response is the same
  * `TokenResponse` shape; when it carries a `refreshToken`, the server rotated
  * it and the caller must store the new value in place of the old one. The SDK
  * holds no state: where the refresh token lives is the caller's concern.
@@ -203,6 +219,20 @@ export async function refreshAuthorization(
   issuer: string,
   options: RefreshAuthorizationOptions,
 ): Promise<TokenResponse> {
+  let client: { credential: ClientAuthenticator } | { clientId: string; clientSecret?: string };
+  if (options.credential) {
+    if (options.clientId !== undefined || options.clientSecret !== undefined) {
+      throw new ConfigurationError(
+        "refreshAuthorization: set either credential or clientId and clientSecret, not both",
+      );
+    }
+    client = { credential: requireClientAuthentication(options.credential, "refreshAuthorization") };
+  } else if (options.clientId) {
+    client = { clientId: options.clientId, clientSecret: options.clientSecret };
+  } else {
+    throw new ConfigurationError("refreshAuthorization: clientId or credential is required");
+  }
+
   const metadata = options.metadata
     ?? await fetchAuthorizationServerMetadata(issuer, {
       signal: options.signal,
@@ -227,10 +257,14 @@ export async function refreshAuthorization(
   const headers: Record<string, string> = {
     "Content-Type": "application/x-www-form-urlencoded",
   };
-  if (options.clientSecret) {
-    headers["Authorization"] = `Basic ${btoa(`${options.clientId}:${options.clientSecret}`)}`;
+  if ("credential" in client) {
+    const auth = await client.credential.clientAuthentication(issuer, metadata.token_endpoint);
+    Object.assign(headers, auth.headers);
+    for (const [name, value] of Object.entries(auth.form)) params.set(name, value);
+  } else if (client.clientSecret) {
+    headers["Authorization"] = `Basic ${btoa(`${client.clientId}:${client.clientSecret}`)}`;
   } else {
-    params.set("client_id", options.clientId);
+    params.set("client_id", client.clientId);
   }
 
   let response: Response;
@@ -266,7 +300,7 @@ export async function refreshAuthorization(
         : errorBody.error;
       const errorUri = typeof errorBody.error_uri === "string" ? errorBody.error_uri : undefined;
       throw new RefreshGrantError(errorBody.error, description, {
-        retryable,
+        retryable: retryable && !isPermanentErrorCode(errorBody.error),
         status: response.status,
         errorUri,
       });

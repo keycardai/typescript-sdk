@@ -154,6 +154,47 @@ describe("WorkloadIdentity", () => {
   });
 });
 
+describe("WorkloadIdentity clientAuthentication", () => {
+  const ISSUER = "https://acme.keycard.cloud";
+  const ENDPOINT = `${ISSUER}/oauth/2/device_authorization`;
+  const JWT_BEARER = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer";
+
+  it.each([
+    {
+      name: "without clientId",
+      options: undefined,
+      form: { client_assertion: "platform-token", client_assertion_type: JWT_BEARER },
+    },
+    {
+      name: "with clientId",
+      options: { clientId: "acr_123" },
+      form: { client_assertion: "platform-token", client_assertion_type: JWT_BEARER, client_id: "acr_123" },
+    },
+  ])("returns the source token as the assertion and no headers ($name)", async ({ options, form }) => {
+    const credential = new WorkloadIdentity(async () => "platform-token", options);
+
+    await expect(credential.clientAuthentication(ISSUER, ENDPOINT)).resolves.toStrictEqual({ headers: {}, form });
+  });
+
+  it("sends a token that is not a JWT unchanged", async () => {
+    const credential = new WorkloadIdentity(() => "opaque value");
+
+    const auth = await credential.clientAuthentication(ISSUER, ENDPOINT);
+
+    expect(auth.form.client_assertion).toBe("opaque value");
+  });
+
+  it("fetches a fresh token on every call", async () => {
+    let n = 0;
+    const credential = new WorkloadIdentity(async () => `token-${++n}`);
+
+    const first = await credential.clientAuthentication(ISSUER, ENDPOINT);
+    const second = await credential.clientAuthentication(ISSUER, ENDPOINT);
+
+    expect([first.form.client_assertion, second.form.client_assertion]).toEqual(["token-1", "token-2"]);
+  });
+});
+
 describe("FileTokenSource", () => {
   it("uses an explicit path and returns the trimmed token", async () => {
     const file = makeTokenFile("projected-token\n");

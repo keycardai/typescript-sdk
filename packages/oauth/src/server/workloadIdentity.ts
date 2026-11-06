@@ -1,5 +1,5 @@
 import * as fs from "node:fs";
-import type { ApplicationCredential } from "../credentials.js";
+import type { ApplicationCredential, ClientAuthentication } from "../credentials.js";
 import type { TokenExchangeRequest } from "../tokenExchange.js";
 
 /**
@@ -399,6 +399,21 @@ export class WorkloadIdentity implements ApplicationCredential {
       clientAssertion: assertion,
       clientId: this.#clientId,
     };
+  }
+
+  /**
+   * Fetches the current token from the source and returns it as
+   * `client_assertion`, with `client_assertion_type` and, when configured,
+   * `client_id`. Returns no headers. Source errors are thrown as for
+   * `prepareTokenExchangeRequest`.
+   */
+  async clientAuthentication(_issuer: string, _endpoint: string): Promise<ClientAuthentication> {
+    const form: Record<string, string> = {
+      client_assertion: await this.#fetchIdentityToken(),
+      client_assertion_type: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+    };
+    if (this.#clientId) form.client_id = this.#clientId;
+    return { headers: {}, form };
   }
 
   async #fetchIdentityToken(): Promise<string> {
