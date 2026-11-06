@@ -42,7 +42,8 @@ export type {
   ClientCredentialsClientOptions,
   RequestTokenOptions,
 } from "./clientCredentials.js";
-export type { ApplicationCredential } from "./credentials.js";
+export type { ApplicationCredential, ClientAuthentication, ClientAuthenticator } from "./credentials.js";
+export { providesClientAuthentication } from "./credentials.js";
 export { registerClient } from "./registration.js";
 export type {
   ClientRegistrationRequest,

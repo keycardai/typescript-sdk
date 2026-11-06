@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
-import type { ApplicationCredential } from "../credentials.js";
+import type { ApplicationCredential, ClientAuthentication } from "../credentials.js";
+import { ConfigurationError } from "../errors.js";
 import type { TokenExchangeRequest } from "../tokenExchange.js";
 import { PrivateKeyManager, FilePrivateKeyStorage } from "./privateKey.js";
 import type { PrivateKeyStorage } from "./privateKey.js";
@@ -110,6 +111,33 @@ export class WebIdentity implements ApplicationCredential {
       subjectTokenType: "urn:ietf:params:oauth:token-type:access_token",
       clientAssertionType: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
       clientAssertion,
+    };
+  }
+
+  /**
+   * Returns a newly signed `client_assertion` and its `client_assertion_type`,
+   * with no headers. The assertion's `iss` and `sub` are `clientId`, and its
+   * `aud` is `endpoint`: a Keycard zone rejects an assertion whose `aud` is
+   * not the endpoint it is sent to. `audienceConfig` does not apply. Throws
+   * `ConfigurationError` without `clientId`.
+   */
+  async clientAuthentication(_issuer: string, endpoint: string): Promise<ClientAuthentication> {
+    if (!this.#clientId) {
+      throw new ConfigurationError(
+        "WebIdentity: clientId is required for client authentication (the assertion iss and sub)",
+      );
+    }
+    if (!endpoint) {
+      throw new ConfigurationError("WebIdentity: endpoint is required for the assertion audience (aud)");
+    }
+    await this.bootstrap();
+    const clientAssertion = await this.#keyManager.createClientAssertion(this.#clientId, endpoint);
+    return {
+      headers: {},
+      form: {
+        client_assertion: clientAssertion,
+        client_assertion_type: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+      },
     };
   }
 
