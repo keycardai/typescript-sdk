@@ -1,3 +1,11 @@
+## 0.26.5-keycardai-oauth (2026-11-06)
+
+
+- fix(oauth): time out every request to the zone after 10 seconds by default (#321)
+- requestSignal combines the caller's signal with AbortSignal.timeout (default 10 seconds, timeoutMs: 0 disables) for discovery, authorization-code and refresh redemption (pkce, webApp), challenge metadata, userinfo and registration, so no request to the authorization server waits forever while a caller's own abort still wins. Completes #310. SDK-93.
+- Co-authored-by: devin-ai-keycard <devin-ai@keycard.ai>
+Co-authored-by: Larry Osakwe <larry@keycard.ai>
+
 ## 0.26.4-keycardai-oauth (2026-11-06)
 
 
