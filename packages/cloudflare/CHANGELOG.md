@@ -1,3 +1,11 @@
+## 0.4.4-keycardai-cloudflare (2026-11-06)
+
+
+- fix(cloudflare): time out the authorization server metadata request after 10 seconds by default (#323)
+- handleAuthorizationServerMetadata fetched the issuer's metadata with no timeout. It now passes AbortSignal.timeout(options.timeoutMs ?? 10_000) and answers 502 when the fetch throws, so a stalled zone cannot hold a Worker request forever. SDK-93.
+- Co-authored-by: devin-ai-keycard <devin-ai@keycard.ai>
+Co-authored-by: Larry Osakwe <larry@keycard.ai>
+
 ## 0.4.3-keycardai-cloudflare (2026-10-13)
 
 
