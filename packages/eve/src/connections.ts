@@ -7,7 +7,6 @@ import {
 } from "@keycardai/oauth";
 import type {
   ConnectionPrincipal,
-  CredentialOwner,
   NonInteractiveAuthorizationDefinition,
   TokenResult,
 } from "eve/connections";
@@ -18,26 +17,28 @@ import { subjectTokenExpired } from "./expiry.js";
 import { principalKey, readSubjectToken } from "./subjectTokens.js";
 
 /**
- * A non-interactive connection auth definition as eve 0.71 accepts it:
- * `credentialOwner` declares whether the credential belongs to the agent
+ * A non-interactive connection auth definition as every supported eve accepts
+ * it: `principalType` declares whether the credential belongs to the agent
  * (`"app"`, one token per connection across sessions) or to the end user
- * (`"user"`, one token per connection principal). eve deprecated
- * `principalType` on non-interactive auth in favor of it; interactive
- * definitions still use `principalType: "user"`.
+ * (`"user"`, one token per connection principal). eve 0.71 through 0.83 also
+ * took `credentialOwner` for the same choice and normalized either to
+ * `principalType`; eve 0.84 removed `credentialOwner` from the type and the
+ * validator rejects a definition that still carries it, so this package
+ * writes `principalType` on every release.
  */
 export type KeycardConnectionAuth = Omit<
   NonInteractiveAuthorizationDefinition,
   "principalType"
 > & {
-  readonly credentialOwner: CredentialOwner;
+  readonly principalType: "app" | "user";
 };
 
 /**
  * None of these definitions carry a `displayName`. eve validates an authored
  * connection's `auth` against a closed key list (`completeAuthorization`,
- * `credentialOwner`, `evict`, `getToken`, `principalType`,
- * `startAuthorization`, `vercelConnect`),
- * and a definition carrying any other key fails the build with
+ * `evict`, `getToken`, `principalType`, `startAuthorization`, `vercelConnect`,
+ * plus `credentialOwner` through 0.83 and `displayName` after 0.71.3), and on
+ * 0.71.3, the peer floor, a definition carrying `displayName` fails the build with
  * `The "auth" field Unknown key "displayName"`. The only consumer of the field
  * is eve's `stampChallengeDisplayName`, which resolves
  * `definition.displayName ?? challenge.displayName`, so an interactive
@@ -68,7 +69,7 @@ export function asSelf(
   const config = resolveConnectionConfig(options, "asSelf");
 
   return {
-    credentialOwner: "app",
+    principalType: "app",
     async getToken(): Promise<TokenResult> {
       const request: ClientCredentialsRequest = {
         resource: config.resource,
@@ -105,7 +106,7 @@ export function onBehalfOf(
   const config = resolveConnectionConfig(options, "onBehalfOf");
 
   return {
-    credentialOwner: "user",
+    principalType: "user",
     async getToken({ principal }): Promise<TokenResult> {
       requireUser(principal, config.connectionName);
 
@@ -177,7 +178,7 @@ export function impersonate(
   }
 
   return {
-    credentialOwner: typeof identifier === "function" ? "user" : "app",
+    principalType: typeof identifier === "function" ? "user" : "app",
     async getToken({ principal }): Promise<TokenResult> {
       let userIdentifier: string;
       if (typeof identifier === "function") {
