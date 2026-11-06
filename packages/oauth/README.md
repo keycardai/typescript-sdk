@@ -222,6 +222,42 @@ code at authorize time, so completion sends no `resource` parameter. A callback
 carrying `error` throws `AuthorizationDeniedError` and a missing or non-matching
 `state` throws `StateMismatchError`, both before any token request.
 
+### Device Authorization Grant (RFC 8628)
+
+For a process with no browser and no redirect URI, such as a headless agent
+host. The device asks the zone for a user code, shows it to a person, and polls
+until the person approves or denies.
+
+```typescript
+import { requestDeviceAuthorization, waitForDeviceToken } from "@keycardai/oauth/deviceAuthorization";
+import { WorkloadIdentity, FileTokenSource } from "@keycardai/oauth/server";
+
+const issuer = "https://your-zone.keycard.cloud";
+const credential = new WorkloadIdentity(new FileTokenSource(), { clientId: "my-client" });
+
+const authorization = await requestDeviceAuthorization(issuer, {
+  credential, // or `clientId` for a public client
+  scopes: ["openid"],
+  resources: ["https://api.example.com"],
+});
+console.log(`Visit ${authorization.verificationUriComplete ?? authorization.verificationUri}`);
+console.log(`and confirm the code ${authorization.userCode}`);
+
+const tokens = await waitForDeviceToken(issuer, { credential, authorization });
+```
+
+`waitForDeviceToken` waits `interval` seconds before each poll and adds 5
+seconds on `slow_down`. It throws `DeviceGrantError` for an OAuth error such as
+`access_denied`, or `expired_token` once the next poll would start after
+`expiresAt`. A network error, a 5xx, or a 429 stops the loop with
+`DevicePollError`. To resume, call it again with the same `authorization` and
+the error's `interval`. `DeviceAuthorization` is a plain value, so you can
+persist it and poll from another process that authenticates as the same client.
+
+When the request names more than one resource, the token is not for any one of
+them. To get a token for one resource, call `refreshAuthorization` with
+`resources` set to it and the same `credential`.
+
 ### UserInfo (OIDC Core 1.0 §5.3)
 
 ```typescript
@@ -276,6 +312,17 @@ issuer's `userinfo_endpoint`. Pass `{ metadata }` to skip discovery.
 | `beginAuthorization` | `@keycardai/oauth/webApp` | Web-app flow: builds the authorize URL and returns `{ url, state, codeVerifier, resources }` |
 | `completeAuthorization` | `@keycardai/oauth/webApp` | Web-app flow: validates the callback and exchanges the code |
 | `AuthorizationRedirect` (type) | `@keycardai/oauth/webApp` | Begin-step result the application stores until the callback |
+| `refreshAuthorization` | `@keycardai/oauth/webApp` | Renews a grant with its `refresh_token`, as a public client, with a client secret, or with a `credential` |
+
+### Device Authorization Grant (RFC 8628)
+
+| Export | Import Path | Description |
+|---|---|---|
+| `requestDeviceAuthorization` | `@keycardai/oauth/deviceAuthorization` | Asks the zone for a device code and a user code |
+| `pollDeviceToken` | `@keycardai/oauth/deviceAuthorization` | Polls the token endpoint once |
+| `waitForDeviceToken` | `@keycardai/oauth/deviceAuthorization` | Polls until the person approves or denies, per RFC 8628 §3.5 |
+| `DeviceAuthorization` (type) | `@keycardai/oauth/deviceAuthorization` | The device authorization response, with `expiresAt` computed from the clock |
+| `Clock` (type), `systemClock` | `@keycardai/oauth/deviceAuthorization` | Time source and timer; inject a fake in tests |
 
 ### UserInfo (OIDC Core 1.0)
 
@@ -297,7 +344,8 @@ issuer's `userinfo_endpoint`. Pass `{ metadata }` to skip discovery.
 | `GCPMetadataTokenSource` | `@keycardai/oauth/server` | Token source for the GCP metadata server (GKE, GCE, Cloud Run) |
 | `FlyTokenSource` | `@keycardai/oauth/server` | Token source for the Fly.io Machines API Unix socket. **Node.js only** |
 | `EKSWorkloadIdentity` | `@keycardai/oauth/server` | Deprecated: `WorkloadIdentity` with a `FileTokenSource` limited to EKS env discovery |
-| `ApplicationCredential` (type) | `@keycardai/oauth/credentials` | Interface for credential providers |
+| `ApplicationCredential` (type) | `@keycardai/oauth/credentials` | Interface for credential providers. The optional `clientAuthentication(issuer, endpoint)` returns the headers and form fields that authenticate one request |
+| `providesClientAuthentication` | `@keycardai/oauth/credentials` | Reports whether a credential provides `clientAuthentication` |
 
 ### Errors
 
@@ -313,6 +361,8 @@ issuer's `userinfo_endpoint`. Pass `{ metadata }` to skip discovery.
 | `AuthProviderConfigurationError` | `@keycardai/oauth/errors` | Configuration guard for auth providers |
 | `AuthorizationDeniedError` | `@keycardai/oauth/errors` | Web-app callback carried an OAuth `error` (e.g. `access_denied`) |
 | `StateMismatchError` | `@keycardai/oauth/errors` | Web-app callback `state` is absent or does not match the stored value |
+| `DeviceGrantError` | `@keycardai/oauth/errors` | Device grant OAuth error, with `errorCode`, `errorDescription`, and `retryable` |
+| `DevicePollError` | `@keycardai/oauth/errors` | `waitForDeviceToken` stopped on a network error, 5xx, or 429; has `interval` and the original failure as `cause` |
 
 ### Utilities
 
