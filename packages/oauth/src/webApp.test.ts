@@ -1,6 +1,7 @@
 import { jest } from '@jest/globals';
 import { beginAuthorization, completeAuthorization, refreshAuthorization } from './webApp.js';
 import { AuthorizationDeniedError, ConfigurationError, OAuthError, RefreshGrantError, StateMismatchError } from './errors.js';
+import type { ApplicationCredential } from './credentials.js';
 
 const ISSUER = 'https://auth.example.com';
 const AUTHORIZE_ENDPOINT = `${ISSUER}/authorize`;
@@ -451,6 +452,86 @@ describe('web-app flow', () => {
       expect(error.errorCode).toBe('invalid_response');
       expect(error.retryable).toBe(false);
       expect(error.status).toBe(200);
+    });
+
+    it.each([
+      { status: 400, code: 'invalid_grant', retryable: false },
+      { status: 400, code: 'expired_token', retryable: false },
+      { status: 503, code: 'temporarily_unavailable', retryable: true },
+      { status: 503, code: 'expired_token', retryable: false },
+    ])('classifies $code on HTTP $status as retryable $retryable', async ({ status, code, retryable }) => {
+      mockFetch(() => jsonResponse(status, { error: code }));
+
+      const failure = await refreshAuthorization(ISSUER, {
+        metadata: METADATA,
+        refreshToken: 'rt-1',
+        clientId: 'client-123',
+      }).catch((e: unknown) => e);
+
+      expect(failure).toBeInstanceOf(RefreshGrantError);
+      expect(failure).toMatchObject({ errorCode: code, retryable, status });
+    });
+
+    describe('with a credential', () => {
+      const credential = (): ApplicationCredential => ({
+        getAuth: () => null,
+        prepareTokenExchangeRequest: async () => ({ subjectToken: 'unused' }),
+        clientAuthentication: jest.fn(async (_issuer: string, endpoint: string) => ({
+          headers: { 'X-Client-Auth': `header-for:${endpoint}` },
+          form: {
+            client_assertion: `assertion-for:${endpoint}`,
+            client_assertion_type: 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',
+          },
+        })),
+      });
+
+      it('row 16: sends the credential headers and form fields with one resource', async () => {
+        const cred = credential();
+        const calls = mockFetch(() => jsonResponse(200, { access_token: 'at', token_type: 'Bearer' }));
+
+        await refreshAuthorization(ISSUER, {
+          metadata: METADATA,
+          refreshToken: 'rt-1',
+          credential: cred,
+          resources: ['https://api.example.com'],
+        });
+
+        expect(calls).toHaveLength(1);
+        expect(calls[0].init?.headers).toEqual({
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'X-Client-Auth': `header-for:${TOKEN_ENDPOINT}`,
+        });
+        expect([...new URLSearchParams(String(calls[0].init?.body)).entries()]).toEqual([
+          ['grant_type', 'refresh_token'],
+          ['refresh_token', 'rt-1'],
+          ['resource', 'https://api.example.com'],
+          ['client_assertion', `assertion-for:${TOKEN_ENDPOINT}`],
+          ['client_assertion_type', 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer'],
+        ]);
+        expect(cred.clientAuthentication).toHaveBeenCalledWith(ISSUER, TOKEN_ENDPOINT);
+      });
+
+      it.each([
+        { name: 'credential together with clientId', options: { credential: credential(), clientId: 'client-123' } },
+        { name: 'credential together with clientSecret', options: { credential: credential(), clientSecret: 'shh' } },
+        { name: 'neither credential nor clientId', options: {} },
+        {
+          name: 'a credential without clientAuthentication',
+          options: {
+            credential: {
+              getAuth: () => null,
+              prepareTokenExchangeRequest: async () => ({ subjectToken: 'unused' }),
+            },
+          },
+        },
+      ])('row 16: $name throws ConfigurationError before any request', async ({ options }) => {
+        const calls = mockFetch(() => jsonResponse(200, METADATA));
+
+        await expect(
+          refreshAuthorization(ISSUER, { refreshToken: 'rt-1', ...options }),
+        ).rejects.toThrow(ConfigurationError);
+        expect(calls).toHaveLength(0);
+      });
     });
 
     it('discovers the token endpoint when no metadata is supplied', async () => {
