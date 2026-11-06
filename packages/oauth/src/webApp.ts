@@ -1,3 +1,4 @@
+import { requestSignal } from "./requestSignal.js";
 import base64url from "./base64url.js";
 import { fetchAuthorizationServerMetadata, type OAuthAuthorizationServerMetadata } from "./discovery.js";
 import { AuthorizationDeniedError, ConfigurationError, OAuthError, RefreshGrantError, StateMismatchError } from "./errors.js";
@@ -22,6 +23,8 @@ export interface BeginAuthorizationOptions {
   /** Pre-discovered metadata. When set, no discovery request is made. */
   metadata?: OAuthAuthorizationServerMetadata;
   signal?: AbortSignal;
+  /** Timeout in milliseconds for each request to the authorization server (default 10 seconds; 0 disables). */
+  timeoutMs?: number;
 }
 
 export interface AuthorizationRedirect {
@@ -55,6 +58,8 @@ export interface CompleteAuthorizationOptions {
   /** Pre-discovered metadata. When set, no discovery request is made. */
   metadata?: OAuthAuthorizationServerMetadata;
   signal?: AbortSignal;
+  /** Timeout in milliseconds for each request to the authorization server (default 10 seconds; 0 disables). */
+  timeoutMs?: number;
 }
 
 export interface RefreshAuthorizationOptions {
@@ -74,6 +79,8 @@ export interface RefreshAuthorizationOptions {
   /** Pre-discovered metadata. When set, no discovery request is made. */
   metadata?: OAuthAuthorizationServerMetadata;
   signal?: AbortSignal;
+  /** Timeout in milliseconds for each request to the authorization server (default 10 seconds; 0 disables). */
+  timeoutMs?: number;
 }
 
 /**
@@ -95,7 +102,10 @@ export async function beginAuthorization(
   options: BeginAuthorizationOptions,
 ): Promise<AuthorizationRedirect> {
   const metadata = options.metadata
-    ?? await fetchAuthorizationServerMetadata(issuer, { signal: options.signal });
+    ?? await fetchAuthorizationServerMetadata(issuer, {
+      signal: options.signal,
+      timeoutMs: options.timeoutMs,
+    });
   if (!metadata.authorization_endpoint) {
     throw new ConfigurationError(
       `Authorization server "${issuer}" does not advertise an authorization_endpoint`,
@@ -171,6 +181,7 @@ export async function completeAuthorization(
     clientSecret: options.clientSecret,
     metadata: options.metadata,
     signal: options.signal,
+    timeoutMs: options.timeoutMs,
   });
 }
 
@@ -193,7 +204,10 @@ export async function refreshAuthorization(
   options: RefreshAuthorizationOptions,
 ): Promise<TokenResponse> {
   const metadata = options.metadata
-    ?? await fetchAuthorizationServerMetadata(issuer, { signal: options.signal });
+    ?? await fetchAuthorizationServerMetadata(issuer, {
+      signal: options.signal,
+      timeoutMs: options.timeoutMs,
+    });
   if (!metadata.token_endpoint) {
     throw new ConfigurationError(
       `Authorization server "${issuer}" does not advertise a token_endpoint`,
@@ -225,7 +239,7 @@ export async function refreshAuthorization(
       method: "POST",
       headers,
       body: params.toString(),
-      signal: options.signal,
+      signal: requestSignal(options.signal, options.timeoutMs),
     });
   } catch (cause) {
     throw new RefreshGrantError(

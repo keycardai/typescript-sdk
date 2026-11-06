@@ -1,3 +1,4 @@
+import { requestSignal } from "./requestSignal.js";
 import base64url from "./base64url.js";
 import { fetchAuthorizationServerMetadata, type OAuthAuthorizationServerMetadata } from "./discovery.js";
 import { ConfigurationError, OAuthError } from "./errors.js";
@@ -78,6 +79,8 @@ export interface ExchangeAuthorizationCodeOptions {
   /** Pre-discovered metadata. When set, no discovery request is made. */
   metadata?: OAuthAuthorizationServerMetadata;
   signal?: AbortSignal;
+  /** Timeout in milliseconds for each request to the authorization server (default 10 seconds; 0 disables). */
+  timeoutMs?: number;
 }
 
 /**
@@ -93,6 +96,7 @@ export async function exchangeAuthorizationCode(
 ): Promise<TokenResponse> {
   const metadata = options.metadata ?? await fetchAuthorizationServerMetadata(issuer, {
     signal: options.signal,
+    timeoutMs: options.timeoutMs,
   });
   if (!metadata.token_endpoint) {
     throw new ConfigurationError(
@@ -120,7 +124,7 @@ export async function exchangeAuthorizationCode(
     method: "POST",
     headers,
     body: params.toString(),
-    signal: options.signal,
+    signal: requestSignal(options.signal, options.timeoutMs),
   });
 
   if (!response.ok) {

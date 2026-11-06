@@ -1,3 +1,4 @@
+import { requestSignal } from "./requestSignal.js";
 import { fetchAuthorizationServerMetadata, type OAuthAuthorizationServerMetadata } from "./discovery.js";
 import { ConfigurationError, HTTPError, InsufficientScopeError, InvalidTokenError, OAuthError } from "./errors.js";
 
@@ -18,6 +19,8 @@ export interface FetchUserInfoOptions {
   /** Pre-discovered metadata. When set, no discovery request is made. */
   metadata?: OAuthAuthorizationServerMetadata;
   signal?: AbortSignal;
+  /** Timeout in milliseconds for each request to the authorization server (default 10 seconds; 0 disables). */
+  timeoutMs?: number;
 }
 
 /** Extract the RFC 6750 §3 `error` code from a `WWW-Authenticate` challenge. */
@@ -48,7 +51,10 @@ export async function fetchUserInfo(
   options: FetchUserInfoOptions = {},
 ): Promise<UserInfoResponse> {
   const metadata = options.metadata
-    ?? await fetchAuthorizationServerMetadata(issuer, { signal: options.signal });
+    ?? await fetchAuthorizationServerMetadata(issuer, {
+      signal: options.signal,
+      timeoutMs: options.timeoutMs,
+    });
 
   if (!metadata.userinfo_endpoint) {
     throw new ConfigurationError(
@@ -62,7 +68,7 @@ export async function fetchUserInfo(
       Accept: "application/json",
       Authorization: `Bearer ${accessToken}`,
     },
-    signal: options.signal,
+    signal: requestSignal(options.signal, options.timeoutMs),
   });
 
   if (response.status === 401) {
