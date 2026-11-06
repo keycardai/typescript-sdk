@@ -176,7 +176,8 @@ describe("interactive", () => {
     });
 
     // eve validates an authored connection's `auth` against this closed list
-    // (eve 0.84 dropped `credentialOwner` from it and admitted `displayName`);
+    // (eve 0.84 dropped `credentialOwner` from it; `displayName` is outside it
+    // on 0.71.3, the peer floor);
     // a key outside it fails the build for every connection using it. This
     // package sets none of the optional ones.
     const allowed = [

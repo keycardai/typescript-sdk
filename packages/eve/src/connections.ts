@@ -36,9 +36,9 @@ export type KeycardConnectionAuth = Omit<
 /**
  * None of these definitions carry a `displayName`. eve validates an authored
  * connection's `auth` against a closed key list (`completeAuthorization`,
- * `displayName`, `evict`, `getToken`, `principalType`, `startAuthorization`,
- * `vercelConnect`; `credentialOwner` only through 0.83),
- * and a definition carrying any other key fails the build with
+ * `evict`, `getToken`, `principalType`, `startAuthorization`, `vercelConnect`,
+ * plus `credentialOwner` through 0.83 and `displayName` after 0.71.3), and on
+ * 0.71.3, the peer floor, a definition carrying `displayName` fails the build with
  * `The "auth" field Unknown key "displayName"`. The only consumer of the field
  * is eve's `stampChallengeDisplayName`, which resolves
  * `definition.displayName ?? challenge.displayName`, so an interactive
