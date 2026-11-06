@@ -92,6 +92,57 @@ export class RefreshGrantError extends OAuthError {
 }
 
 /**
+ * The authorization server refused a device authorization request or a
+ * device token poll (RFC 8628), or the SDK ended the poll loop because the
+ * device code expired. `errorCode` is the server's `error`, `expired_token`
+ * when the loop stops at `expiresAt`, or `invalid_response` for a malformed
+ * response. `retryable` is `false` for a code in the permanent table and for
+ * `invalid_grant`, whose only recovery is a new device authorization
+ * request. It is `true` for every other code, including
+ * `authorization_pending` and `slow_down`.
+ */
+export class DeviceGrantError extends OAuthError {
+  readonly retryable: boolean;
+  readonly errorDescription?: string;
+  readonly status?: number;
+
+  constructor(
+    errorCode: string,
+    options?: { errorDescription?: string; errorUri?: string; status?: number },
+  ) {
+    super(errorCode, options?.errorDescription ?? `Device authorization grant failed: ${errorCode}`, options?.errorUri);
+    this.name = "DeviceGrantError";
+    this.retryable = !isPermanentErrorCode(errorCode) && errorCode !== "invalid_grant";
+    this.errorDescription = options?.errorDescription;
+    this.status = options?.status;
+  }
+}
+
+/**
+ * The device token poll loop stopped on a network error, an HTTP 5xx, or an
+ * HTTP 429. It does not poll again. `cause` is the original failure: the
+ * fetch error, an `HTTPError`, or a `DeviceGrantError` when the 5xx or 429
+ * response had an OAuth error body. `interval` is the wait in seconds the
+ * loop would have used before its next poll, including every `slow_down`
+ * increase. To resume, call `waitForDeviceToken` again with the same
+ * `DeviceAuthorization` and this `interval` before `expiresAt`. After a
+ * timeout, wait longer than `interval` before resuming (RFC 8628 §3.5).
+ * `retryable` is always `true`.
+ */
+export class DevicePollError extends Error {
+  readonly retryable = true;
+  readonly interval: number;
+  readonly cause: unknown;
+
+  constructor(interval: number, cause: unknown) {
+    super(`Device token poll failed (next interval ${interval}s): ${cause instanceof Error ? cause.message : String(cause)}`);
+    this.name = "DevicePollError";
+    this.interval = interval;
+    this.cause = cause;
+  }
+}
+
+/**
  * The `state` on the callback is absent or does not match the value stored at
  * the begin step (RFC 6749 §10.12). The flow is rejected before any token
  * request.
