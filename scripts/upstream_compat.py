@@ -274,8 +274,17 @@ def state_record(entry: Entry, versions: dict[str, str], run_url: str) -> dict:
     return {"version": versions[entry.upstream], "run": run_url}
 
 
+def state_key(entry: Entry, versions: dict[str, str]) -> str:
+    """Where a passing set is recorded. A prerelease from the ``latest`` dist-tag
+    gets its own key, so recording it never overwrites the stable release's
+    record and makes the next run retest the stable release."""
+    if any(is_prerelease(v) for v in versions.values()):
+        return f"{entry.key}@latest-tag"
+    return entry.key
+
+
 def already_tested(state: dict, entry: Entry, versions: dict[str, str]) -> bool:
-    record = state.get(entry.key, {})
+    record = state.get(state_key(entry, versions), {})
     if entry.is_set:
         return record.get("versions") == versions
     return record.get("version") == versions[entry.upstream]
@@ -628,9 +637,9 @@ def check(repo_root: str, pkg_dir: str, entry: Entry, versions: dict[str, str], 
         return False
 
     if dry_run:
-        print(f"dry run: would record {entry.key} = {set_label(versions)} on {state_branch}")
+        print(f"dry run: would record {state_key(entry, versions)} = {set_label(versions)} on {state_branch}")
         return False
-    record_state(repo_root, state_branch, entry.key, state_record(entry, versions, run_url), f"{entry.name}: {set_label(versions)} passes")
+    record_state(repo_root, state_branch, state_key(entry, versions), state_record(entry, versions, run_url), f"{entry.name}: {set_label(versions)} passes")
     return False
 
 

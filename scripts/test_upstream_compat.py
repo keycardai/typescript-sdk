@@ -154,6 +154,14 @@ class DedupeTests(unittest.TestCase):
         self.assertFalse(uc.already_tested(state, EVE, {"eve": "0.79.1"}))
         self.assertFalse(uc.already_tested(state, A2A, {"@a2a-js/sdk": "0.79.0"}))
 
+    def test_stable_and_prerelease_records_do_not_overwrite_each_other(self) -> None:
+        state = uc.merge_state({}, uc.state_key(EVE, {"eve": "0.91.0"}), {"version": "0.91.0", "run": ""})
+        state = uc.merge_state(state, uc.state_key(EVE, {"eve": "1.0.0-rc.6"}), {"version": "1.0.0-rc.6", "run": ""})
+        self.assertEqual(set(state), {"eve:eve", "eve:eve@latest-tag"})
+        self.assertTrue(uc.already_tested(state, EVE, {"eve": "0.91.0"}))
+        self.assertTrue(uc.already_tested(state, EVE, {"eve": "1.0.0-rc.6"}))
+        self.assertFalse(uc.already_tested(state, EVE, {"eve": "1.0.0-rc.7"}))
+
     def test_set_is_skipped_only_when_the_exact_resolved_set_passed(self) -> None:
         state = {LC.key: {"versions": LC_SET, "run": ""}}
         self.assertTrue(uc.already_tested(state, LC, LC_SET))
