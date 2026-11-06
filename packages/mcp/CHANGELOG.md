@@ -1,3 +1,11 @@
+## 2.0.7-keycardai-mcp (2026-11-06)
+
+
+- fix(mcp): time out the authorization server metadata request after 10 seconds by default (#322)
+- authorizationServerMetadataHandler fetched the issuer's metadata with no timeout, so a stalled zone held the request forever. It now passes AbortSignal.timeout(timeoutMs), default 10 seconds, settable through the new options argument; a timeout is the same 502 as any other fetch failure. SDK-93.
+- Co-authored-by: devin-ai-keycard <devin-ai@keycard.ai>
+Co-authored-by: Larry Osakwe <larry@keycard.ai>
+
 ## 2.0.6-keycardai-mcp (2026-10-22)
 
 
