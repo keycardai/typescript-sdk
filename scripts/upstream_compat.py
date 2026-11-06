@@ -5,9 +5,11 @@ fallen behind is found by a user with a peer-dependency conflict. This script
 takes the (package, upstream) pairs from .github/upstream-compat.json and, for
 one entry at a time:
 
-1. Resolves the upstream version to test: the latest stable release on npm (no
-   prereleases), whether or not the declared range covers it, or the version
-   passed in. A version that already passed on main is skipped.
+1. Resolves the upstream versions to test: the latest stable release on npm,
+   whether or not the declared range covers it, plus the ``latest`` dist-tag
+   when that is a prerelease (a release candidate that ``npm install`` gives
+   new projects), or the version passed in. A version that already passed on
+   main is skipped.
 2. Installs that version into the package in place (``pnpm add`` in the
    package directory), builds, and runs the package's typecheck and tests.
    Each companion in the entry (a package the upstream peers on, such as
@@ -21,11 +23,16 @@ one entry at a time:
      ``upstream/<package>-<upstream>-<version>``. An existing branch or PR for
      that version is updated, never duplicated.
    * green and inside the range: nothing to open; the tested version is
-     recorded.
+     recorded. A green prerelease is only recorded, never turned into a PR:
+     the range math is for releases.
    * red: one issue labeled ``upstream-compat`` per (upstream, version), with
      the tail of the failing output, whether the version is inside the range
      (inside means users installing today already get the break), and the run
-     link. A later run that fails differently comments on it.
+     link. A later run that fails differently comments on it. The existing
+     issue is found by exact title among open issues, not by label: a token
+     without the Issues permission (the release app's lacked it) creates the
+     issue and GitHub drops the label silently, so a label-only lookup files
+     the same failure every day.
 
 Range math follows semver for both shapes the config carries: a 0.x upstream
 keeps its floor and moves the upper bound to the next minor
@@ -197,11 +204,11 @@ def widened_range(range_text: str, version: str) -> str:
     return f"^{version}"
 
 
-def decide(green: bool, inside: bool) -> str:
-    """pr, record, or issue."""
+def decide(green: bool, inside: bool, prerelease: bool = False) -> str:
+    """pr, record, or issue. A green prerelease records: the range math is for releases."""
     if not green:
         return "issue"
-    return "record" if inside else "pr"
+    return "record" if inside or prerelease else "pr"
 
 
 # --- dedupe -----------------------------------------------------------------
@@ -250,6 +257,10 @@ def parse_requested(entry: Entry, requested: str) -> dict[str, str]:
     return wanted
 
 
+def missing_label(issue: dict, label: str) -> bool:
+    return label not in {lbl.get("name") for lbl in issue.get("labels", [])}
+
+
 def find_by_title(items: list[dict], title: str) -> int | None:
     for item in items:
         if item.get("title") == title:
@@ -263,8 +274,17 @@ def state_record(entry: Entry, versions: dict[str, str], run_url: str) -> dict:
     return {"version": versions[entry.upstream], "run": run_url}
 
 
+def state_key(entry: Entry, versions: dict[str, str]) -> str:
+    """Where a passing set is recorded. A prerelease from the ``latest`` dist-tag
+    gets its own key, so recording it never overwrites the stable release's
+    record and makes the next run retest the stable release."""
+    if any(is_prerelease(v) for v in versions.values()):
+        return f"{entry.key}@latest-tag"
+    return entry.key
+
+
 def already_tested(state: dict, entry: Entry, versions: dict[str, str]) -> bool:
-    record = state.get(entry.key, {})
+    record = state.get(state_key(entry, versions), {})
     if entry.is_set:
         return record.get("versions") == versions
     return record.get("version") == versions[entry.upstream]
@@ -312,6 +332,18 @@ def failed_differently(issue_body_text: str, out: str) -> bool:
 def run(cmd: list[str], cwd: str, check: bool = True, **kwargs) -> subprocess.CompletedProcess:
     print("$", " ".join(cmd), f"(in {cwd})", flush=True)
     return subprocess.run(cmd, cwd=cwd, check=check, text=True, **kwargs)
+
+
+def latest_dist_tag(upstream: str, cwd: str) -> str:
+    out = run(["npm", "view", upstream, "dist-tags.latest", "--json"], cwd, capture_output=True).stdout
+    return json.loads(out) if out.strip() else ""
+
+
+def versions_to_test(stable: str, dist_latest: str) -> list[str]:
+    """The stable release, plus the ``latest`` dist-tag when it is a prerelease ahead of it."""
+    if dist_latest and is_prerelease(dist_latest) and VERSION_RE.match(dist_latest) and parse_version(dist_latest) > parse_version(stable):
+        return [stable, dist_latest]
+    return [stable]
 
 
 def latest_stable(upstream: str, cwd: str) -> str:
@@ -450,13 +482,17 @@ def open_or_update_issue(repo_root: str, title: str, body: str, out: str, dry_ru
         return
     run(["gh", "label", "create", ISSUE_LABEL, "--force", "--description", "An upstream framework release breaks a package"], repo_root)
     issues = gh_json(
-        ["issue", "list", "--label", ISSUE_LABEL, "--state", "open", "--search", f'"{title}" in:title', "--json", "number,title,body"],
+        ["issue", "list", "--state", "open", "--search", f'"{title}" in:title', "--json", "number,title,body,labels"],
         repo_root,
     )
     existing = find_by_title(issues, title)
     if existing is None:
-        run(["gh", "issue", "create", "--title", title, "--body", body, "--label", ISSUE_LABEL], repo_root)
-        print("created issue")
+        url = run(["gh", "issue", "create", "--title", title, "--body", body, "--label", ISSUE_LABEL], repo_root, capture_output=True).stdout.strip()
+        number = url.rstrip("/").rsplit("/", 1)[-1]
+        created = gh_json(["issue", "view", number, "--json", "number,title,labels"], repo_root)
+        print(f"created issue #{number}")
+        if missing_label(created if isinstance(created, dict) else {}, ISSUE_LABEL):
+            print(f"::warning::issue #{number} was created without the {ISSUE_LABEL} label; the token lacks the Issues permission (GitHub drops labels silently)")
         return
     issue = next(i for i in issues if i["number"] == existing)
     if failed_differently(issue.get("body", ""), out):
@@ -552,11 +588,28 @@ def main() -> None:
     wanted = parse_requested(entry, requested)
 
     if entry.is_set:
-        versions = install_set(repo_root, entry, wanted)
+        candidates = [install_set(repo_root, entry, wanted)]
     else:
-        versions = {m: v if v != "latest" else latest_stable(m, repo_root) for m, v in wanted.items()}
+        (member,) = entry.members
+        if wanted[member] == "latest":
+            stable = latest_stable(member, repo_root)
+            candidates = [{member: v} for v in versions_to_test(stable, latest_dist_tag(member, repo_root))]
+        else:
+            candidates = [dict(wanted)]
     pkg_dir = os.path.join(repo_root, "packages", entry.package)
     declared = {m: read_package(pkg_dir)[entry.field][m] for m in entry.members}
+    start = run(["git", "rev-parse", "--abbrev-ref", "HEAD"], repo_root, capture_output=True).stdout.strip()
+    failed = False
+    for i, versions in enumerate(candidates):
+        if i:
+            run(["git", "checkout", "-f", start], repo_root)
+        failed = check(repo_root, pkg_dir, entry, versions, declared, requested, dry_run, run_url, start, state_branch) or failed
+    if failed:
+        sys.exit(1)
+
+
+def check(repo_root: str, pkg_dir: str, entry: Entry, versions: dict[str, str], declared: dict[str, str], requested: str, dry_run: bool, run_url: str, start: str, state_branch: str) -> bool:
+    """Test one version set from ``start`` and act on it; True when it filed an issue."""
     inside = all_inside(declared, versions)
     for m, v in versions.items():
         print(f"{entry.name}: {m} {v} is {'inside' if in_range(declared[m], v) else 'outside'} the declared {entry.field} range {declared[m]}")
@@ -566,27 +619,28 @@ def main() -> None:
     state = read_state(repo_root, state_branch)
     if not requested and already_tested(state, entry, versions):
         print(f"{set_label(versions)} already passed on main; nothing to do")
-        return
+        return False
 
     outcome = install_and_test(repo_root, entry, versions)
-    action = decide(outcome.green, inside)
+    action = decide(outcome.green, inside, any(is_prerelease(v) for v in versions.values()))
     print(f"outcome: {'green' if outcome.green else 'red'}; action: {action}")
 
     if action == "issue":
         body = issue_body(entry, versions, declared, inside, outcome.tail, run_url)
         open_or_update_issue(repo_root, issue_title(entry, versions), body, outcome.tail, dry_run)
-        sys.exit(1)
+        return True
 
     if action == "pr":
         new_ranges = {m: widened_range(declared[m], versions[m]) for m in entry.members}
         apply_range(pkg_dir, entry, versions, new_ranges)
         open_or_update_pr(repo_root, entry, versions, pr_title(entry, versions), pr_body(entry, versions, declared, new_ranges, run_url), dry_run)
-        return
+        return False
 
     if dry_run:
-        print(f"dry run: would record {entry.key} = {set_label(versions)} on {state_branch}")
-        return
-    record_state(repo_root, state_branch, entry.key, state_record(entry, versions, run_url), f"{entry.name}: {set_label(versions)} passes")
+        print(f"dry run: would record {state_key(entry, versions)} = {set_label(versions)} on {state_branch}")
+        return False
+    record_state(repo_root, state_branch, state_key(entry, versions), state_record(entry, versions, run_url), f"{entry.name}: {set_label(versions)} passes")
+    return False
 
 
 if __name__ == "__main__":

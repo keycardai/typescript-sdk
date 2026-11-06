@@ -45,6 +45,14 @@ class RangeMathTests(unittest.TestCase):
         self.assertTrue(uc.in_range("~1.2.0", "1.2.9"))
         self.assertFalse(uc.in_range("~1.2.0", "1.3.0"))
 
+    def test_prerelease_latest_dist_tag_is_tested_alongside_the_stable_release(self) -> None:
+        self.assertEqual(uc.versions_to_test("0.91.0", "1.0.0-rc.6"), ["0.91.0", "1.0.0-rc.6"])
+        self.assertEqual(uc.versions_to_test("0.91.0", "0.91.0"), ["0.91.0"])
+        self.assertEqual(uc.versions_to_test("0.91.0", ""), ["0.91.0"])
+        self.assertEqual(uc.versions_to_test("1.0.0", "1.0.0-rc.6"), ["1.0.0"])
+        self.assertEqual(uc.decide(True, False, prerelease=True), "record")
+        self.assertEqual(uc.decide(False, False, prerelease=True), "issue")
+
     def test_prereleases_are_not_stable(self) -> None:
         self.assertTrue(uc.is_prerelease("0.80.0-beta.1"))
         self.assertFalse(uc.is_prerelease("0.80.0"))
@@ -127,6 +135,14 @@ class DedupeTests(unittest.TestCase):
         self.assertEqual(uc.find_by_title(items, "eve 0.55.0 breaks @keycardai/eve"), 7)
         self.assertIsNone(uc.find_by_title(items, "eve 0.56.0 breaks @keycardai/eve"))
 
+    def test_existing_unlabeled_issue_with_the_same_title_is_found(self) -> None:
+        # The release app's token had no Issues permission, so GitHub created the
+        # issue and dropped the label silently; the lookup must not depend on it.
+        items = [{"number": 285, "title": "eve 0.84.0 breaks @keycardai/eve", "labels": []}]
+        self.assertEqual(uc.find_by_title(items, "eve 0.84.0 breaks @keycardai/eve"), 285)
+        self.assertTrue(uc.missing_label(items[0], uc.ISSUE_LABEL))
+        self.assertFalse(uc.missing_label({"labels": [{"name": uc.ISSUE_LABEL}]}, uc.ISSUE_LABEL))
+
     def test_same_failure_does_not_comment_but_a_different_one_does(self) -> None:
         body = uc.issue_body(EVE, {"eve": "0.55.0"}, {"eve": ">=0.71.3 <0.80.0"}, False, "error TS2305: x", "")
         self.assertFalse(uc.failed_differently(body, "error TS2305: x"))
@@ -137,6 +153,14 @@ class DedupeTests(unittest.TestCase):
         self.assertTrue(uc.already_tested(state, EVE, {"eve": "0.79.0"}))
         self.assertFalse(uc.already_tested(state, EVE, {"eve": "0.79.1"}))
         self.assertFalse(uc.already_tested(state, A2A, {"@a2a-js/sdk": "0.79.0"}))
+
+    def test_stable_and_prerelease_records_do_not_overwrite_each_other(self) -> None:
+        state = uc.merge_state({}, uc.state_key(EVE, {"eve": "0.91.0"}), {"version": "0.91.0", "run": ""})
+        state = uc.merge_state(state, uc.state_key(EVE, {"eve": "1.0.0-rc.6"}), {"version": "1.0.0-rc.6", "run": ""})
+        self.assertEqual(set(state), {"eve:eve", "eve:eve@latest-tag"})
+        self.assertTrue(uc.already_tested(state, EVE, {"eve": "0.91.0"}))
+        self.assertTrue(uc.already_tested(state, EVE, {"eve": "1.0.0-rc.6"}))
+        self.assertFalse(uc.already_tested(state, EVE, {"eve": "1.0.0-rc.7"}))
 
     def test_set_is_skipped_only_when_the_exact_resolved_set_passed(self) -> None:
         state = {LC.key: {"versions": LC_SET, "run": ""}}
