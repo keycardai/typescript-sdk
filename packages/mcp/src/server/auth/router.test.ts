@@ -193,7 +193,7 @@ describe('MCP Auth Metadata Router', () => {
         .get('/.well-known/oauth-authorization-server')
         .set('Host', 'api.example.com');
 
-      expect(global.fetch).toHaveBeenCalledWith('https://auth.example.com/.well-known/oauth-authorization-server');
+      expect(global.fetch).toHaveBeenCalledWith('https://auth.example.com/.well-known/oauth-authorization-server', { signal: expect.any(AbortSignal) });
       expect(response.status).toBe(200);
       expect(response.body).toStrictEqual({
         issuer: 'https://auth.example.com',
