@@ -62,9 +62,9 @@ fresh instance finds no token and fails closed with
 that act without a request in hand use `Keycard.asSelf` or
 `Keycard.impersonate`, and self-hosting with `agent-sdk serve` keeps one
 process. There is no persisted option: whatever the verifier returns becomes
-`session.auth`, which Cursor saves with the session and advises against
-putting the raw token on, and a `ctx.host.kv`-backed store would put the token
-at rest the same way. The `"attributes"` mode of 0.2.x, which did exactly
+`session.auth`, which Cursor saves with the session. Cursor advises against
+putting the raw token there, and a `ctx.host.kv`-backed store would put the
+token at rest the same way. The `"attributes"` mode of 0.2.x, which did exactly
 that, is rejected at construction; sessions created with it on 0.2.x keep the
 token in their session record until those sessions end.
 

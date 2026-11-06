@@ -30,8 +30,8 @@ export const KEYCARD_AUTHENTICATOR = "keycard";
  *   `asSelf` or `impersonate`.
  *
  * There is no persisted mode. Whatever the verifier returns becomes
- * `session.auth`, which Cursor saves with the session and advises against
- * putting the raw token on; the `"attributes"` mode that did so was removed.
+ * `session.auth`, which Cursor saves with the session, and Cursor advises
+ * against putting the raw token there.
  */
 export type SubjectTokenRetention = "memory" | "none";
 

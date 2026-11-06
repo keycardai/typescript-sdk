@@ -3,12 +3,12 @@ import type { AuthContext } from "@grok/agent-sdk";
 import { decodeClaims } from "./expiry.js";
 
 /**
- * The attribute name the removed `"attributes"` retention mode used.
+ * A reserved attribute name that never carries a token.
  *
  * `AuthContext.attributes` is persisted in `SessionRecord.auth`
- * (`sessions/<id>/session.json`), so a token there is a bearer at rest. The
- * name stays internal so `keycardAuth` can strip it from the attributes it
- * returns: nothing under this name is ever read as a token.
+ * (`sessions/<id>/session.json`), so a token there would be a bearer at rest.
+ * `keycardAuth` strips this name from the attributes it returns, and nothing
+ * under it is ever read as a token.
  */
 export const SUBJECT_TOKEN_ATTRIBUTE = "keycard_subject_token";
 
