@@ -2,7 +2,7 @@ import { requestSignal } from "./requestSignal.js";
 import { z } from "zod";
 import { HTTPError, OAuthError } from "./errors.js";
 
-const OAuthAuthorizationServerMetadataSchema = z.object({
+const OAuthAuthorizationServerMetadataSchema = z.looseObject({
   issuer: z.string(),
   authorization_endpoint: z.string().optional(),
   token_endpoint: z.string().optional(),
@@ -19,7 +19,7 @@ const OAuthAuthorizationServerMetadataSchema = z.object({
   subject_types_supported: z.array(z.string()).optional(),
   id_token_signing_alg_values_supported: z.array(z.string()).optional(),
   claims_supported: z.array(z.string()).optional(),
-}).passthrough();
+});
 
 export type OAuthAuthorizationServerMetadata = z.infer<typeof OAuthAuthorizationServerMetadataSchema>;
 
