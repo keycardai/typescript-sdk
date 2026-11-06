@@ -122,16 +122,12 @@ export class WebIdentity implements ApplicationCredential {
    * `ConfigurationError` without `clientId`.
    */
   async clientAuthentication(_issuer: string, endpoint: string): Promise<ClientAuthentication> {
-    if (!this.#clientId) {
-      throw new ConfigurationError(
-        "WebIdentity: clientId is required for client authentication (the assertion iss and sub)",
-      );
-    }
+    const clientId = this.#requireClientId();
     if (!endpoint) {
       throw new ConfigurationError("WebIdentity: endpoint is required for the assertion audience (aud)");
     }
     await this.bootstrap();
-    const clientAssertion = await this.#keyManager.createClientAssertion(this.#clientId, endpoint);
+    const clientAssertion = await this.#keyManager.createClientAssertion(clientId, endpoint);
     return {
       headers: {},
       form: {
@@ -139,6 +135,20 @@ export class WebIdentity implements ApplicationCredential {
         client_assertion_type: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
       },
     };
+  }
+
+  /** Throws `ConfigurationError` without `clientId`. */
+  checkClientAuthentication(): void {
+    this.#requireClientId();
+  }
+
+  #requireClientId(): string {
+    if (!this.#clientId) {
+      throw new ConfigurationError(
+        "WebIdentity: clientId is required for client authentication (the assertion iss and sub)",
+      );
+    }
+    return this.#clientId;
   }
 
   getPublicJwks(): { keys: Record<string, unknown>[] } {

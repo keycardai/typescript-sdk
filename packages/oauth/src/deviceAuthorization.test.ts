@@ -272,13 +272,19 @@ describe('device authorization grant', () => {
       { name: 'waitForDeviceToken', run: (o: object) => waitForDeviceToken(ISSUER, { authorization: authorization(), clock: new FakeClock(), ...o }) },
     ];
     const clientOptions = [
-      { row: 3, name: 'both credential and clientId', options: { credential: fakeCredential(), clientId: 'c' } },
-      { row: 3, name: 'neither credential nor clientId', options: {} },
-      { row: 23, name: 'a credential without clientAuthentication', options: { credential: withoutClientAuthentication } },
+      { label: 'row 3', name: 'both credential and clientId', options: { credential: fakeCredential(), clientId: 'c' } },
+      { label: 'row 3', name: 'neither credential nor clientId', options: {} },
+      { label: 'row 23', name: 'a credential without clientAuthentication', options: { credential: withoutClientAuthentication } },
+      {
+        label: 'WebIdentity row 8',
+        name: 'a WebIdentity without clientId',
+        options: { credential: new WebIdentity({ storageDir: join(tmpdir(), 'device-unused-keys') }) },
+      },
     ];
     const cases = operations.flatMap((op) => clientOptions.map((c) => ({ ...c, op })));
 
-    it.each(cases)('row $row: $op.name with $name', async ({ op, options }) => {
+    // No metadata is passed, so a check after discovery would show up as a request.
+    it.each(cases)('$label: $op.name with $name', async ({ op, options }) => {
       const calls = mockFetch({});
 
       await expect(op.run(options)).rejects.toThrow(ConfigurationError);

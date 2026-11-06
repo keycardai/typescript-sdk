@@ -39,6 +39,13 @@ export interface ApplicationCredential {
    * credentials sign or fetch a new assertion on every call.
    */
   clientAuthentication?(issuer: string, endpoint: string): Promise<ClientAuthentication>;
+  /**
+   * Throws `ConfigurationError` when the credential's configuration does not
+   * allow `clientAuthentication`, such as a `WebIdentity` without `clientId`.
+   * Optional. Operations call it before they send any request, including
+   * discovery.
+   */
+  checkClientAuthentication?(): void;
 }
 
 /** An `ApplicationCredential` that provides `clientAuthentication`. */
@@ -53,9 +60,9 @@ export function providesClientAuthentication(
 }
 
 /**
- * Returns `credential` when it provides `clientAuthentication`. Throws
- * `ConfigurationError` otherwise. Operations call it before they send any
- * request.
+ * Returns `credential` when it provides `clientAuthentication` and its
+ * `checkClientAuthentication` passes. Throws `ConfigurationError` otherwise.
+ * Operations call it before they send any request.
  */
 export function requireClientAuthentication(
   credential: ApplicationCredential,
@@ -66,5 +73,6 @@ export function requireClientAuthentication(
       `${operation} requires a credential that provides clientAuthentication`,
     );
   }
+  credential.checkClientAuthentication?.();
   return credential;
 }

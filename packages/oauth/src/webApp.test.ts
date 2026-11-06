@@ -2,6 +2,9 @@ import { jest } from '@jest/globals';
 import { beginAuthorization, completeAuthorization, refreshAuthorization } from './webApp.js';
 import { AuthorizationDeniedError, ConfigurationError, OAuthError, RefreshGrantError, StateMismatchError } from './errors.js';
 import type { ApplicationCredential } from './credentials.js';
+import { WebIdentity } from './server/webIdentity.js';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const ISSUER = 'https://auth.example.com';
 const AUTHORIZE_ENDPOINT = `${ISSUER}/authorize`;
@@ -523,6 +526,10 @@ describe('web-app flow', () => {
               prepareTokenExchangeRequest: async () => ({ subjectToken: 'unused' }),
             },
           },
+        },
+        {
+          name: 'a WebIdentity without clientId',
+          options: { credential: new WebIdentity({ storageDir: join(tmpdir(), 'refresh-unused-keys') }) },
         },
       ])('row 16: $name throws ConfigurationError before any request', async ({ options }) => {
         const calls = mockFetch(() => jsonResponse(200, METADATA));

@@ -344,7 +344,7 @@ issuer's `userinfo_endpoint`. Pass `{ metadata }` to skip discovery.
 | `GCPMetadataTokenSource` | `@keycardai/oauth/server` | Token source for the GCP metadata server (GKE, GCE, Cloud Run) |
 | `FlyTokenSource` | `@keycardai/oauth/server` | Token source for the Fly.io Machines API Unix socket. **Node.js only** |
 | `EKSWorkloadIdentity` | `@keycardai/oauth/server` | Deprecated: `WorkloadIdentity` with a `FileTokenSource` limited to EKS env discovery |
-| `ApplicationCredential` (type) | `@keycardai/oauth/credentials` | Interface for credential providers. The optional `clientAuthentication(issuer, endpoint)` returns the headers and form fields that authenticate one request |
+| `ApplicationCredential` (type) | `@keycardai/oauth/credentials` | Interface for credential providers. The optional `clientAuthentication(issuer, endpoint)` returns the headers and form fields that authenticate one request. The optional `checkClientAuthentication()` throws `ConfigurationError` before any request when the credential cannot do so |
 | `providesClientAuthentication` | `@keycardai/oauth/credentials` | Reports whether a credential provides `clientAuthentication` |
 
 ### Errors

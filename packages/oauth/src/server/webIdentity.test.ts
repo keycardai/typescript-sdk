@@ -158,4 +158,18 @@ describe("WebIdentity clientAuthentication", () => {
     await expect(wi.clientAuthentication(ISSUER, TOKEN_ENDPOINT)).rejects.toThrow(ConfigurationError);
     expect(existsSync(storageDir)).toBe(false);
   });
+
+  it.each([
+    { name: "passes with clientId", clientId: "cred-abc", throws: false },
+    { name: "throws ConfigurationError without clientId", clientId: undefined, throws: true },
+  ])("checkClientAuthentication $name, without touching storage", ({ clientId, throws }) => {
+    const storageDir = join(tmp, "keys");
+    const wi = new WebIdentity({ clientId, storageDir });
+
+    const check = () => wi.checkClientAuthentication();
+
+    if (throws) expect(check).toThrow(ConfigurationError);
+    else expect(check).not.toThrow();
+    expect(existsSync(storageDir)).toBe(false);
+  });
 });
