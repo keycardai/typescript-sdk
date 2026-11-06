@@ -23,15 +23,29 @@ export function protectedResourceMetadataHandler(metadata: InferredOAuthProtecte
   return router;
 }
 
-export function authorizationServerMetadataHandler(issuer: string): RequestHandler {
+/** Default timeout for the metadata request to the issuer. */
+export const DEFAULT_METADATA_TIMEOUT_MS = 10_000;
+
+export interface AuthorizationServerMetadataHandlerOptions {
+  /** Timeout in milliseconds for the request to the issuer (default 10 seconds). */
+  timeoutMs?: number;
+}
+
+export function authorizationServerMetadataHandler(
+  issuer: string,
+  options: AuthorizationServerMetadataHandlerOptions = {},
+): RequestHandler {
   const router = express.Router();
+  const timeoutMs = options.timeoutMs ?? DEFAULT_METADATA_TIMEOUT_MS;
 
   router.use(cors());
 
   router.get("/", async (_req, res) => {
     let resp: Response;
     try {
-      resp = await fetch(issuer + '/.well-known/oauth-authorization-server');
+      resp = await fetch(issuer + '/.well-known/oauth-authorization-server', {
+        signal: AbortSignal.timeout(timeoutMs),
+      });
     } catch {
       res.status(502).json({ error: "Failed to fetch AS metadata from issuer" });
       return;
