@@ -21,9 +21,9 @@ import {
 import type {
   ConnectionPrincipal,
   InteractiveAuthorizationDefinition,
-  JsonValue,
   TokenResult,
 } from "eve/connections";
+import type { JsonValue } from "./json.js";
 
 import { DEFAULT_CALLBACK_PATH, encodeCallbackState } from "./callbackRoute.js";
 import { expiresAt } from "./config.js";
@@ -40,7 +40,7 @@ const REFRESH_SKEW_MS = 60_000;
 /**
  * The state journaled between eve's begin and callback steps.
  *
- * Every field is JSON, so the value satisfies eve's `JsonValue` bound and
+ * Every field is JSON, so the value satisfies eve's JSON bound and
  * survives the durable step boundary the park crosses. `clientId` is journaled
  * because each attempt may run as its own registered client, and only that
  * client can redeem the code. Nothing secret is journaled: registered clients

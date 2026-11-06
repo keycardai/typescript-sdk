@@ -34,7 +34,7 @@ describe("package surface", () => {
     //
     // The keys are also exactly what eve's authored-connection validator
     // allows. `displayName` is absent deliberately, see connections.ts.
-    expect(Object.keys(auth).sort()).toEqual(["credentialOwner", "getToken"]);
+    expect(Object.keys(auth).sort()).toEqual(["getToken", "principalType"]);
 
     const result = await auth.getToken({ principal: userPrincipal(), connection });
 
@@ -42,7 +42,7 @@ describe("package surface", () => {
     // is never stored on the definition, so nothing token-shaped survives here
     // for a serializer to sweep into conversation history.
     expect(JSON.stringify(auth)).not.toContain(result.token);
-    expect(JSON.stringify(auth)).toBe(`{"credentialOwner":"user"}`);
+    expect(JSON.stringify(auth)).toBe(`{"principalType":"user"}`);
   });
 });
 
