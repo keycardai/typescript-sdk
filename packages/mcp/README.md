@@ -112,9 +112,9 @@ provider's types resolve to `any` under `skipLibCheck` or fail with TS2307
 without it. Consumers who need the v1 SDK should pin the previous
 `@keycardai/mcp` minor instead; v1 and v2 are not supported side by side.
 
-**Servers migrating to the v2 packages need zod 4.** This package keeps its
-own zod 3 dependency (its v2 imports are type-only, so the majors coexist),
-but that does not extend to your application code: v2's
+**Servers migrating to the v2 packages need zod 4.** This package does not
+depend on zod itself (its v2 imports are type-only), so it does not pin your
+application's zod major, but v2's
 `registerTool(name, { inputSchema })` types the zod overload against zod 4
 internals, so a zod 3 schema fails to typecheck with a misleading
 "missing properties from ZodType" error. Upgrade your app's zod to `^4`

@@ -88,8 +88,7 @@
     "@keycardai/express": "workspace:^",
     "@keycardai/oauth": "workspace:^",
     "cors": "^2.8.5",
-    "express": "^5.1.0",
-    "zod": "^3.25.74"
+    "express": "^5.1.0"
   },
   "peerDependencies": {
     "@modelcontextprotocol/client": "^2.2.0"
