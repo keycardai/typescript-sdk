@@ -1,3 +1,4 @@
+import { requestSignal } from "./requestSignal.js";
 import { z } from "zod";
 import { HTTPError, OAuthError } from "./errors.js";
 
@@ -24,7 +25,7 @@ export type OAuthAuthorizationServerMetadata = z.infer<typeof OAuthAuthorization
 
 export async function fetchAuthorizationServerMetadata(
   issuer: string,
-  options?: { signal?: AbortSignal },
+  options?: { signal?: AbortSignal; timeoutMs?: number },
 ): Promise<OAuthAuthorizationServerMetadata> {
   const issuerURL = new URL(issuer);
   let path = issuerURL.pathname;
@@ -33,7 +34,7 @@ export async function fetchAuthorizationServerMetadata(
   }
 
   const url = new URL(`/.well-known/oauth-authorization-server${path}`, issuer);
-  const response = await fetch(url, { signal: options?.signal });
+  const response = await fetch(url, { signal: requestSignal(options?.signal, options?.timeoutMs) });
   if (!response.ok) {
     throw new HTTPError(
       `Failed to fetch OAuth authorization server metadata for "${issuer}" (HTTP ${response.status})`,

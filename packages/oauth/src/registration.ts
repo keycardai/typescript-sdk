@@ -1,3 +1,4 @@
+import { requestSignal } from "./requestSignal.js";
 import { fetchAuthorizationServerMetadata } from "./discovery.js";
 import { ConfigurationError, OAuthError } from "./errors.js";
 
@@ -61,7 +62,7 @@ export interface ClientRegistrationResponse {
 
 export interface RegisterClientOptions {
   signal?: AbortSignal;
-  /** Request timeout in milliseconds. Ignored if `signal` is already provided. */
+  /** Timeout in milliseconds for each request to the authorization server (default 10 seconds; 0 disables). */
   timeoutMs?: number;
   /**
    * Initial access token (RFC 7591 §3.1) sent as a `Bearer` credential on the
@@ -88,10 +89,9 @@ export async function registerClient(
   request: ClientRegistrationRequest,
   options?: RegisterClientOptions,
 ): Promise<ClientRegistrationResponse> {
-  const signal = options?.signal ??
-    (options?.timeoutMs != null ? AbortSignal.timeout(options.timeoutMs) : undefined);
+  const signal = requestSignal(options?.signal, options?.timeoutMs);
 
-  const metadata = await fetchAuthorizationServerMetadata(issuer, { signal });
+  const metadata = await fetchAuthorizationServerMetadata(issuer, { signal, timeoutMs: 0 });
   if (!metadata.registration_endpoint) {
     throw new ConfigurationError(
       `Authorization server "${issuer}" does not advertise a registration_endpoint`,

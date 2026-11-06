@@ -39,7 +39,7 @@ describe('resolveIssuerFromChallenge', () => {
     );
 
     expect(result).toEqual({ issuer: ISSUER, resource: RESOURCE });
-    expect(fetchMock).toHaveBeenCalledWith(METADATA_URL, { signal: undefined });
+    expect(fetchMock).toHaveBeenCalledWith(METADATA_URL, { signal: expect.any(AbortSignal) });
   });
 
   it('omits resource when the metadata document has none', async () => {
@@ -65,7 +65,7 @@ describe('resolveIssuerFromChallenge', () => {
     );
 
     expect(result.issuer).toBe(ISSUER);
-    expect(fetchMock).toHaveBeenCalledWith(METADATA_URL, { signal: undefined });
+    expect(fetchMock).toHaveBeenCalledWith(METADATA_URL, { signal: expect.any(AbortSignal) });
   });
 
   it('throws when the header has no resource_metadata parameter', async () => {

@@ -1,3 +1,4 @@
+import { requestSignal } from "./requestSignal.js";
 import { authenticate, type AuthenticateOptions } from "./pkce.js";
 import type { TokenResponse } from "./tokenExchange.js";
 
@@ -7,6 +8,8 @@ import type { TokenResponse } from "./tokenExchange.js";
 
 export interface ResolveIssuerFromChallengeOptions {
   signal?: AbortSignal;
+  /** Timeout in milliseconds for each request to the authorization server (default 10 seconds; 0 disables). */
+  timeoutMs?: number;
 }
 
 export interface ResolvedChallenge {
@@ -57,7 +60,9 @@ export async function resolveIssuerFromChallenge(
     );
   }
 
-  const response = await fetch(metadataUrl, { signal: options.signal });
+  const response = await fetch(metadataUrl, {
+    signal: requestSignal(options.signal, options.timeoutMs),
+  });
   if (!response.ok) {
     throw new Error(
       `Failed to fetch protected resource metadata from "${metadataUrl}" (HTTP ${response.status})`,
