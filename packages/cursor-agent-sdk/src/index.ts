@@ -32,7 +32,6 @@ export { decodeClaims, subjectTokenExpired } from "./expiry.js";
 export {
   defaultSubjectTokenStore,
   memorySubjectTokenStore,
-  SUBJECT_TOKEN_ATTRIBUTE,
 } from "./subjectTokens.js";
 export type { SubjectTokenStore } from "./subjectTokens.js";
 

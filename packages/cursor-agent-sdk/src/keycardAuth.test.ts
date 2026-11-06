@@ -107,18 +107,27 @@ describe("keycardAuth", () => {
     expect(() => keycardAuth({})).toThrow();
   });
 
-  it("row 33: attributes retention places the verified token and strips a smuggled claim", async () => {
+  it("row 33: the removed attributes retention mode is rejected at construction", () => {
+    expect(() => keycardAuth({ zoneUrl: ZONE, verify: async () => CLAIMS, retainSubjectToken: "attributes" as never })).toThrow(
+      /"attributes" was removed/,
+    );
+    expect(() => keycardAuth({ zoneUrl: ZONE, verify: async () => CLAIMS, retainSubjectToken: "disk" as never })).toThrow(
+      /must be "memory" or "none"/,
+    );
+  });
+
+  it("row 34: a smuggled subject-token claim never reaches attributes, and none retains nothing", async () => {
     const token = unsignedJwt({ iss: ZONE, sub: "user-1", exp: Math.floor(Date.now() / 1000) + 60, [SUBJECT_TOKEN_ATTRIBUTE]: "forged" });
     const store = memorySubjectTokenStore();
     const verify = keycardAuth({
       zoneUrl: ZONE,
       verify: async () => ({ ...CLAIMS, [SUBJECT_TOKEN_ATTRIBUTE]: "forged" }),
-      retainSubjectToken: "attributes",
       subjectTokens: store,
     });
     const ctx = await verify(token);
-    expect(ctx?.attributes?.[SUBJECT_TOKEN_ATTRIBUTE]).toBe(token);
-    expect(store.get(`${ZONE}|user-1`)).toBeUndefined();
+    expect(ctx?.attributes?.[SUBJECT_TOKEN_ATTRIBUTE]).toBeUndefined();
+    expect(store.get(`${ZONE}|user-1`)).toBe(token);
+    store.delete(`${ZONE}|user-1`);
     const none = keycardAuth({ zoneUrl: ZONE, verify: async () => CLAIMS, retainSubjectToken: "none", subjectTokens: store });
     const ctx2 = await none(token);
     expect(ctx2?.attributes?.[SUBJECT_TOKEN_ATTRIBUTE]).toBeUndefined();

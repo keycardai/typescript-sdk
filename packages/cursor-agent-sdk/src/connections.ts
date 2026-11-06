@@ -89,10 +89,10 @@ export function onBehalfOf(options: KeycardConnectionOptions): KeycardConnection
       throw new ConnectionAuthError(
         FailureReason.SUBJECT_TOKEN_UNAVAILABLE,
         config.connectionName,
-        "no Keycard subject token is retained for this session's principal in this " +
-          "process; add keycardAuth() to the channel's auth chain, or use " +
-          'retainSubjectToken: "attributes" when turns run outside the process that ' +
-          "authenticated the caller",
+        "no Keycard subject token is retained for this session's principal on this " +
+          "instance: the caller's token was verified on a different instance or has " +
+          "been pruned. The caller can retry with a fresh request; add keycardAuth() " +
+          "to the channel's auth chain if it is missing",
       );
     }
     if (subjectTokenExpired(subjectToken)) {
