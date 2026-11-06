@@ -1,3 +1,11 @@
+## 0.26.6-keycardai-oauth (2026-11-06)
+
+
+- fix(oauth): move to zod 4 (#333)
+- zod ^3.25.74 to ^4.6.6: every zod release below 4.6.6 is covered by GHSA-mrhx-c7xc-m3w5 and 3.x has no patched release. discovery.ts writes the authorization server metadata schema with z.looseObject instead of z.object().passthrough(); keyring.ts (object, extend, array, union) needs no change. The inferred OAuthAuthorizationServerMetadata type is unchanged: declared keys keep their types and extra keys are unknown on both majors. SDK-33, #330.
+- Co-authored-by: devin-ai-keycard <devin-ai@keycard.ai>
+Co-authored-by: Larry Osakwe <larry@keycard.ai>
+
 ## 0.26.5-keycardai-oauth (2026-11-06)
 
 
