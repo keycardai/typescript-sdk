@@ -753,7 +753,16 @@ function zoneWebAppFlow(
 ): WebAppFlow {
   let metadata: Promise<OAuthAuthorizationServerMetadata> | undefined;
   const discover = (): Promise<OAuthAuthorizationServerMetadata> => {
-    if (!metadata) metadata = fetchAuthorizationServerMetadata(issuer);
+    if (!metadata) {
+      // fetchAuthorizationServerMetadata times out after 10 seconds by default.
+      // A rejected promise is evicted so the next call retries instead of
+      // replaying the same failure for the life of the flow.
+      const pending = fetchAuthorizationServerMetadata(issuer);
+      pending.catch(() => {
+        if (metadata === pending) metadata = undefined;
+      });
+      metadata = pending;
+    }
     return metadata;
   };
   return {

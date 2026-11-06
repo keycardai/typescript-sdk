@@ -203,6 +203,43 @@ describe("interactive", () => {
     expect(started.challenge.displayName).toBe("Calendar");
   });
 
+  it("retries discovery after a failed attempt instead of replaying the rejection", async () => {
+    const originalFetch = globalThis.fetch;
+    const urls: string[] = [];
+    let attempts = 0;
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      const url = String(input instanceof Request ? input.url : input);
+      urls.push(url);
+      attempts += 1;
+      if (attempts === 1) throw new DOMException("timed out", "TimeoutError");
+      return new Response(
+        JSON.stringify({
+          issuer: "https://zone.example.com",
+          authorization_endpoint: "https://zone.example.com/authorize",
+          token_endpoint: "https://zone.example.com/token",
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as typeof fetch;
+    try {
+      const auth = interactive({
+        resource: CALENDAR,
+        clientId: "web-client",
+        zoneUrl: "https://zone.example.com",
+      });
+      const start = () =>
+        auth.startAuthorization({ principal: userPrincipal(), connection, callbackUrl: CALLBACK });
+
+      await expect(start()).rejects.toMatchObject({ name: "TimeoutError" });
+      const started = await start();
+
+      expect(started.challenge.url).toContain("https://zone.example.com/authorize");
+      expect(urls.filter((u) => u.includes("/.well-known/oauth-authorization-server"))).toHaveLength(2);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it("begins the flow against the stable route for a configured client, with the resource list", async () => {
     const flow = recordingFlow();
     const auth = interactive({
