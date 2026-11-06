@@ -66,12 +66,23 @@ function handleProtectedResourceMetadata(
   return jsonResponse(json);
 }
 
+/** Default timeout for the metadata request to the issuer. */
+export const DEFAULT_METADATA_TIMEOUT_MS = 10_000;
+
 async function handleAuthorizationServerMetadata(
   options: MetadataOptions,
 ): Promise<Response> {
-  const resp = await fetch(
-    options.issuer + "/.well-known/oauth-authorization-server",
-  );
+  let resp: Response;
+  try {
+    resp = await fetch(options.issuer + "/.well-known/oauth-authorization-server", {
+      signal: AbortSignal.timeout(options.timeoutMs ?? DEFAULT_METADATA_TIMEOUT_MS),
+    });
+  } catch {
+    return new Response("Failed to fetch authorization server metadata", {
+      status: 502,
+      headers: CORS_HEADERS,
+    });
+  }
 
   if (!resp.ok) {
     return new Response("Failed to fetch authorization server metadata", {
