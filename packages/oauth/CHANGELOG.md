@@ -1,3 +1,27 @@
+## 0.26.4-keycardai-oauth (2026-11-06)
+
+
+- fix(oauth): time out token requests from the token clients (#310)
+- ClientCredentialsClient.requestToken and TokenExchangeClient.exchangeToken
+(and impersonate, which goes through it) POSTed to the token endpoint with
+no signal, so a zone that accepts the connection and never answers held
+the caller forever. Token endpoint discovery in the same clients already
+used AbortSignal.timeout.
+- Both clients take fetchTimeoutMs (default 10s, as discovery and the JWKS
+keyring) and apply it to the token request. The option is passed on to
+TokenEndpointResolver, which already read it, so one setting now bounds
+discovery and the token request alike.
+- fix(oauth): throttle JWKS refetches for unknown key ids (#309)
+- JWKSOAuthKeyring fetched the JWKS on every key() call whose kid was not
+cached. The checks JWTVerifier runs before the keyring read only unsigned
+claims, so a forged token naming a random kid cost one fetch from the zone
+per request.
+- The keyring now keeps the last key set fetched from each jwks_uri for
+keyTtlMs. A kid in that set is imported without a fetch; a kid missing from
+it refetches at most once per jwksRefetchCooldownMs (default 30s, as jose's
+remote JWKS). Concurrent misses for different kids share one fetch.
+invalidate() and clear() drop the cached set too.
+
 ## 0.26.3-keycardai-oauth (2026-10-20)
 
 
