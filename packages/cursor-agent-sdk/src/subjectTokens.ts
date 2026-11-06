@@ -3,12 +3,12 @@ import type { AuthContext } from "@grok/agent-sdk";
 import { decodeClaims } from "./expiry.js";
 
 /**
- * The attribute name carrying the inbound bearer when retention is
- * `"attributes"`.
+ * A reserved attribute name that never carries a token.
  *
  * `AuthContext.attributes` is persisted in `SessionRecord.auth`
- * (`sessions/<id>/session.json`), so this mode puts a user bearer at rest for
- * the session's lifetime. That is why it is opt-in rather than the default.
+ * (`sessions/<id>/session.json`), so a token there would be a bearer at rest.
+ * `keycardAuth` strips this name from the attributes it returns, and nothing
+ * under it is ever read as a token.
  */
 export const SUBJECT_TOKEN_ATTRIBUTE = "keycard_subject_token";
 
@@ -16,10 +16,10 @@ export const SUBJECT_TOKEN_ATTRIBUTE = "keycard_subject_token";
  * Where the verified inbound bearer lives between `bearerAuth` admitting the
  * request and the exchange in `onBehalfOf`.
  *
- * Two implementations ship: {@link memorySubjectTokenStore} (the default,
- * process-local, nothing at rest) and the `"attributes"` retention mode, which
- * rides on the session record instead. Neither reaches the model: the token
- * is never a tool argument, a connection schema field, or a message.
+ * One implementation ships, {@link memorySubjectTokenStore}: process-local,
+ * nothing at rest. The token never reaches the model (it is never a tool
+ * argument, a connection schema field, or a message) and never the session
+ * record, which Cursor persists.
  */
 export interface SubjectTokenStore {
   get(key: string): string | undefined;
@@ -65,13 +65,15 @@ export function principalKey(auth: Pick<AuthContext, "principalId" | "attributes
   return `${auth.attributes?.iss ?? ""}|${auth.principalId}`;
 }
 
-/** The retained subject token for a session principal, if any. */
+/**
+ * The retained subject token for a session principal, if any. Read from the
+ * store only: a value on `session.auth.attributes` is caller-controlled and
+ * persisted, so it is never a token.
+ */
 export function readSubjectToken(
   auth: AuthContext,
   store: SubjectTokenStore,
 ): string | undefined {
-  const attribute = auth.attributes?.[SUBJECT_TOKEN_ATTRIBUTE];
-  if (typeof attribute === "string" && attribute) return attribute;
   return store.get(principalKey(auth));
 }
 

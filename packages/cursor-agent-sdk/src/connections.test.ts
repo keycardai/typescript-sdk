@@ -355,12 +355,15 @@ describe("onBehalfOf", () => {
     expect(client.calls.impersonations).toEqual([{ userIdentifier: "user-9", resource: CALENDAR }]);
   });
 
-  it("row 33: the attributes retention mode is read from the principal", async () => {
+  it("row 41: a token placed on session.auth.attributes is ignored; only the store is read", async () => {
     const client = fakeZoneClient();
-    const token = validJwt();
+    const planted = validJwt();
     const auth = onBehalfOf({ resource: CALENDAR, zoneUrl: ZONE, client, subjectTokens: memorySubjectTokenStore() });
-    await auth(session(keycardPrincipal({ attributes: { iss: ZONE, [SUBJECT_TOKEN_ATTRIBUTE]: token } })));
-    expect(client.calls.exchanges[0]?.subjectToken).toBe(token);
+    const err = await failure(auth(session(keycardPrincipal({ attributes: { iss: ZONE, [SUBJECT_TOKEN_ATTRIBUTE]: planted } }))));
+    expect(err.reason).toBe(FailureReason.SUBJECT_TOKEN_UNAVAILABLE);
+    expect(err.message).toMatch(/different instance or has been pruned/);
+    expect(err.message).not.toContain("attributes");
+    expect(client.calls.exchanges).toHaveLength(0);
   });
 });
 

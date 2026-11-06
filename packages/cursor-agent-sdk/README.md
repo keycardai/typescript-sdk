@@ -52,10 +52,21 @@ principalType: "user", attributes }`, with the token's string claims and `iss`
 projected onto `attributes`. The SDK persists `AuthContext` in
 `sessions/<id>/session.json`, so the token itself is never placed on it. It is
 retained for a later on-behalf-of exchange in a process-local store instead
-(`retainSubjectToken: "memory"`, the default). Pass
-`retainSubjectToken: "attributes"` when turns run in a different process from
-the request that authenticated the caller; that accepts a user bearer at rest
-in the session record for the session's lifetime. `"none"` retains nothing.
+(`retainSubjectToken: "memory"`, the default); `"none"` retains nothing.
+
+On Cursor hosting, on-behalf-of therefore works for a turn that runs on the
+instance that verified the caller's request. Hosted agents can be stopped and
+replaced between turns, so a reminder wake, a retry, or a turn resumed on a
+fresh instance finds no token and fails closed with
+`subject_token_unavailable`; the caller's next request verifies again. Agents
+that act without a request in hand use `Keycard.asSelf` or
+`Keycard.impersonate`, and self-hosting with `agent-sdk serve` keeps one
+process. There is no persisted option: whatever the verifier returns becomes
+`session.auth`, which Cursor saves with the session. Cursor advises against
+putting the raw token there, and a `ctx.host.kv`-backed store would put the
+token at rest the same way. The `"attributes"` mode of 0.2.x, which did exactly
+that, is rejected at construction; sessions created with it on 0.2.x keep the
+token in their session record until those sessions end.
 
 On Cursor hosting the built-in session, MCP and playground routes also sit
 behind the deployment alias token (`X-Agent-Alias-Token`); a Keycard bearer
@@ -149,11 +160,13 @@ with per-resource errors, a contract this seam does not keep.
 
 ## What v1 does not do
 
-- **On-behalf-of across processes.** The caller's token lives in process
-  memory by default. A turn that runs in a process that never saw it (another
-  replica, a restart) fails closed with `subject_token_unavailable`; the
-  caller fixes it by calling again. `retainSubjectToken: "attributes"` trades
-  that for a bearer at rest in the session record.
+- **On-behalf-of across instances.** The caller's token lives in process
+  memory only. A turn that runs on an instance that never saw it (a reminder
+  wake, a retry, a session resumed on a fresh instance) fails closed with
+  `subject_token_unavailable`; the caller fixes it with a fresh request, and
+  agents without a request in hand use `Keycard.asSelf` or
+  `Keycard.impersonate`. Nothing persists the token, because Cursor saves
+  `session.auth` with the session and advises against putting it there.
 - **No sign-in pause from the callback.** The SDK's `action.auth_requested`
   pause fires only for host OAuth (`oauth: true`) connections, and an `auth`
   callback cannot trigger it, so a denied grant or an expired token is a

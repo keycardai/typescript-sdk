@@ -26,13 +26,16 @@ export const KEYCARD_AUTHENTICATOR = "keycard";
  * - `"memory"` (default): a process-local store keyed by the principal.
  *   Nothing is written to the session record. A turn that runs in another
  *   process finds no token and fails closed.
- * - `"attributes"`: the token rides on `AuthContext.attributes`, which the SDK
- *   persists in `SessionRecord.auth`. Survives restarts and reaches turns in
- *   other processes, at the cost of a bearer token at rest.
  * - `"none"`: nothing is retained. For agents whose connections only run
  *   `asSelf` or `impersonate`.
+ *
+ * There is no persisted mode. Whatever the verifier returns becomes
+ * `session.auth`, which Cursor saves with the session, and Cursor advises
+ * against putting the raw token there.
  */
-export type SubjectTokenRetention = "attributes" | "memory" | "none";
+export type SubjectTokenRetention = "memory" | "none";
+
+const RETENTIONS: ReadonlySet<string> = new Set<SubjectTokenRetention>(["memory", "none"]);
 
 export interface KeycardAuthOptions {
   /** Keycard zone URL (issuer). Required unless `verify` is given. */
@@ -88,7 +91,16 @@ export function keycardAuth(options: KeycardAuthOptions): KeycardTokenVerifier {
   // Zone tokens carry no trailing slash in `iss`; a slash on the configured
   // zoneUrl would otherwise make every zone token unrecognized.
   const issuer = options.zoneUrl?.replace(/\/+$/, "");
-  const retention = options.retainSubjectToken ?? "memory";
+  const retention: string = options.retainSubjectToken ?? "memory";
+  if (!RETENTIONS.has(retention)) {
+    throw new Error(
+      retention === "attributes"
+        ? 'retainSubjectToken: "attributes" was removed: it placed the caller\'s bearer on ' +
+            "AuthContext.attributes, which the SDK persists in the session record and Cursor " +
+            'advises against. Use "memory" (the default) or "none".'
+        : `retainSubjectToken must be "memory" or "none", got ${JSON.stringify(retention)}`,
+    );
+  }
   const store = options.subjectTokens ?? defaultSubjectTokenStore;
   const verify = options.verify ?? jwksVerifier(options, issuer!);
 
@@ -130,9 +142,7 @@ export function keycardAuth(options: KeycardAuthOptions): KeycardTokenVerifier {
       attributes,
     };
 
-    if (retention === "attributes") {
-      attributes[SUBJECT_TOKEN_ATTRIBUTE] = token;
-    } else if (retention === "memory") {
+    if (retention === "memory") {
       store.set(principalKey(context), token);
     }
 
