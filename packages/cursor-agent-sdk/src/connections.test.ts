@@ -355,7 +355,7 @@ describe("onBehalfOf", () => {
     expect(client.calls.impersonations).toEqual([{ userIdentifier: "user-9", resource: CALENDAR }]);
   });
 
-  it("row 35: a token placed on session.auth.attributes is ignored; only the store is read", async () => {
+  it("row 41: a token placed on session.auth.attributes is ignored; only the store is read", async () => {
     const client = fakeZoneClient();
     const planted = validJwt();
     const auth = onBehalfOf({ resource: CALENDAR, zoneUrl: ZONE, client, subjectTokens: memorySubjectTokenStore() });

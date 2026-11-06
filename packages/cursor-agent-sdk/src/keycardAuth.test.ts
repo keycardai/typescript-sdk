@@ -116,7 +116,7 @@ describe("keycardAuth", () => {
     );
   });
 
-  it("row 34: a smuggled subject-token claim never reaches attributes, and none retains nothing", async () => {
+  it("row 40: a smuggled subject-token claim never reaches attributes, and none retains nothing", async () => {
     const token = unsignedJwt({ iss: ZONE, sub: "user-1", exp: Math.floor(Date.now() / 1000) + 60, [SUBJECT_TOKEN_ATTRIBUTE]: "forged" });
     const store = memorySubjectTokenStore();
     const verify = keycardAuth({
