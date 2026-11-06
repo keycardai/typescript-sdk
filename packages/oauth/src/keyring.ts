@@ -30,6 +30,13 @@ export interface JWKSOAuthKeyringOptions {
   fetchTimeoutMs?: number;
   /** Maximum number of cached keys before the oldest is evicted. Default: 256. */
   keyCacheMaxEntries?: number;
+  /**
+   * Minimum time between two JWKS fetches for one issuer when a token names a
+   * `kid` the cached key set does not hold. A forged token can carry any
+   * `kid`, so without this every such request costs a fetch from the zone.
+   * A key that rotated in is picked up once this has passed. Default: 30 seconds.
+   */
+  jwksRefetchCooldownMs?: number;
 }
 
 const JWKSchema = z.object({
@@ -53,6 +60,7 @@ const ECJWKSchema = JWKSchema.extend({
 const JWKSetSchema = z.object({
   keys: z.array(z.union([RSAJWKSchema, ECJWKSchema])),
 });
+type JWKSet = z.infer<typeof JWKSetSchema>;
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -67,6 +75,7 @@ const DEFAULT_KEY_TTL_MS = 5 * 60 * 1000;        // 5 minutes
 const DEFAULT_DISCOVERY_TTL_MS = 60 * 60 * 1000;  // 1 hour
 const DEFAULT_FETCH_TIMEOUT_MS = 10_000;           // 10 seconds
 const DEFAULT_KEY_CACHE_MAX_ENTRIES = 256;         // bound the key cache
+const DEFAULT_JWKS_REFETCH_COOLDOWN_MS = 30_000;   // 30 seconds, as jose's remote JWKS
 
 function assertSameOrigin(issuer: string, jwksUri: string): void {
   const issuerOrigin = new URL(issuer).origin;
@@ -98,12 +107,21 @@ export class JWKSOAuthKeyring implements OAuthKeyring {
   #discoveryInflight = new Map<string, Promise<string>>();
   #keyInflight = new Map<string, Promise<CryptoKey>>();
 
+  // The last key set fetched from each jwks_uri, with when it was fetched, so
+  // a kid it holds needs no fetch and a kid it lacks refetches at most once
+  // per cooldown.
+  #jwksCache = new Map<string, CacheEntry<JWKSet> & { fetchedAt: number }>();
+  #jwksInflight = new Map<string, Promise<JWKSet>>();
+  #jwksRefetchCooldownMs: number;
+
   constructor(options?: JWKSOAuthKeyringOptions) {
     this.#keyTtlMs = options?.keyTtlMs ?? DEFAULT_KEY_TTL_MS;
     this.#discoveryTtlMs = options?.discoveryTtlMs ?? DEFAULT_DISCOVERY_TTL_MS;
     this.#fetchTimeoutMs = options?.fetchTimeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS;
     this.#keyCacheMaxEntries =
       options?.keyCacheMaxEntries ?? DEFAULT_KEY_CACHE_MAX_ENTRIES;
+    this.#jwksRefetchCooldownMs =
+      options?.jwksRefetchCooldownMs ?? DEFAULT_JWKS_REFETCH_COOLDOWN_MS;
   }
 
   async key(issuer: string, kid: string): Promise<CryptoKey> {
@@ -121,6 +139,11 @@ export class JWKSOAuthKeyring implements OAuthKeyring {
     const cacheKey = keyCacheKey(issuer, kid);
     this.#keyCache.delete(cacheKey);
     this.#keyInflight.delete(cacheKey);
+    const jwksUri = this.#discoveryCache.get(issuer)?.value;
+    if (jwksUri) {
+      this.#jwksCache.delete(jwksUri);
+      this.#jwksInflight.delete(jwksUri);
+    }
     this.#discoveryCache.delete(issuer);
     this.#discoveryInflight.delete(issuer);
   }
@@ -133,6 +156,8 @@ export class JWKSOAuthKeyring implements OAuthKeyring {
   clear(): void {
     this.#keyCache.clear();
     this.#keyInflight.clear();
+    this.#jwksCache.clear();
+    this.#jwksInflight.clear();
     this.#discoveryCache.clear();
     this.#discoveryInflight.clear();
   }
@@ -195,18 +220,16 @@ export class JWKSOAuthKeyring implements OAuthKeyring {
 
     const promise = (async () => {
       try {
-        const response = await fetch(jwksUri, {
-          signal: AbortSignal.timeout(this.#fetchTimeoutMs),
-        });
-        if (!response.ok) {
-          throw new JWKSFetchError(
-            `Failed to fetch JWKS from "${jwksUri}" for "${issuer}" (HTTP ${response.status})`,
-          );
+        let entry = this.#jwksCache.get(jwksUri);
+        if (entry && Date.now() >= entry.expiresAt) {
+          this.#jwksCache.delete(jwksUri);
+          entry = undefined;
         }
-
-        const json = await response.json();
-        const jwkSet = JWKSetSchema.parse(json);
-        const jwk = jwkSet.keys.find((jwk) => jwk.kid === kid);
+        let jwk = entry?.value.keys.find((jwk) => jwk.kid === kid);
+        if (!jwk && (!entry || Date.now() - entry.fetchedAt >= this.#jwksRefetchCooldownMs)) {
+          const jwkSet = await this.#fetchJwks(issuer, jwksUri);
+          jwk = jwkSet.keys.find((jwk) => jwk.kid === kid);
+        }
         if (!jwk) {
           throw new JWKSKeyNotFoundError(`Failed to find key "${kid}" of "${issuer}"`);
         }
@@ -236,6 +259,44 @@ export class JWKSOAuthKeyring implements OAuthKeyring {
     })();
 
     this.#keyInflight.set(cacheKey, promise);
+    return promise;
+  }
+
+  // -------------------------------------------------------
+  // JWKS fetch with dedup: concurrent misses for any kid share one fetch
+  // -------------------------------------------------------
+
+  async #fetchJwks(issuer: string, jwksUri: string): Promise<JWKSet> {
+    const inflight = this.#jwksInflight.get(jwksUri);
+    if (inflight) {
+      return inflight;
+    }
+
+    const promise = (async () => {
+      try {
+        const response = await fetch(jwksUri, {
+          signal: AbortSignal.timeout(this.#fetchTimeoutMs),
+        });
+        if (!response.ok) {
+          throw new JWKSFetchError(
+            `Failed to fetch JWKS from "${jwksUri}" for "${issuer}" (HTTP ${response.status})`,
+          );
+        }
+
+        const jwkSet = JWKSetSchema.parse(await response.json());
+        const now = Date.now();
+        this.#jwksCache.set(jwksUri, {
+          value: jwkSet,
+          fetchedAt: now,
+          expiresAt: now + this.#keyTtlMs,
+        });
+        return jwkSet;
+      } finally {
+        this.#jwksInflight.delete(jwksUri);
+      }
+    })();
+
+    this.#jwksInflight.set(jwksUri, promise);
     return promise;
   }
 

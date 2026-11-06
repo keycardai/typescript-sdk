@@ -101,8 +101,8 @@ describe('JWKSOAuthKeyring', () => {
 
       // Discovery should NOT be called again (cached)
       expect(mockFetchMetadata).toHaveBeenCalledTimes(1);
-      // JWKS fetch should be called for the new kid
-      expect(mockFetch).toHaveBeenCalledTimes(1);
+      // kid2 was in the key set already fetched: no second JWKS fetch
+      expect(mockFetch).not.toHaveBeenCalled();
     });
 
     it('re-fetches after key TTL expires', async () => {
@@ -320,21 +320,19 @@ describe('JWKSOAuthKeyring', () => {
       const keyring = new JWKSOAuthKeyring({ keyCacheMaxEntries: 2 });
 
       mockFetch.mockResolvedValue(makeJwksResponse(keys));
-      await keyring.key(TEST_ISSUER, 'k1');
-      mockFetch.mockResolvedValue(makeJwksResponse(keys));
+      const k1 = await keyring.key(TEST_ISSUER, 'k1');
       await keyring.key(TEST_ISSUER, 'k2');
-      mockFetch.mockResolvedValue(makeJwksResponse(keys));
-      await keyring.key(TEST_ISSUER, 'k3'); // cache full at 2: evicts oldest (k1)
-      expect(mockFetch).toHaveBeenCalledTimes(3);
+      const k3 = await keyring.key(TEST_ISSUER, 'k3'); // cache full at 2: evicts oldest (k1)
+      // One JWKS fetch held all three kids.
+      expect(mockFetch).toHaveBeenCalledTimes(1);
 
-      // k3 is the newest entry and is still cached: no new fetch.
-      await keyring.key(TEST_ISSUER, 'k3');
-      expect(mockFetch).toHaveBeenCalledTimes(3);
+      // k3 is the newest entry and is still cached: the same CryptoKey.
+      expect(await keyring.key(TEST_ISSUER, 'k3')).toBe(k3);
 
-      // k1 was evicted: resolving it again triggers a fresh fetch.
-      mockFetch.mockResolvedValue(makeJwksResponse(keys));
-      await keyring.key(TEST_ISSUER, 'k1');
-      expect(mockFetch).toHaveBeenCalledTimes(4);
+      // k1 was evicted: it is imported again from the cached key set, so it
+      // is a new CryptoKey, and still no new fetch.
+      expect(await keyring.key(TEST_ISSUER, 'k1')).not.toBe(k1);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -388,6 +386,54 @@ describe('JWKSOAuthKeyring', () => {
       await expect(keyring.key(TEST_ISSUER, TEST_KID)).rejects.toBeInstanceOf(
         JWKSError,
       );
+    });
+  });
+
+  describe('unknown kid refetch cooldown', () => {
+    it('refetches the JWKS at most once per cooldown for kids it does not hold', async () => {
+      setupMocks();
+      const keyring = new JWKSOAuthKeyring();
+      await keyring.key(TEST_ISSUER, TEST_KID);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+
+      // A forged token can name any kid; none of these may cost a fetch.
+      for (let i = 0; i < 5; i++) {
+        await expect(keyring.key(TEST_ISSUER, `forged-${i}`)).rejects.toBeInstanceOf(JWKSKeyNotFoundError);
+      }
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('picks up a rotated-in key once the cooldown has passed', async () => {
+      setupMocks();
+      const keyring = new JWKSOAuthKeyring({ jwksRefetchCooldownMs: 0 });
+      await keyring.key(TEST_ISSUER, TEST_KID);
+
+      const rotated = { ...RSA_PUBLIC_JWK, kid: 'rotated' };
+      mockFetch.mockResolvedValue(makeJwksResponse([RSA_PUBLIC_JWK, rotated]));
+      await expect(keyring.key(TEST_ISSUER, 'rotated')).resolves.toBeDefined();
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('shares one JWKS fetch between concurrent misses for different kids', async () => {
+      const keys = [{ ...RSA_PUBLIC_JWK, kid: 'a' }, { ...RSA_PUBLIC_JWK, kid: 'b' }];
+      mockFetchMetadata.mockResolvedValue({ issuer: TEST_ISSUER, jwks_uri: TEST_JWKS_URI });
+      mockFetch.mockImplementation(async () => makeJwksResponse(keys));
+      const keyring = new JWKSOAuthKeyring();
+
+      await Promise.all([keyring.key(TEST_ISSUER, 'a'), keyring.key(TEST_ISSUER, 'b')]);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('drops the cached key set on invalidate', async () => {
+      setupMocks();
+      const keyring = new JWKSOAuthKeyring();
+      await keyring.key(TEST_ISSUER, TEST_KID);
+      keyring.invalidate(TEST_ISSUER, TEST_KID);
+
+      const rotated = { ...RSA_PUBLIC_JWK, kid: 'rotated' };
+      mockFetch.mockResolvedValue(makeJwksResponse([rotated]));
+      await expect(keyring.key(TEST_ISSUER, 'rotated')).resolves.toBeDefined();
+      expect(mockFetch).toHaveBeenCalledTimes(2);
     });
   });
 });
