@@ -493,9 +493,10 @@ and `applicationCredential` on `Keycard.interactive()`, so a test cannot acciden
 production. An injected `client` or `flow` supersedes `zoneUrl`, so a test needs
 no zone.
 
-## Not included: the Keycard gateway MCP proxy
+## Keycard gateway MCP proxies
 
-Routing third-party MCP servers through the Keycard gateway is out of scope for
-this release, pending svc-sts #651, exactly as in `@keycardai/langchain`.
-Third-party MCP servers reached directly through eve's native connections are
-supported, and that is what the examples above do.
+A Keycard gateway MCP proxy is a connection like any other MCP server: point
+`defineMcpClientConnection` at the proxy's resource URL and give it the same
+Keycard auth factory. The token the factory exchanges for that resource carries
+the `target` claim the gateway routes on, so it works there as it does against
+a server reached directly, which is what the examples above do.
