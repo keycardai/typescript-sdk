@@ -161,8 +161,8 @@ importers:
         specifier: workspace:^
         version: link:../oauth
       zod:
-        specifier: ^3.25.74
-        version: 3.25.76
+        specifier: ^4.6.6
+        version: 4.6.6
     devDependencies:
       '@jest/globals':
         specifier: ^30.5.2
@@ -172,10 +172,10 @@ importers:
         version: 1.2.9(@opentelemetry/api@1.10.0)(@opentelemetry/exporter-trace-otlp-proto@0.208.0(@opentelemetry/api@1.10.0))(@opentelemetry/sdk-trace-base@2.12.0(@opentelemetry/api@1.10.0))(ws@8.21.3)
       '@langchain/langgraph':
         specifier: ^1.4.13
-        version: 1.4.13(@langchain/core@1.2.9(@opentelemetry/api@1.10.0)(@opentelemetry/exporter-trace-otlp-proto@0.208.0(@opentelemetry/api@1.10.0))(@opentelemetry/sdk-trace-base@2.12.0(@opentelemetry/api@1.10.0))(ws@8.21.3))(zod@3.25.76)
+        version: 1.4.13(@langchain/core@1.2.9(@opentelemetry/api@1.10.0)(@opentelemetry/exporter-trace-otlp-proto@0.208.0(@opentelemetry/api@1.10.0))(@opentelemetry/sdk-trace-base@2.12.0(@opentelemetry/api@1.10.0))(ws@8.21.3))(zod@4.6.6)
       '@langchain/langgraph-api':
         specifier: ^1.4.5
-        version: 1.4.5(vbfnu5we7w3loo46eax3cciwai)
+        version: 1.4.5(vetarwhgyfduyx6uuyys2g73oq)
       '@langchain/langgraph-sdk':
         specifier: ^1.10.0
         version: 1.10.0(@langchain/core@1.2.9(@opentelemetry/api@1.10.0)(@opentelemetry/exporter-trace-otlp-proto@0.208.0(@opentelemetry/api@1.10.0))(@opentelemetry/sdk-trace-base@2.12.0(@opentelemetry/api@1.10.0))(ws@8.21.3))
@@ -4495,10 +4495,10 @@ snapshots:
       - bufferutil
       - utf-8-validate
 
-  '@hono/zod-validator@0.7.6(hono@4.13.13)(zod@3.25.76)':
+  '@hono/zod-validator@0.7.6(hono@4.13.13)(zod@4.6.6)':
     dependencies:
       hono: 4.13.13
-      zod: 3.25.76
+      zod: 4.6.6
 
   '@isaacs/cliui@8.0.2':
     dependencies:
@@ -4725,7 +4725,7 @@ snapshots:
       langsmith: 0.9.0(@opentelemetry/api@1.10.0)(@opentelemetry/exporter-trace-otlp-proto@0.208.0(@opentelemetry/api@1.10.0))(@opentelemetry/sdk-trace-base@2.12.0(@opentelemetry/api@1.10.0))(ws@8.21.3)
       mustache: 4.2.0
       p-queue: 6.6.2
-      zod: 3.25.76
+      zod: 4.6.6
     transitivePeerDependencies:
       - '@opentelemetry/api'
       - '@opentelemetry/exporter-trace-otlp-proto'
@@ -4733,14 +4733,14 @@ snapshots:
       - openai
       - ws
 
-  '@langchain/langgraph-api@1.4.5(vbfnu5we7w3loo46eax3cciwai)':
+  '@langchain/langgraph-api@1.4.5(vetarwhgyfduyx6uuyys2g73oq)':
     dependencies:
       '@babel/code-frame': 7.29.7
       '@hono/node-server': 2.1.1(hono@4.13.13)
       '@hono/node-ws': 1.3.1(@hono/node-server@2.1.1(hono@4.13.13))(hono@4.13.13)
-      '@hono/zod-validator': 0.7.6(hono@4.13.13)(zod@3.25.76)
+      '@hono/zod-validator': 0.7.6(hono@4.13.13)(zod@4.6.6)
       '@langchain/core': 1.2.9(@opentelemetry/api@1.10.0)(@opentelemetry/exporter-trace-otlp-proto@0.208.0(@opentelemetry/api@1.10.0))(@opentelemetry/sdk-trace-base@2.12.0(@opentelemetry/api@1.10.0))(ws@8.21.3)
-      '@langchain/langgraph': 1.4.13(@langchain/core@1.2.9(@opentelemetry/api@1.10.0)(@opentelemetry/exporter-trace-otlp-proto@0.208.0(@opentelemetry/api@1.10.0))(@opentelemetry/sdk-trace-base@2.12.0(@opentelemetry/api@1.10.0))(ws@8.21.3))(zod@3.25.76)
+      '@langchain/langgraph': 1.4.13(@langchain/core@1.2.9(@opentelemetry/api@1.10.0)(@opentelemetry/exporter-trace-otlp-proto@0.208.0(@opentelemetry/api@1.10.0))(@opentelemetry/sdk-trace-base@2.12.0(@opentelemetry/api@1.10.0))(ws@8.21.3))(zod@4.6.6)
       '@langchain/langgraph-checkpoint': 1.1.5(@langchain/core@1.2.9(@opentelemetry/api@1.10.0)(@opentelemetry/exporter-trace-otlp-proto@0.208.0(@opentelemetry/api@1.10.0))(@opentelemetry/sdk-trace-base@2.12.0(@opentelemetry/api@1.10.0))(ws@8.21.3))
       '@langchain/langgraph-ui': 1.4.5
       '@langchain/protocol': 0.0.18
@@ -4759,7 +4759,7 @@ snapshots:
       typescript: 5.9.3
       winston: 3.19.0
       winston-console-format: 1.0.8
-      zod: 3.25.76
+      zod: 4.6.6
     optionalDependencies:
       '@langchain/langgraph-sdk': 1.10.0(@langchain/core@1.2.9(@opentelemetry/api@1.10.0)(@opentelemetry/exporter-trace-otlp-proto@0.208.0(@opentelemetry/api@1.10.0))(@opentelemetry/sdk-trace-base@2.12.0(@opentelemetry/api@1.10.0))(ws@8.21.3))
     transitivePeerDependencies:
@@ -4793,14 +4793,14 @@ snapshots:
       esbuild-plugin-tailwindcss: 2.2.0
       zod: 4.6.6
 
-  '@langchain/langgraph@1.4.13(@langchain/core@1.2.9(@opentelemetry/api@1.10.0)(@opentelemetry/exporter-trace-otlp-proto@0.208.0(@opentelemetry/api@1.10.0))(@opentelemetry/sdk-trace-base@2.12.0(@opentelemetry/api@1.10.0))(ws@8.21.3))(zod@3.25.76)':
+  '@langchain/langgraph@1.4.13(@langchain/core@1.2.9(@opentelemetry/api@1.10.0)(@opentelemetry/exporter-trace-otlp-proto@0.208.0(@opentelemetry/api@1.10.0))(@opentelemetry/sdk-trace-base@2.12.0(@opentelemetry/api@1.10.0))(ws@8.21.3))(zod@4.6.6)':
     dependencies:
       '@langchain/core': 1.2.9(@opentelemetry/api@1.10.0)(@opentelemetry/exporter-trace-otlp-proto@0.208.0(@opentelemetry/api@1.10.0))(@opentelemetry/sdk-trace-base@2.12.0(@opentelemetry/api@1.10.0))(ws@8.21.3)
       '@langchain/langgraph-checkpoint': 1.1.5(@langchain/core@1.2.9(@opentelemetry/api@1.10.0)(@opentelemetry/exporter-trace-otlp-proto@0.208.0(@opentelemetry/api@1.10.0))(@opentelemetry/sdk-trace-base@2.12.0(@opentelemetry/api@1.10.0))(ws@8.21.3))
       '@langchain/langgraph-sdk': 1.10.0(@langchain/core@1.2.9(@opentelemetry/api@1.10.0)(@opentelemetry/exporter-trace-otlp-proto@0.208.0(@opentelemetry/api@1.10.0))(@opentelemetry/sdk-trace-base@2.12.0(@opentelemetry/api@1.10.0))(ws@8.21.3))
       '@langchain/protocol': 0.0.18
       '@standard-schema/spec': 1.1.0
-      zod: 3.25.76
+      zod: 4.6.6
     transitivePeerDependencies:
       - react
       - react-dom
@@ -6790,10 +6790,10 @@ snapshots:
   langchain@1.5.10(@langchain/core@1.2.9(@opentelemetry/api@1.10.0)(@opentelemetry/exporter-trace-otlp-proto@0.208.0(@opentelemetry/api@1.10.0))(@opentelemetry/sdk-trace-base@2.12.0(@opentelemetry/api@1.10.0))(ws@8.21.3))(@opentelemetry/api@1.10.0)(@opentelemetry/exporter-trace-otlp-proto@0.208.0(@opentelemetry/api@1.10.0))(@opentelemetry/sdk-trace-base@2.12.0(@opentelemetry/api@1.10.0))(ws@8.21.3):
     dependencies:
       '@langchain/core': 1.2.9(@opentelemetry/api@1.10.0)(@opentelemetry/exporter-trace-otlp-proto@0.208.0(@opentelemetry/api@1.10.0))(@opentelemetry/sdk-trace-base@2.12.0(@opentelemetry/api@1.10.0))(ws@8.21.3)
-      '@langchain/langgraph': 1.4.13(@langchain/core@1.2.9(@opentelemetry/api@1.10.0)(@opentelemetry/exporter-trace-otlp-proto@0.208.0(@opentelemetry/api@1.10.0))(@opentelemetry/sdk-trace-base@2.12.0(@opentelemetry/api@1.10.0))(ws@8.21.3))(zod@3.25.76)
+      '@langchain/langgraph': 1.4.13(@langchain/core@1.2.9(@opentelemetry/api@1.10.0)(@opentelemetry/exporter-trace-otlp-proto@0.208.0(@opentelemetry/api@1.10.0))(@opentelemetry/sdk-trace-base@2.12.0(@opentelemetry/api@1.10.0))(ws@8.21.3))(zod@4.6.6)
       '@langchain/langgraph-checkpoint': 1.1.5(@langchain/core@1.2.9(@opentelemetry/api@1.10.0)(@opentelemetry/exporter-trace-otlp-proto@0.208.0(@opentelemetry/api@1.10.0))(@opentelemetry/sdk-trace-base@2.12.0(@opentelemetry/api@1.10.0))(ws@8.21.3))
       langsmith: 0.9.0(@opentelemetry/api@1.10.0)(@opentelemetry/exporter-trace-otlp-proto@0.208.0(@opentelemetry/api@1.10.0))(@opentelemetry/sdk-trace-base@2.12.0(@opentelemetry/api@1.10.0))(ws@8.21.3)
-      zod: 3.25.76
+      zod: 4.6.6
     transitivePeerDependencies:
       - '@opentelemetry/api'
       - '@opentelemetry/exporter-trace-otlp-proto'
