@@ -1,3 +1,11 @@
+## 2.0.8-keycardai-mcp (2026-11-06)
+
+
+- fix(mcp): drop the unused zod dependency (#331)
+- Nothing in packages/mcp/src or the built dist imports zod; the dependency only pulled a zod 3 range covered by GHSA-mrhx-c7xc-m3w5 into every installer. Remove it, update the lockfile, and correct the README sentence that said the package keeps its own zod 3. SDK-33, #330.
+- Co-authored-by: devin-ai-keycard <devin-ai@keycard.ai>
+Co-authored-by: Larry Osakwe <larry@keycard.ai>
+
 ## 2.0.7-keycardai-mcp (2026-11-06)
 
 
