@@ -97,6 +97,8 @@ export interface KeycardWorkerOptions<Env extends KeycardEnv = KeycardEnv> {
 export interface MetadataOptions {
   /** Keycard Zone URL (issuer). */
   issuer: string;
+  /** Timeout in milliseconds for the metadata request to the issuer (default 10 seconds). */
+  timeoutMs?: number;
   /** Scopes supported by this resource. */
   scopesSupported?: string[];
   /** Human-readable resource name. */
