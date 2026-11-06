@@ -3,7 +3,7 @@ import { HTTPError, OAuthError, TokenEndpointDiscoveryError } from "./errors.js"
 
 export const DEFAULT_DISCOVERY_TTL_MS = 60 * 60 * 1000;
 export const DEFAULT_NEGATIVE_TTL_MS = 60 * 1000;
-const DEFAULT_FETCH_TIMEOUT_MS = 10_000;
+export const DEFAULT_FETCH_TIMEOUT_MS = 10_000;
 
 export interface TokenEndpointCacheOptions {
   /** Cache lifetime for the discovered token endpoint. Default: 1 hour. */

@@ -33,6 +33,13 @@ function mockTokenResponse(): Response {
   );
 }
 
+/** A token endpoint that never answers: settles only when the request is aborted. */
+function hangUntilAborted(init?: FetchInit): Promise<Response> {
+  return new Promise((_, reject) => {
+    init?.signal?.addEventListener('abort', () => reject(init.signal!.reason));
+  });
+}
+
 describe('ClientCredentialsClient.requestToken', () => {
   let originalFetch: typeof fetch;
   let fetchMock: jest.Mock;
@@ -178,6 +185,27 @@ describe('ClientCredentialsClient.requestToken', () => {
     expect(metadataCalls).toHaveLength(1);
     const tokenCalls = fetchMock.mock.calls.filter(([url]) => url === TOKEN_ENDPOINT);
     expect(tokenCalls).toHaveLength(2);
+  });
+
+  it('bounds the token request with a timeout by default', async () => {
+    const client = new ClientCredentialsClient(ISSUER);
+    await client.requestToken();
+
+    const tokenCall = fetchMock.mock.calls.find(([url]) => url === TOKEN_ENDPOINT);
+    expect((tokenCall![1] as RequestInit).signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('rejects with a TimeoutError when the token endpoint does not answer within fetchTimeoutMs', async () => {
+    fetchMock.mockImplementation(async (input: FetchInput, init?: FetchInit) => {
+      const url = typeof input === 'string' ? input : (input as URL | Request).toString();
+      if (url.includes('/.well-known/oauth-authorization-server')) {
+        return mockMetadataResponse();
+      }
+      return hangUntilAborted(init);
+    });
+
+    const client = new ClientCredentialsClient(ISSUER, { fetchTimeoutMs: 50 });
+    await expect(client.requestToken()).rejects.toMatchObject({ name: 'TimeoutError' });
   });
 
   it('throws when metadata does not advertise a token_endpoint', async () => {

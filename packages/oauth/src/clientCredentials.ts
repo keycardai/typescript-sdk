@@ -1,6 +1,6 @@
 import { OAuthError } from "./errors.js";
 import type { ApplicationCredential } from "./credentials.js";
-import { TokenEndpointResolver, type TokenEndpointCacheOptions } from "./tokenEndpoint.js";
+import { DEFAULT_FETCH_TIMEOUT_MS, TokenEndpointResolver, type TokenEndpointCacheOptions } from "./tokenEndpoint.js";
 import { deserializeTokenResponse, type TokenResponse } from "./tokenExchange.js";
 
 // =============================================================================
@@ -30,6 +30,11 @@ export interface ClientCredentialsClientOptions extends TokenEndpointCacheOption
    * Authorization header from the credential's `getAuth(issuer)`.
    */
   credential?: ApplicationCredential;
+  /**
+   * Timeout for each request to the authorization server: token endpoint
+   * discovery and the token request itself. Default: 10 seconds.
+   */
+  fetchTimeoutMs?: number;
 }
 
 export interface RequestTokenOptions {
@@ -65,12 +70,14 @@ export class ClientCredentialsClient {
   #clientSecret?: string;
   #credential?: ApplicationCredential;
   #tokenEndpoint: TokenEndpointResolver;
+  #fetchTimeoutMs: number;
 
   constructor(issuer: string, options?: ClientCredentialsClientOptions) {
     this.#issuer = issuer;
     this.#clientId = options?.clientId;
     this.#clientSecret = options?.clientSecret;
     this.#credential = options?.credential;
+    this.#fetchTimeoutMs = options?.fetchTimeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS;
     this.#tokenEndpoint = new TokenEndpointResolver(issuer, options);
   }
 
@@ -95,6 +102,7 @@ export class ClientCredentialsClient {
       method: "POST",
       headers,
       body: body.toString(),
+      signal: AbortSignal.timeout(this.#fetchTimeoutMs),
     });
 
     if (!response.ok) {
