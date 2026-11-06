@@ -58,6 +58,10 @@ jobs:
     steps:
       # The release app's token, as in bump-package.yml: a PR opened with the
       # default GITHUB_TOKEN triggers no CI, and the support PR needs pr.yml.
+      # The permissions block above applies to GITHUB_TOKEN only; the app's own
+      # permissions are set on the app (it needs Issues: write, or
+      # `gh issue create --label` creates the issue and GitHub drops the label
+      # silently; the script warns when that happens).
       - name: Generate GitHub App token
         id: generate-token
         uses: actions/create-github-app-token@v2
