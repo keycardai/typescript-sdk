@@ -92,7 +92,7 @@ export interface DeviceAuthorization {
   verificationUriComplete?: string;
   /** Lifetime of `deviceCode` and `userCode`, in seconds. */
   expiresIn: number;
-  /** Minimum wait between polls, in seconds. 5 when the response omits it. */
+  /** Minimum wait between polls, in seconds. 5 when the response omits it. A response with an interval that is not a positive integer throws `DeviceGrantError` `invalid_response`. */
   interval: number;
   /** The time the response was received plus `expiresIn`, in milliseconds since the Unix epoch, read from the clock. */
   expiresAt: number;
@@ -187,14 +187,18 @@ export async function pollDeviceToken(
  * - On `slow_down` it adds 5 seconds to the interval for this poll and every later one.
  * - On any other OAuth error it stops and throws that `DeviceGrantError`.
  * - On a network error, a timeout, an HTTP 5xx, or an HTTP 429 it stops and
- *   throws `DevicePollError`. It does not poll again.
+ *   throws `DevicePollError`, also when the 5xx or 429 has an OAuth error
+ *   body. It does not poll again.
+ * - On any other failure, such as an error from the credential or a 4xx
+ *   without an OAuth error body, it stops and throws that error as is.
  * - If the next poll would start after `authorization.expiresAt`, it stops
  *   without waiting or polling and throws `DeviceGrantError` with code
  *   `expired_token`.
  *
  * Polling again on `authorization_pending` and `slow_down` is the grant
  * itself, not a retry. `timeoutMs` bounds each request, not the waits or the
- * whole loop. Aborting `signal` ends the wait or the request in progress and
+ * whole loop. It applies also when `signal` has a longer deadline. Aborting
+ * `signal` ends the wait or the request in progress and
  * rejects with `signal.reason`. No request is sent after the abort.
  *
  * When the device authorization request named more than one resource, the
@@ -430,13 +434,20 @@ function parseDeviceAuthorization(json: Record<string, unknown>, status: number,
       status,
     });
   }
+  const interval = "interval" in json ? json.interval : DEFAULT_INTERVAL_SECONDS;
+  if (typeof interval !== "number" || !Number.isInteger(interval) || interval <= 0) {
+    throw new DeviceGrantError("invalid_response", {
+      errorDescription: `Device authorization response interval ${JSON.stringify(interval)} is not a positive integer`,
+      status,
+    });
+  }
 
   const authorization: DeviceAuthorization = {
     deviceCode,
     userCode,
     verificationUri,
     expiresIn: expiresIn as number,
-    interval: typeof json.interval === "number" && json.interval > 0 ? json.interval : DEFAULT_INTERVAL_SECONDS,
+    interval,
     expiresAt: clock.now() + (expiresIn as number) * 1000,
   };
   if (typeof json.verification_uri_complete === "string" && json.verification_uri_complete) {

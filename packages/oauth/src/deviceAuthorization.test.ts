@@ -221,6 +221,16 @@ describe('device authorization grant', () => {
       },
     );
 
+    it.each([0, -1, '5', 2.5, null])('row 25: a response with interval %p throws DeviceGrantError invalid_response', async (interval) => {
+      mockFetch({ device: json(200, { ...DEVICE_RESPONSE, interval }) });
+
+      const error = await requestDeviceAuthorization(ISSUER, { clientId: 'c', metadata: METADATA }).catch((e) => e);
+
+      expect(error).toBeInstanceOf(DeviceGrantError);
+      expect(error).toMatchObject({ errorCode: 'invalid_response', status: 200, retryable: true });
+      expect(error.message).toBe(`Device authorization response interval ${JSON.stringify(interval)} is not a positive integer`);
+    });
+
     it('row 4: metadata without device_authorization_endpoint throws ConfigurationError and sends nothing', async () => {
       const calls = mockFetch({});
 
@@ -453,8 +463,8 @@ describe('device authorization grant', () => {
         },
       },
       {
-        row: 13,
-        name: 'a 5xx with an OAuth body',
+        row: 26,
+        name: 'a 503 with an OAuth body',
         polls: [json(503, { error: 'temporarily_unavailable' })],
         interval: 5,
         cause: (c: unknown) => {
@@ -492,13 +502,56 @@ describe('device authorization grant', () => {
       expect(calls).toHaveLength(polls.length);
     });
 
-    it('a poll that exceeds timeoutMs stops the loop with a DevicePollError whose cause is the timeout', async () => {
+    const credentialFailure = new Error('identity token source unreachable');
+    it.each([
+      {
+        name: 'the credential\'s client authentication fails on the second poll',
+        credential: () => {
+          const credential = fakeCredential();
+          credential.clientAuthentication
+            .mockImplementationOnce(async (_issuer, endpoint) => ({ headers: {}, form: { client_assertion: `a:${endpoint}` } }))
+            .mockRejectedValueOnce(credentialFailure);
+          return { credential };
+        },
+        polls: [pending],
+        check: (e: unknown) => expect(e).toBe(credentialFailure),
+      },
+      {
+        name: 'a 404 without an OAuth body',
+        credential: () => ({ clientId: 'c' }),
+        polls: [() => new Response('not found', { status: 404 })],
+        check: (e: unknown) => {
+          expect(e).toBeInstanceOf(HTTPError);
+          expect((e as HTTPError).status).toBe(404);
+        },
+      },
+    ])('row 27: $name stops and throws the error as is, without interval', async ({ credential, polls, check }) => {
+      const clock = new FakeClock();
+      const calls = mockFetch({ polls: [...polls, token] });
+
+      const error = await waitForDeviceToken(ISSUER, {
+        ...credential(),
+        authorization: authorization(),
+        metadata: METADATA,
+        clock,
+      }).catch((e) => e);
+
+      check(error);
+      expect(error).not.toBeInstanceOf(DevicePollError);
+      expect(error).not.toHaveProperty('interval');
+      expect(calls).toHaveLength(polls.length);
+    });
+
+    it.each([
+      { name: 'without a caller signal', signal: () => undefined },
+      { name: 'row 28: with a caller deadline longer than the request timeout', signal: () => AbortSignal.timeout(60_000) },
+    ])('a poll that exceeds timeoutMs stops the loop with a DevicePollError whose cause is the timeout ($name)', async ({ signal }) => {
       const clock = new FakeClock();
       const hang: Responder = (call) =>
         new Promise((_resolve, reject) => {
           call.init.signal!.addEventListener('abort', () => reject(call.init.signal!.reason));
         });
-      const calls = mockFetch({ polls: [hang] });
+      const calls = mockFetch({ polls: [slowDown, hang] });
 
       const error = await waitForDeviceToken(ISSUER, {
         clientId: 'c',
@@ -506,11 +559,14 @@ describe('device authorization grant', () => {
         metadata: METADATA,
         clock,
         timeoutMs: 5,
+        signal: signal(),
       }).catch((e) => e);
 
       expect(error).toBeInstanceOf(DevicePollError);
+      expect(error.retryable).toBe(true);
+      expect(error.interval).toBe(10);
       expect((error.cause as Error).name).toBe('TimeoutError');
-      expect(calls).toHaveLength(1);
+      expect(calls).toHaveLength(2);
     });
 
     it('row 18: resuming with the interval from a DevicePollError waits that interval first', async () => {
