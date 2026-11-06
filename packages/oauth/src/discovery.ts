@@ -13,6 +13,8 @@ const OAuthAuthorizationServerMetadataSchema = z.object({
   token_endpoint_auth_methods_supported: z.array(z.string()).optional(),
   code_challenge_methods_supported: z.array(z.string()).optional(),
   scopes_supported: z.array(z.string()).optional(),
+  // RFC 8628 §4
+  device_authorization_endpoint: z.string().optional(),
   // OpenID Connect Discovery 1.0 §3
   userinfo_endpoint: z.string().optional(),
   end_session_endpoint: z.string().optional(),
