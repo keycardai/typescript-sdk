@@ -1,5 +1,6 @@
 import { ClientSecret } from './clientSecret.js';
-import type { ApplicationCredential } from '../credentials.js';
+import { providesClientAuthentication, type ApplicationCredential } from '../credentials.js';
+import { ConfigurationError } from '../errors.js';
 
 describe('ClientSecret', () => {
   describe('two-arg constructor (legacy)', () => {
@@ -73,6 +74,36 @@ describe('ClientSecret', () => {
       expect(req.subjectTokenType).toBe('urn:ietf:params:oauth:token-type:access_token');
       expect(req.subjectToken).toBe('subj');
       expect(req.resource).toBe('https://api.example.com');
+    });
+  });
+
+  describe('clientAuthentication', () => {
+    const ENDPOINT = 'https://zone-a.keycard.cloud/oauth/2/device_authorization';
+    const basic = (id: string, secret: string) => `Basic ${Buffer.from(`${id}:${secret}`).toString('base64')}`;
+    const multiZone = new ClientSecret({
+      'https://zone-a.keycard.cloud': ['id-a', 'sec-a'],
+      'https://zone-b.keycard.cloud': ['id-b', 'sec-b'],
+    });
+
+    it.each([
+      { name: 'single-zone', cred: new ClientSecret('alice', 'shh'), issuer: 'https://any.keycard.cloud', header: basic('alice', 'shh') },
+      { name: 'multi-zone, zone a', cred: multiZone, issuer: 'https://zone-a.keycard.cloud', header: basic('id-a', 'sec-a') },
+      { name: 'multi-zone, zone b with a trailing slash', cred: multiZone, issuer: 'https://zone-b.keycard.cloud/', header: basic('id-b', 'sec-b') },
+    ])('returns the Basic header and no form fields ($name)', async ({ cred, issuer, header }) => {
+      await expect(cred.clientAuthentication(issuer, ENDPOINT)).resolves.toStrictEqual({
+        headers: { Authorization: header },
+        form: {},
+      });
+    });
+
+    it('fails closed with ConfigurationError for a zone it has no credentials for', async () => {
+      await expect(multiZone.clientAuthentication('https://zone-c.keycard.cloud', ENDPOINT)).rejects.toThrow(
+        ConfigurationError,
+      );
+    });
+
+    it('is detected by providesClientAuthentication', () => {
+      expect(providesClientAuthentication(new ClientSecret('alice', 'shh'))).toBe(true);
     });
   });
 
