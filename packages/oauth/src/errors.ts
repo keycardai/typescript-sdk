@@ -50,18 +50,20 @@ export class AuthorizationDeniedError extends OAuthError {
 
 /**
  * OAuth error codes that no retry can change. An authorization-server error
- * with one of these codes is never retryable.
+ * with one of these codes is never retryable. Use it to classify an error
+ * code that arrives without its typed error, such as one read back from a
+ * queue or a log.
  */
-const PERMANENT_ERROR_CODES: ReadonlySet<string> = new Set([
+export const PERMANENT_ERROR_CODES: readonly string[] = Object.freeze([
   "access_denied",
   "expired_token",
   "insufficient_authorization",
   "invalid_client",
 ]);
 
-/** Reports whether `errorCode` is in the permanent table of the base Retryability rule. */
+/** Reports whether `errorCode` is in `PERMANENT_ERROR_CODES`. */
 export function isPermanentErrorCode(errorCode: string): boolean {
-  return PERMANENT_ERROR_CODES.has(errorCode);
+  return PERMANENT_ERROR_CODES.includes(errorCode);
 }
 
 /**
@@ -92,41 +94,46 @@ export class RefreshGrantError extends OAuthError {
 }
 
 /**
- * The authorization server refused a device authorization request or a
- * device token poll (RFC 8628), or the SDK ended the poll loop because the
- * device code expired. `errorCode` is the server's `error`, `expired_token`
- * when the loop stops at `expiresAt`, or `invalid_response` for a malformed
- * response. `retryable` is `false` for a code in the permanent table and for
+ * A device authorization request or a device token poll failed (RFC 8628),
+ * or the poll loop stopped because the device code expired.
+ *
+ * `errorCode` is the server's `error` for an OAuth error response, and
+ * `expired_token` when the loop stops at `expiresAt`. It is
+ * `invalid_response` for a malformed response, for an HTTP error without an
+ * OAuth error body, and for a network error or timeout.
+ *
+ * `retryable` is `false` for a code in `PERMANENT_ERROR_CODES` and for
  * `invalid_grant`, whose only recovery is a new device authorization
- * request. It is `true` for every other code, including
- * `authorization_pending` and `slow_down`.
+ * request. For an HTTP error without an OAuth error body it is `true` for a
+ * 5xx or 429 and `false` for any other status. It is `true` for every other
+ * failure, including `authorization_pending`, `slow_down`, and a network
+ * error. `cause` is the network error or timeout, when there is one.
  */
 export class DeviceGrantError extends OAuthError {
   readonly retryable: boolean;
   readonly errorDescription?: string;
   readonly status?: number;
+  readonly cause?: unknown;
 
   constructor(
     errorCode: string,
-    options?: { errorDescription?: string; errorUri?: string; status?: number },
+    options?: { errorDescription?: string; errorUri?: string; status?: number; retryable?: boolean; cause?: unknown },
   ) {
     super(errorCode, options?.errorDescription ?? `Device authorization grant failed: ${errorCode}`, options?.errorUri);
     this.name = "DeviceGrantError";
-    this.retryable = !isPermanentErrorCode(errorCode) && errorCode !== "invalid_grant";
+    this.retryable = options?.retryable ?? (!isPermanentErrorCode(errorCode) && errorCode !== "invalid_grant");
     this.errorDescription = options?.errorDescription;
     this.status = options?.status;
+    this.cause = options?.cause;
   }
 }
 
 /**
- * The device token poll loop stopped on a network error, an HTTP 5xx, or an
- * HTTP 429. It does not poll again. `cause` is the original failure: the
- * fetch error, an `HTTPError`, or a `DeviceGrantError` when the 5xx or 429
- * response had an OAuth error body. `interval` is the wait in seconds the
- * loop would have used before its next poll, including every `slow_down`
- * increase. To resume, call `waitForDeviceToken` again with the same
- * `DeviceAuthorization` and this `interval` before `expiresAt`. After a
- * timeout, wait longer than `interval` before resuming (RFC 8628 §3.5).
+ * `waitForDeviceToken` stopped on a network error, a timeout, an HTTP 5xx,
+ * or an HTTP 429, and did not poll again. `interval` is the wait in seconds
+ * the loop would have used before its next poll, including every
+ * `slow_down` increase. `cause` is the original failure: the network error
+ * or timeout, or the `DeviceGrantError` for the 5xx or 429 response.
  * `retryable` is always `true`.
  */
 export class DevicePollError extends Error {

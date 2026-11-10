@@ -1,4 +1,5 @@
 import type { ApplicationCredential, ClientAuthentication } from "../credentials.js";
+import { basicAuthorization } from "../basicAuthorization.js";
 import { ConfigurationError } from "../errors.js";
 import type { TokenExchangeRequest } from "../tokenExchange.js";
 
@@ -105,7 +106,7 @@ export class ClientSecret implements ApplicationCredential {
       throw new ConfigurationError(`ClientSecret: no client credentials configured for issuer "${issuer}"`);
     }
     return {
-      headers: { Authorization: `Basic ${btoa(`${auth.clientId}:${auth.clientSecret}`)}` },
+      headers: { Authorization: basicAuthorization(auth.clientId, auth.clientSecret) },
       form: {},
     };
   }

@@ -1,5 +1,6 @@
 import { requestSignal } from "./requestSignal.js";
 import base64url from "./base64url.js";
+import { basicAuthorization } from "./basicAuthorization.js";
 import { fetchAuthorizationServerMetadata, type OAuthAuthorizationServerMetadata } from "./discovery.js";
 import { ConfigurationError, OAuthError } from "./errors.js";
 import { deserializeTokenResponse, type TokenResponse } from "./tokenExchange.js";
@@ -116,7 +117,7 @@ export async function exchangeAuthorizationCode(
     "Content-Type": "application/x-www-form-urlencoded",
   };
   if (options.clientId && options.clientSecret) {
-    headers["Authorization"] = `Basic ${btoa(`${options.clientId}:${options.clientSecret}`)}`;
+    headers["Authorization"] = basicAuthorization(options.clientId, options.clientSecret);
     params.delete("client_id");
   }
 
@@ -312,7 +313,8 @@ async function waitForCode(
         const code = reqUrl.searchParams.get("code");
         const error = reqUrl.searchParams.get("error");
 
-        res.writeHead(200, { "Content-Type": "text/html" });
+        // The server takes one request. Closing the connection lets server.close() finish now.
+        res.writeHead(200, { "Content-Type": "text/html", Connection: "close" });
         res.end("<html><body><p>Authentication complete. You can close this tab.</p></body></html>");
 
         server.close();

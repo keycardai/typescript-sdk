@@ -32,11 +32,10 @@ export interface ApplicationCredential {
   ): Promise<TokenExchangeRequest>;
   /**
    * Returns the client authentication for one request to `endpoint` on the
-   * zone `issuer`. Optional. Refresh with a credential and the device
-   * authorization grant need it, and throw `ConfigurationError` before any
-   * request when it is absent. `ClientSecret`, `WebIdentity`, and
-   * `WorkloadIdentity` provide it. Call it once per request: assertion-based
-   * credentials sign or fetch a new assertion on every call.
+   * zone `issuer`. Optional. An operation that needs it throws
+   * `ConfigurationError` before any request when it is absent. Call it once
+   * per request: assertion-based credentials sign or fetch a new assertion on
+   * every call.
    */
   clientAuthentication?(issuer: string, endpoint: string): Promise<ClientAuthentication>;
   /**

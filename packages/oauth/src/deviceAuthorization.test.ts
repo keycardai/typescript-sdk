@@ -5,12 +5,13 @@ import { join } from 'node:path';
 import {
   pollDeviceToken,
   requestDeviceAuthorization,
+  systemClock,
   waitForDeviceToken,
   type Clock,
   type DeviceAuthorization,
 } from './deviceAuthorization.js';
 import type { ApplicationCredential, ClientAuthentication } from './credentials.js';
-import { ConfigurationError, DeviceGrantError, DevicePollError, HTTPError } from './errors.js';
+import { ConfigurationError, DeviceGrantError, DevicePollError } from './errors.js';
 import { WebIdentity } from './server/webIdentity.js';
 
 const ISSUER = 'https://zone.example.com';
@@ -113,6 +114,25 @@ function json(status: number, body: unknown): Responder {
     new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 }
 
+/** Never responds. Rejects with the request signal's reason when it aborts. */
+const hang: Responder = (call) =>
+  new Promise((_resolve, reject) => {
+    call.init.signal!.addEventListener('abort', () => reject(call.init.signal!.reason));
+  });
+
+/** Sends the status line and headers, then stalls the body until the request signal aborts. */
+function stalledBody(status: number): Responder {
+  return (call) =>
+    new Response(
+      new ReadableStream({
+        start(controller) {
+          call.init.signal!.addEventListener('abort', () => controller.error(call.init.signal!.reason));
+        },
+      }),
+      { status, headers: { 'content-type': 'application/json' } },
+    );
+}
+
 const pending = json(400, { error: 'authorization_pending' });
 const slowDown = json(400, { error: 'slow_down' });
 const token = json(200, TOKEN_BODY);
@@ -132,6 +152,62 @@ function fakeCredential(): ApplicationCredential & { clientAuthentication: jest.
 function decodeJwtPayload(jwt: string): Record<string, unknown> {
   return JSON.parse(Buffer.from(jwt.split('.')[1], 'base64url').toString('utf-8'));
 }
+
+describe('systemClock.sleep', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  const reason = new Error('cancelled');
+
+  // `listener` is what happens to the abort listener: never added, removed
+  // when the timer fires, or added with `once` so the abort removes it.
+  // Every case must leave no timer behind.
+  it.each([
+    { name: 'resolves after ms without a signal', signal: false, abortBefore: false, abortAtMs: undefined, outcome: 'resolved', atMs: 1000, listener: 'none' },
+    { name: 'resolves after ms and removes its abort listener', signal: true, abortBefore: false, abortAtMs: undefined, outcome: 'resolved', atMs: 1000, listener: 'removed' },
+    { name: 'rejects at once with the reason of a signal that is already aborted', signal: true, abortBefore: true, abortAtMs: undefined, outcome: 'rejected', atMs: 0, listener: 'none' },
+    { name: 'rejects with the reason on abort and clears its timer', signal: true, abortBefore: false, abortAtMs: 400, outcome: 'rejected', atMs: 400, listener: 'once' },
+  ])('$name', async ({ signal, abortBefore, abortAtMs, outcome, atMs, listener }) => {
+    const controller = new AbortController();
+    if (abortBefore) controller.abort(reason);
+    const add = jest.spyOn(controller.signal, 'addEventListener');
+    const remove = jest.spyOn(controller.signal, 'removeEventListener');
+
+    let elapsed = 0;
+    let settled: { outcome: string; value: unknown; atMs: number } | undefined;
+    systemClock.sleep(1000, signal ? controller.signal : undefined).then(
+      (value) => { settled = { outcome: 'resolved', value, atMs: elapsed }; },
+      (value) => { settled = { outcome: 'rejected', value, atMs: elapsed }; },
+    );
+
+    await jest.advanceTimersByTimeAsync(0);
+    if (abortAtMs !== undefined) {
+      elapsed = abortAtMs;
+      await jest.advanceTimersByTimeAsync(abortAtMs);
+      controller.abort(reason);
+      await jest.advanceTimersByTimeAsync(0);
+    }
+    if (!settled) {
+      elapsed = 1000;
+      await jest.advanceTimersByTimeAsync(1000 - (abortAtMs ?? 0));
+    }
+
+    expect(settled).toEqual({ outcome, value: outcome === 'rejected' ? reason : undefined, atMs });
+    expect(jest.getTimerCount()).toBe(0);
+    const added = add.mock.calls.map(([type, , options]) => [type, options]);
+    const removed = remove.mock.calls.map(([type, fn]) => [type, fn === add.mock.calls[0]?.[1]]);
+    expect({ added, removed }).toEqual({
+      none: { added: [], removed: [] },
+      removed: { added: [['abort', { once: true }]], removed: [['abort', true]] },
+      once: { added: [['abort', { once: true }]], removed: [] },
+    }[listener]);
+  });
+});
 
 describe('device authorization grant', () => {
   let originalFetch: typeof fetch;
@@ -268,6 +344,37 @@ describe('device authorization grant', () => {
 
       expect(calls).toEqual([`${ISSUER}/.well-known/oauth-authorization-server`, DEVICE_ENDPOINT]);
     });
+
+    it.each([
+      { name: 'the default', timeoutMs: undefined, expected: [[10_000]] },
+      { name: 'timeoutMs', timeoutMs: 2_500, expected: [[2_500]] },
+      { name: 'timeoutMs 0', timeoutMs: 0, expected: [] },
+    ])('bounds the request with $name', async ({ timeoutMs, expected }) => {
+      const timeout = jest.spyOn(AbortSignal, 'timeout');
+      try {
+        mockFetch({ device: json(200, DEVICE_RESPONSE) });
+
+        await requestDeviceAuthorization(ISSUER, { clientId: 'c', metadata: METADATA, timeoutMs });
+
+        expect(timeout.mock.calls).toEqual(expected);
+      } finally {
+        timeout.mockRestore();
+      }
+    });
+
+    it.each([
+      { name: 'a request that does not respond', device: hang },
+      { name: 'a 2xx body that stalls', device: stalledBody(200) },
+      { name: 'a 400 body that stalls', device: stalledBody(400) },
+    ])('throws a retryable DeviceGrantError with the timeout as cause on $name', async ({ device }) => {
+      mockFetch({ device });
+
+      const error = await requestDeviceAuthorization(ISSUER, { clientId: 'c', metadata: METADATA, timeoutMs: 5 }).catch((e) => e);
+
+      expect(error).toBeInstanceOf(DeviceGrantError);
+      expect(error).toMatchObject({ errorCode: 'invalid_response', retryable: true, status: undefined });
+      expect((error.cause as Error).name).toBe('TimeoutError');
+    });
   });
 
   describe('configuration errors before any request', () => {
@@ -284,6 +391,8 @@ describe('device authorization grant', () => {
     const clientOptions = [
       { label: 'row 3', name: 'both credential and clientId', options: { credential: fakeCredential(), clientId: 'c' } },
       { label: 'row 3', name: 'neither credential nor clientId', options: {} },
+      { label: 'row 3', name: 'a credential and an empty clientId', options: { credential: fakeCredential(), clientId: '' } },
+      { label: 'row 3', name: 'an empty clientId', options: { clientId: '' } },
       { label: 'row 23', name: 'a credential without clientAuthentication', options: { credential: withoutClientAuthentication } },
       {
         label: 'WebIdentity row 8',
@@ -299,6 +408,70 @@ describe('device authorization grant', () => {
 
       await expect(op.run(options)).rejects.toThrow(ConfigurationError);
       expect(calls).toHaveLength(0);
+    });
+
+    it('pollDeviceToken without metadata', async () => {
+      const calls = mockFetch({});
+
+      const error = await pollDeviceToken(ISSUER, { clientId: 'c', authorization: authorization() } as never).catch((e) => e);
+
+      expect(error).toBeInstanceOf(ConfigurationError);
+      expect(error.message).toBe('pollDeviceToken: metadata is required');
+      expect(calls).toHaveLength(0);
+    });
+
+    const badEndpoints = ['not a url', 'ftp://zone.example.com/token', '/oauth/2/token'];
+    const endpointCases = [
+      ...badEndpoints.map((endpoint) => ({
+        op: 'requestDeviceAuthorization',
+        endpoint,
+        run: (metadata: object) => requestDeviceAuthorization(ISSUER, { clientId: 'c', metadata: { ...METADATA, device_authorization_endpoint: endpoint, ...metadata } }),
+        field: 'device_authorization_endpoint',
+      })),
+      ...badEndpoints.map((endpoint) => ({
+        op: 'pollDeviceToken',
+        endpoint,
+        run: (metadata: object) => pollDeviceToken(ISSUER, { clientId: 'c', authorization: authorization(), metadata: { ...METADATA, token_endpoint: endpoint, ...metadata } }),
+        field: 'token_endpoint',
+      })),
+      ...badEndpoints.map((endpoint) => ({
+        op: 'waitForDeviceToken',
+        endpoint,
+        run: (metadata: object) => waitForDeviceToken(ISSUER, { clientId: 'c', authorization: authorization(), clock: new FakeClock(), metadata: { ...METADATA, token_endpoint: endpoint, ...metadata } }),
+        field: 'token_endpoint',
+      })),
+    ];
+
+    // fetch throws TypeError for these, which would otherwise read as a retryable network error.
+    it.each(endpointCases)('$op with $field $endpoint', async ({ run, endpoint, field }) => {
+      const calls = mockFetch({});
+
+      const error = await run({}).catch((e) => e);
+
+      expect(error).toBeInstanceOf(ConfigurationError);
+      expect(error.message).toBe(
+        `Authorization server "${ISSUER}" advertises a ${field} that is not an http or https URL: ${JSON.stringify(endpoint)}`,
+      );
+      expect(calls).toHaveLength(0);
+    });
+
+    it.each([0, -1, 2.5, '5', undefined])('waitForDeviceToken with a persisted authorization.interval of %p', async (interval) => {
+      const calls = mockFetch({});
+      const clock = new FakeClock();
+
+      const error = await waitForDeviceToken(ISSUER, {
+        clientId: 'c',
+        authorization: authorization({ interval: interval as number }),
+        metadata: METADATA,
+        clock,
+      }).catch((e) => e);
+
+      expect(error).toBeInstanceOf(ConfigurationError);
+      expect(error.message).toBe(
+        `waitForDeviceToken: the device authorization interval ${JSON.stringify(interval)} is not a positive integer`,
+      );
+      expect(calls).toHaveLength(0);
+      expect(clock.waits).toEqual([]);
     });
 
     it('row 19: waitForDeviceToken with an interval below authorization.interval', async () => {
@@ -352,22 +525,50 @@ describe('device authorization grant', () => {
       expect(error).toMatchObject({ errorCode: code, retryable, status: 400 });
     });
 
-    it('throws HTTPError for a non-OAuth error response', async () => {
-      mockFetch({ polls: [() => new Response('bad gateway', { status: 502 })] });
+    it.each([
+      { status: 502, retryable: true },
+      { status: 429, retryable: true },
+      { status: 404, retryable: false },
+    ])('throws DeviceGrantError invalid_response for an HTTP $status without an OAuth body', async ({ status, retryable }) => {
+      mockFetch({ polls: [() => new Response('not oauth', { status })] });
 
       const error = await pollDeviceToken(ISSUER, { clientId: 'c', authorization: authorization(), metadata: METADATA }).catch((e) => e);
 
-      expect(error).toBeInstanceOf(HTTPError);
-      expect(error.status).toBe(502);
+      expect(error).toBeInstanceOf(DeviceGrantError);
+      expect(error).toMatchObject({ errorCode: 'invalid_response', status, retryable, cause: undefined });
+      expect(error.message).toBe(`Device token poll failed (HTTP ${status})`);
     });
 
-    it('throws the fetch error unchanged on a network failure', async () => {
-      const failure = new TypeError('fetch failed');
-      mockFetch({ polls: [() => { throw failure; }] });
+    const networkFailure = new TypeError('fetch failed');
+    it.each([
+      { name: 'a network failure', polls: [() => { throw networkFailure; }], cause: (c: unknown) => expect(c).toBe(networkFailure) },
+      { name: 'a request timeout', polls: [hang], cause: (c: unknown) => expect((c as Error).name).toBe('TimeoutError') },
+      { name: 'a timeout while reading a 2xx body', polls: [stalledBody(200)], cause: (c: unknown) => expect((c as Error).name).toBe('TimeoutError') },
+      { name: 'a timeout while reading a 400 body', polls: [stalledBody(400)], cause: (c: unknown) => expect((c as Error).name).toBe('TimeoutError') },
+    ])('throws a retryable DeviceGrantError invalid_response with the failure as cause on $name', async ({ polls, cause }) => {
+      mockFetch({ polls });
+
+      const error = await pollDeviceToken(ISSUER, { clientId: 'c', authorization: authorization(), metadata: METADATA, timeoutMs: 5 }).catch((e) => e);
+
+      expect(error).toBeInstanceOf(DeviceGrantError);
+      expect(error).toMatchObject({ errorCode: 'invalid_response', retryable: true, status: undefined });
+      cause(error.cause);
+    });
+
+    it('rejects with the abort reason when the caller aborts while the poll is in flight', async () => {
+      const controller = new AbortController();
+      const reason = new Error('cancelled by caller');
+      mockFetch({
+        polls: [(call) => {
+          const response = hang(call);
+          controller.abort(reason);
+          return response;
+        }],
+      });
 
       await expect(
-        pollDeviceToken(ISSUER, { clientId: 'c', authorization: authorization(), metadata: METADATA }),
-      ).rejects.toBe(failure);
+        pollDeviceToken(ISSUER, { clientId: 'c', authorization: authorization(), metadata: METADATA, signal: controller.signal }),
+      ).rejects.toBe(reason);
     });
   });
 
@@ -458,8 +659,8 @@ describe('device authorization grant', () => {
         polls: [() => new Response('unavailable', { status: 503 })],
         interval: 5,
         cause: (c: unknown) => {
-          expect(c).toBeInstanceOf(HTTPError);
-          expect((c as HTTPError).status).toBe(503);
+          expect(c).toBeInstanceOf(DeviceGrantError);
+          expect(c).toMatchObject({ errorCode: 'invalid_response', status: 503, retryable: true });
         },
       },
       {
@@ -485,15 +686,29 @@ describe('device authorization grant', () => {
         polls: [() => new Response('', { status: 429 })],
         interval: 5,
         cause: (c: unknown) => {
-          expect(c).toBeInstanceOf(HTTPError);
-          expect((c as HTTPError).status).toBe(429);
+          expect(c).toBeInstanceOf(DeviceGrantError);
+          expect(c).toMatchObject({ errorCode: 'invalid_response', status: 429, retryable: true });
         },
+      },
+      {
+        row: 28,
+        name: 'slow_down, then a timeout while reading a 400 body',
+        polls: [slowDown, stalledBody(400)],
+        interval: 10,
+        cause: (c: unknown) => expect((c as Error).name).toBe('TimeoutError'),
+      },
+      {
+        row: 28,
+        name: 'a timeout while reading a 2xx body',
+        polls: [stalledBody(200)],
+        interval: 5,
+        cause: (c: unknown) => expect((c as Error).name).toBe('TimeoutError'),
       },
     ])('row $row: stops on $name with a retryable DevicePollError', async ({ polls, interval, cause }) => {
       const clock = new FakeClock();
       const calls = mockFetch({ polls: [...polls, token] });
 
-      const error = await waitForDeviceToken(ISSUER, { clientId: 'c', authorization: authorization(), metadata: METADATA, clock }).catch((e) => e);
+      const error = await waitForDeviceToken(ISSUER, { clientId: 'c', authorization: authorization(), metadata: METADATA, clock, timeoutMs: 5 }).catch((e) => e);
 
       expect(error).toBeInstanceOf(DevicePollError);
       expect(error.retryable).toBe(true);
@@ -521,8 +736,8 @@ describe('device authorization grant', () => {
         credential: () => ({ clientId: 'c' }),
         polls: [() => new Response('not found', { status: 404 })],
         check: (e: unknown) => {
-          expect(e).toBeInstanceOf(HTTPError);
-          expect((e as HTTPError).status).toBe(404);
+          expect(e).toBeInstanceOf(DeviceGrantError);
+          expect(e).toMatchObject({ errorCode: 'invalid_response', status: 404, retryable: false });
         },
       },
     ])('row 27: $name stops and throws the error as is, without interval', async ({ credential, polls, check }) => {
@@ -547,10 +762,6 @@ describe('device authorization grant', () => {
       { name: 'row 28: with a caller deadline longer than the request timeout', signal: () => AbortSignal.timeout(60_000) },
     ])('a poll that exceeds timeoutMs stops the loop with a DevicePollError whose cause is the timeout ($name)', async ({ signal }) => {
       const clock = new FakeClock();
-      const hang: Responder = (call) =>
-        new Promise((_resolve, reject) => {
-          call.init.signal!.addEventListener('abort', () => reject(call.init.signal!.reason));
-        });
       const calls = mockFetch({ polls: [slowDown, hang] });
 
       const error = await waitForDeviceToken(ISSUER, {

@@ -318,7 +318,7 @@ describe('authenticate', () => {
     );
 
     await expect(
-      authenticate(ISSUER, { clientId: 'my-client', port: testPort, timeoutMs: 200 }),
+      authenticate(ISSUER, { clientId: 'my-client', port: testPort, timeoutMs: 200, openBrowser: () => {} }),
     ).rejects.toThrow(/timed out/);
   }, 3000);
 });

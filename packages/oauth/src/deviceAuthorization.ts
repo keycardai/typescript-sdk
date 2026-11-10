@@ -1,7 +1,7 @@
 import { requestSignal } from "./requestSignal.js";
 import { requireClientAuthentication, type ApplicationCredential, type ClientAuthenticator } from "./credentials.js";
 import { fetchAuthorizationServerMetadata, type OAuthAuthorizationServerMetadata } from "./discovery.js";
-import { ConfigurationError, DeviceGrantError, DevicePollError, HTTPError } from "./errors.js";
+import { ConfigurationError, DeviceGrantError, DevicePollError } from "./errors.js";
 import { deserializeTokenResponse, type TokenResponse } from "./tokenExchange.js";
 
 // =============================================================================
@@ -50,31 +50,38 @@ export const systemClock: Clock = {
  * a flow: the zone binds the device code to the client and how it
  * authenticated.
  */
-export interface DeviceClientOptions {
-  /**
-   * Authenticates each request with the credential's `clientAuthentication`,
-   * called once per request with the URL of the endpoint the request goes
-   * to. A credential without `clientAuthentication` throws
-   * `ConfigurationError` before any request.
-   */
-  credential?: ApplicationCredential;
-  /** Public client. Sent as `client_id` in the body, with no other authentication. */
-  clientId?: string;
+export type DeviceClientOptions = (
+  | {
+      /**
+       * Authenticates each request with the credential's
+       * `clientAuthentication`, called once per request with the URL of the
+       * endpoint the request goes to.
+       */
+      credential: ApplicationCredential;
+      clientId?: never;
+    }
+  | {
+      /** Public client. Sent as `client_id` in the body, with no other authentication. */
+      clientId: string;
+      credential?: never;
+    }
+) & {
   /** Pre-discovered metadata. When set, no discovery request is made. */
   metadata?: OAuthAuthorizationServerMetadata;
+  /** Aborting it rejects with `signal.reason`. No request is sent after the abort. */
   signal?: AbortSignal;
   /** Timeout in milliseconds for each request to the authorization server (default 10 seconds; 0 disables). */
   timeoutMs?: number;
-}
+};
 
-export interface RequestDeviceAuthorizationOptions extends DeviceClientOptions {
+export type RequestDeviceAuthorizationOptions = DeviceClientOptions & {
   /** Sent as one space-joined `scope` parameter. */
   scopes?: readonly string[];
   /** RFC 8707 resource indicators, sent as one `resource` parameter each. */
   resources?: readonly string[];
   /** Sets `expiresAt`. Default: `systemClock`. */
   clock?: Clock;
-}
+};
 
 /**
  * The device authorization response (RFC 8628 §3.2). A plain value: the
@@ -92,28 +99,34 @@ export interface DeviceAuthorization {
   verificationUriComplete?: string;
   /** Lifetime of `deviceCode` and `userCode`, in seconds. */
   expiresIn: number;
-  /** Minimum wait between polls, in seconds. 5 when the response omits it. A response with an interval that is not a positive integer throws `DeviceGrantError` `invalid_response`. */
+  /** Minimum wait between polls, in seconds. 5 when the response omits it. */
   interval: number;
   /** The time the response was received plus `expiresIn`, in milliseconds since the Unix epoch, read from the clock. */
   expiresAt: number;
 }
 
-export interface PollDeviceTokenOptions extends DeviceClientOptions {
+export type PollDeviceTokenOptions = DeviceClientOptions & {
   /** The response from `requestDeviceAuthorization`. `pollDeviceToken` reads only `deviceCode`. */
   authorization: DeviceAuthorization;
-}
+  /**
+   * The zone's metadata. Required: fetch it once with
+   * `fetchAuthorizationServerMetadata` and pass it to every poll.
+   */
+  metadata: OAuthAuthorizationServerMetadata;
+};
 
-export interface WaitForDeviceTokenOptions extends PollDeviceTokenOptions {
+export type WaitForDeviceTokenOptions = DeviceClientOptions & {
+  /** The response from `requestDeviceAuthorization`, or a copy persisted from it. */
+  authorization: DeviceAuthorization;
   /**
    * The wait in seconds before the first poll, and the starting interval.
-   * Default: `authorization.interval`. To resume after a `DevicePollError`,
-   * pass its `interval`. A value below `authorization.interval` throws
-   * `ConfigurationError`.
+   * Default: `authorization.interval`. A value below `authorization.interval`
+   * throws `ConfigurationError`.
    */
   interval?: number;
   /** Reads the time for the expiry check and waits between polls. Default: `systemClock`. */
   clock?: Clock;
-}
+};
 
 /**
  * Ask the zone for a device code and a user code (RFC 8628 §3.1).
@@ -126,22 +139,19 @@ export interface WaitForDeviceTokenOptions extends PollDeviceTokenOptions {
  * are not exactly one of `credential` and `clientId`, or when the credential
  * has no `clientAuthentication`. Throws `ConfigurationError` before the
  * device authorization request when the metadata has no
- * `device_authorization_endpoint`. An OAuth error response throws
- * `DeviceGrantError`, and a response missing a required field throws
- * `DeviceGrantError` with code `invalid_response`.
+ * `device_authorization_endpoint` or it is not an http or https URL. An error
+ * from the credential's `clientAuthentication` is thrown as is. Every other
+ * failure throws `DeviceGrantError`. A response that is missing a required
+ * field, or has an `interval` that is not a positive integer, throws it with
+ * code `invalid_response`.
  */
 export async function requestDeviceAuthorization(
   issuer: string,
-  options: RequestDeviceAuthorizationOptions = {},
+  options: RequestDeviceAuthorizationOptions,
 ): Promise<DeviceAuthorization> {
   const client = resolveClient(options, "requestDeviceAuthorization");
   const metadata = await resolveMetadata(issuer, options);
-  const endpoint = metadata.device_authorization_endpoint;
-  if (!endpoint) {
-    throw new ConfigurationError(
-      `Authorization server "${issuer}" does not advertise a device_authorization_endpoint`,
-    );
-  }
+  const endpoint = requireEndpoint(issuer, metadata, "device_authorization_endpoint");
 
   const params = new URLSearchParams();
   if (options.scopes && options.scopes.length > 0) {
@@ -151,22 +161,27 @@ export async function requestDeviceAuthorization(
     params.append("resource", resource);
   }
 
-  const response = await unwrapTransport(post(issuer, endpoint, params, client, options));
-  if (!response.ok) {
-    throw await errorFromResponse(response, "Device authorization request");
-  }
-  const json = await readJsonObject(response);
-  return parseDeviceAuthorization(json, response.status, options.clock ?? systemClock);
+  const what = "Device authorization request";
+  return withTransportError(what, options.signal, async () => {
+    const response = await post(issuer, endpoint, params, client, options);
+    if (!response.ok) {
+      throw await errorFromResponse(response, what);
+    }
+    const json = await readJsonObject(response);
+    return parseDeviceAuthorization(json, response.status, options.clock ?? systemClock);
+  });
 }
 
 /**
  * Poll the token endpoint once (RFC 8628 §3.4) with
  * `authorization.deviceCode`. Returns the token once the person approves.
  *
- * An OAuth error response throws `DeviceGrantError` with the server's code,
- * including `authorization_pending` and `slow_down`. A non-2xx response
- * without an OAuth error body throws `HTTPError`. A network failure or
- * timeout throws the platform's error unchanged.
+ * Throws `ConfigurationError` before any request when the client options
+ * are not exactly one of `credential` and `clientId`, when `metadata` is
+ * missing, or when it has no `token_endpoint` or it is not an http or https
+ * URL. An error from the credential's `clientAuthentication` is thrown as
+ * is. Every other failure throws `DeviceGrantError`, including
+ * `authorization_pending` and `slow_down`.
  */
 export async function pollDeviceToken(
   issuer: string,
@@ -174,8 +189,13 @@ export async function pollDeviceToken(
 ): Promise<TokenResponse> {
   const client = resolveClient(options, "pollDeviceToken");
   requireDeviceCode(options.authorization);
-  const tokenEndpoint = requireTokenEndpoint(issuer, await resolveMetadata(issuer, options));
-  return unwrapTransport(poll(issuer, tokenEndpoint, client, options));
+  if (!options.metadata) {
+    throw new ConfigurationError("pollDeviceToken: metadata is required");
+  }
+  const tokenEndpoint = requireEndpoint(issuer, options.metadata, "token_endpoint");
+  return withTransportError("Device token poll", options.signal, () =>
+    poll(issuer, tokenEndpoint, client, options.authorization, options),
+  );
 }
 
 /**
@@ -185,21 +205,29 @@ export async function pollDeviceToken(
  * - It waits the interval before each poll, including the first.
  * - On `authorization_pending` it polls again.
  * - On `slow_down` it adds 5 seconds to the interval for this poll and every later one.
- * - On any other OAuth error it stops and throws that `DeviceGrantError`.
  * - On a network error, a timeout, an HTTP 5xx, or an HTTP 429 it stops and
  *   throws `DevicePollError`, also when the 5xx or 429 has an OAuth error
  *   body. It does not poll again.
- * - On any other failure, such as an error from the credential or a 4xx
- *   without an OAuth error body, it stops and throws that error as is.
+ * - On any other failure it stops and throws that error as is: a
+ *   `DeviceGrantError` for any other OAuth error or HTTP error, or the error
+ *   from the credential's `clientAuthentication`.
  * - If the next poll would start after `authorization.expiresAt`, it stops
  *   without waiting or polling and throws `DeviceGrantError` with code
  *   `expired_token`.
  *
+ * To resume after a `DevicePollError`, call it again before `expiresAt` with
+ * the same `authorization` and `interval` set to the error's `interval`.
+ * After a timeout or other network error, set a larger `interval`, such as
+ * double the error's `interval` (RFC 8628 §3.5).
+ *
  * Polling again on `authorization_pending` and `slow_down` is the grant
  * itself, not a retry. `timeoutMs` bounds each request, not the waits or the
- * whole loop. It applies also when `signal` has a longer deadline. Aborting
- * `signal` ends the wait or the request in progress and
- * rejects with `signal.reason`. No request is sent after the abort.
+ * whole loop. It applies also when `signal` has a longer deadline.
+ *
+ * Throws `ConfigurationError` before any request when the client options
+ * are not exactly one of `credential` and `clientId`, when `authorization`
+ * has no `deviceCode`, no `expiresAt`, or an `interval` that is not a
+ * positive integer, or when `interval` is below `authorization.interval`.
  *
  * When the device authorization request named more than one resource, the
  * token is not for any one of them. NEVER store it as the token for one
@@ -216,12 +244,16 @@ export async function waitForDeviceToken(
   if (!Number.isFinite(authorization.expiresAt)) {
     throw new ConfigurationError("waitForDeviceToken: the device authorization has no expiresAt");
   }
-  const minimum = authorization.interval > 0 ? authorization.interval : DEFAULT_INTERVAL_SECONDS;
-  let interval = minimum;
+  if (!isPositiveInteger(authorization.interval)) {
+    throw new ConfigurationError(
+      `waitForDeviceToken: the device authorization interval ${JSON.stringify(authorization.interval)} is not a positive integer`,
+    );
+  }
+  let interval = authorization.interval;
   if (options.interval !== undefined) {
-    if (!Number.isFinite(options.interval) || options.interval < minimum) {
+    if (!Number.isFinite(options.interval) || options.interval < authorization.interval) {
       throw new ConfigurationError(
-        `waitForDeviceToken: interval ${options.interval} is below the device authorization interval ${minimum}`,
+        `waitForDeviceToken: interval ${options.interval} is below the device authorization interval ${authorization.interval}`,
       );
     }
     interval = options.interval;
@@ -229,7 +261,7 @@ export async function waitForDeviceToken(
   const clock = options.clock ?? systemClock;
 
   signal?.throwIfAborted();
-  const tokenEndpoint = requireTokenEndpoint(issuer, await resolveMetadata(issuer, options));
+  const tokenEndpoint = requireEndpoint(issuer, await resolveMetadata(issuer, options), "token_endpoint");
 
   for (;;) {
     if (clock.now() + interval * 1000 > authorization.expiresAt) {
@@ -241,13 +273,13 @@ export async function waitForDeviceToken(
     signal?.throwIfAborted();
 
     try {
-      return await poll(issuer, tokenEndpoint, client, options);
+      return await poll(issuer, tokenEndpoint, client, authorization, options);
     } catch (error) {
       signal?.throwIfAborted();
       if (error instanceof TransportFailure) {
         throw new DevicePollError(interval, error.cause);
       }
-      if ((error instanceof DeviceGrantError || error instanceof HTTPError) && isTransientStatus(error.status)) {
+      if (error instanceof DeviceGrantError && isTransientStatus(error.status)) {
         throw new DevicePollError(interval, error);
       }
       if (error instanceof DeviceGrantError && error.errorCode === "authorization_pending") {
@@ -266,22 +298,28 @@ export async function waitForDeviceToken(
 // Internals
 // =============================================================================
 
-type DeviceClient = { credential: ClientAuthenticator } | { clientId: string };
+type ResolvedClient = { credential: ClientAuthenticator } | { clientId: string };
 
-/** A fetch that failed before a response arrived: a network error or a timeout. */
+/**
+ * A request that ended without a complete response: a network error or a
+ * timeout, while sending the request or while reading the response body.
+ */
 class TransportFailure {
   constructor(readonly cause: unknown) {}
 }
 
-function resolveClient(options: DeviceClientOptions, operation: string): DeviceClient {
+function resolveClient(options: DeviceClientOptions, operation: string): ResolvedClient {
   const { credential, clientId } = options;
-  if (credential && !clientId) {
+  if (credential !== undefined && clientId !== undefined) {
+    throw new ConfigurationError(`${operation}: set either credential or clientId, not both`);
+  }
+  if (credential !== undefined) {
     return { credential: requireClientAuthentication(credential, operation) };
   }
-  if (clientId && !credential) {
+  if (typeof clientId === "string" && clientId) {
     return { clientId };
   }
-  throw new ConfigurationError(`${operation}: set exactly one of credential and clientId`);
+  throw new ConfigurationError(`${operation}: clientId or credential is required`);
 }
 
 function requireDeviceCode(authorization: DeviceAuthorization | undefined): void {
@@ -290,11 +328,34 @@ function requireDeviceCode(authorization: DeviceAuthorization | undefined): void
   }
 }
 
-function requireTokenEndpoint(issuer: string, metadata: OAuthAuthorizationServerMetadata): string {
-  if (!metadata.token_endpoint) {
-    throw new ConfigurationError(`Authorization server "${issuer}" does not advertise a token_endpoint`);
+function requireEndpoint(
+  issuer: string,
+  metadata: OAuthAuthorizationServerMetadata,
+  field: "device_authorization_endpoint" | "token_endpoint",
+): string {
+  const endpoint = metadata[field];
+  if (!endpoint) {
+    throw new ConfigurationError(`Authorization server "${issuer}" does not advertise a ${field}`);
   }
-  return metadata.token_endpoint;
+  if (!isHttpUrl(endpoint)) {
+    throw new ConfigurationError(
+      `Authorization server "${issuer}" advertises a ${field} that is not an http or https URL: ${JSON.stringify(endpoint)}`,
+    );
+  }
+  return endpoint;
+}
+
+function isHttpUrl(value: string): boolean {
+  try {
+    const { protocol } = new URL(value);
+    return protocol === "https:" || protocol === "http:";
+  } catch {
+    return false;
+  }
+}
+
+function isPositiveInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value > 0;
 }
 
 async function resolveMetadata(
@@ -309,24 +370,40 @@ function isTransientStatus(status: number | undefined): boolean {
   return status !== undefined && (status >= 500 || status === 429);
 }
 
-async function unwrapTransport<T>(promise: Promise<T>): Promise<T> {
+/**
+ * Runs `request` and throws a `TransportFailure` from it as a retryable
+ * `DeviceGrantError` with the failure as `cause`. When `signal` has aborted,
+ * it rejects with `signal.reason` instead.
+ */
+async function withTransportError<T>(
+  what: string,
+  signal: AbortSignal | undefined,
+  request: () => Promise<T>,
+): Promise<T> {
   try {
-    return await promise;
+    return await request();
   } catch (error) {
-    throw error instanceof TransportFailure ? error.cause : error;
+    if (!(error instanceof TransportFailure)) throw error;
+    signal?.throwIfAborted();
+    throw new DeviceGrantError("invalid_response", {
+      errorDescription: `${what} failed: ${error.cause instanceof Error ? error.cause.message : String(error.cause)}`,
+      retryable: true,
+      cause: error.cause,
+    });
   }
 }
 
-/** One device token poll. Throws `TransportFailure` when no response arrives. */
+/** One device token poll. Throws `TransportFailure` when no complete response arrives. */
 async function poll(
   issuer: string,
   tokenEndpoint: string,
-  client: DeviceClient,
-  options: PollDeviceTokenOptions,
+  client: ResolvedClient,
+  authorization: DeviceAuthorization,
+  options: DeviceClientOptions,
 ): Promise<TokenResponse> {
   const params = new URLSearchParams();
   params.set("grant_type", DEVICE_CODE_GRANT_TYPE);
-  params.set("device_code", options.authorization.deviceCode);
+  params.set("device_code", authorization.deviceCode);
 
   const response = await post(issuer, tokenEndpoint, params, client, options);
   if (!response.ok) {
@@ -352,7 +429,7 @@ async function post(
   issuer: string,
   endpoint: string,
   params: URLSearchParams,
-  client: DeviceClient,
+  client: ResolvedClient,
   options: DeviceClientOptions,
 ): Promise<Response> {
   const headers: Record<string, string> = {};
@@ -378,14 +455,32 @@ async function post(
   }
 }
 
-/** A `DeviceGrantError` for an RFC 6749 §5.2 error body, an `HTTPError` otherwise. */
-async function errorFromResponse(response: Response, what: string): Promise<DeviceGrantError | HTTPError> {
-  let body: unknown;
+/**
+ * Reads the body as JSON. Returns `undefined` when the body is not JSON.
+ * Throws `TransportFailure` when reading the body fails, such as on a
+ * timeout.
+ */
+async function readJson(response: Response): Promise<unknown> {
+  let text: string;
   try {
-    body = await response.json();
-  } catch {
-    body = undefined;
+    text = await response.text();
+  } catch (cause) {
+    throw new TransportFailure(cause);
   }
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * A `DeviceGrantError` with the server's code for an RFC 6749 §5.2 error
+ * body. Otherwise a `DeviceGrantError` `invalid_response` that is retryable
+ * for a 5xx or 429.
+ */
+async function errorFromResponse(response: Response, what: string): Promise<DeviceGrantError> {
+  const body = await readJson(response);
   if (body && typeof body === "object" && !Array.isArray(body)) {
     const fields = body as Record<string, unknown>;
     if (typeof fields.error === "string" && fields.error) {
@@ -396,16 +491,15 @@ async function errorFromResponse(response: Response, what: string): Promise<Devi
       });
     }
   }
-  return new HTTPError(`${what} failed (HTTP ${response.status})`, response.status);
+  return new DeviceGrantError("invalid_response", {
+    errorDescription: `${what} failed (HTTP ${response.status})`,
+    status: response.status,
+    retryable: isTransientStatus(response.status),
+  });
 }
 
 async function readJsonObject(response: Response): Promise<Record<string, unknown>> {
-  let json: unknown;
-  try {
-    json = await response.json();
-  } catch {
-    json = undefined;
-  }
+  const json = await readJson(response);
   if (!json || typeof json !== "object" || Array.isArray(json)) {
     throw new DeviceGrantError("invalid_response", {
       errorDescription: "Response is not a JSON object",
@@ -435,7 +529,7 @@ function parseDeviceAuthorization(json: Record<string, unknown>, status: number,
     });
   }
   const interval = "interval" in json ? json.interval : DEFAULT_INTERVAL_SECONDS;
-  if (typeof interval !== "number" || !Number.isInteger(interval) || interval <= 0) {
+  if (!isPositiveInteger(interval)) {
     throw new DeviceGrantError("invalid_response", {
       errorDescription: `Device authorization response interval ${JSON.stringify(interval)} is not a positive integer`,
       status,

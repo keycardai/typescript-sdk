@@ -229,30 +229,44 @@ host. The device asks the zone for a user code, shows it to a person, and polls
 until the person approves or denies.
 
 ```typescript
+import { fetchAuthorizationServerMetadata } from "@keycardai/oauth/discovery";
 import { requestDeviceAuthorization, waitForDeviceToken } from "@keycardai/oauth/deviceAuthorization";
+import { DeviceGrantError, DevicePollError } from "@keycardai/oauth/errors";
 import { WorkloadIdentity, FileTokenSource } from "@keycardai/oauth/server";
+import type { TokenResponse } from "@keycardai/oauth/tokenExchange";
 
 const issuer = "https://your-zone.keycard.cloud";
 const credential = new WorkloadIdentity(new FileTokenSource(), { clientId: "my-client" });
+const metadata = await fetchAuthorizationServerMetadata(issuer);
 
 const authorization = await requestDeviceAuthorization(issuer, {
   credential, // or `clientId` for a public client
+  metadata,
   scopes: ["openid"],
   resources: ["https://api.example.com"],
 });
 console.log(`Visit ${authorization.verificationUriComplete ?? authorization.verificationUri}`);
 console.log(`and confirm the code ${authorization.userCode}`);
 
-const tokens = await waitForDeviceToken(issuer, { credential, authorization });
+let tokens: TokenResponse | undefined;
+let interval: number | undefined;
+while (!tokens) {
+  try {
+    tokens = await waitForDeviceToken(issuer, { credential, metadata, authorization, interval });
+  } catch (error) {
+    if (!(error instanceof DevicePollError)) throw error;
+    // An HTTP error has a DeviceGrantError cause. After a timeout or other
+    // network error, wait twice as long (RFC 8628 §3.5).
+    interval = error.cause instanceof DeviceGrantError ? error.interval : error.interval * 2;
+  }
+}
 ```
 
-`waitForDeviceToken` waits `interval` seconds before each poll and adds 5
-seconds on `slow_down`. It throws `DeviceGrantError` for an OAuth error such as
-`access_denied`, or `expired_token` once the next poll would start after
-`expiresAt`. A network error, a 5xx, or a 429 stops the loop with
-`DevicePollError`. To resume, call it again with the same `authorization` and
-the error's `interval`. `DeviceAuthorization` is a plain value, so you can
-persist it and poll from another process that authenticates as the same client.
+The doc comment on `waitForDeviceToken` lists the poll loop rules and when it
+throws `DevicePollError`. The loop above resumes it after that error.
+`DeviceAuthorization` is a plain value, so you can persist it and poll from
+another process that authenticates as the same client. `pollDeviceToken` polls
+once and requires `metadata`.
 
 When the request names more than one resource, the token is not for any one of
 them. To get a token for one resource, call `refreshAuthorization` with
@@ -361,8 +375,9 @@ issuer's `userinfo_endpoint`. Pass `{ metadata }` to skip discovery.
 | `AuthProviderConfigurationError` | `@keycardai/oauth/errors` | Configuration guard for auth providers |
 | `AuthorizationDeniedError` | `@keycardai/oauth/errors` | Web-app callback carried an OAuth `error` (e.g. `access_denied`) |
 | `StateMismatchError` | `@keycardai/oauth/errors` | Web-app callback `state` is absent or does not match the stored value |
-| `DeviceGrantError` | `@keycardai/oauth/errors` | Device grant OAuth error, with `errorCode`, `errorDescription`, and `retryable` |
+| `DeviceGrantError` | `@keycardai/oauth/errors` | Device grant failure, with `errorCode`, `errorDescription`, `status`, and `retryable` |
 | `DevicePollError` | `@keycardai/oauth/errors` | `waitForDeviceToken` stopped on a network error, 5xx, or 429; has `interval` and the original failure as `cause` |
+| `PERMANENT_ERROR_CODES`, `isPermanentErrorCode` | `@keycardai/oauth/errors` | OAuth error codes that are never retryable; classifies a bare error code |
 
 ### Utilities
 

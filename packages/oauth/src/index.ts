@@ -24,6 +24,8 @@ export {
   TokenEndpointDiscoveryError,
   DeviceGrantError,
   DevicePollError,
+  PERMANENT_ERROR_CODES,
+  isPermanentErrorCode,
 } from "./errors.js";
 export type { TokenEndpointCacheOptions } from "./tokenEndpoint.js";
 export { JWTSigner } from "./jwt/signer.js";
