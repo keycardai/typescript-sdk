@@ -95,6 +95,43 @@ export class RefreshGrantError extends OAuthError {
 }
 
 /**
+ * A device authorization request or a device token poll failed (RFC 8628).
+ *
+ * `errorCode` is the server's `error` for an OAuth error response. It is
+ * `invalid_response` for a malformed response, for an HTTP error without an
+ * OAuth error body, for a network error or timeout, and for a failed
+ * discovery request.
+ *
+ * `retryable` is `false` for a code in `PERMANENT_ERROR_CODES` and for
+ * `invalid_grant`, whose only recovery is a new device authorization
+ * request. For an HTTP error without an OAuth error body it is `true` for a
+ * 5xx or 429 and `false` for any other status. For a failed discovery
+ * request it is `true` for a network error, a timeout, a 5xx, or a 429, and
+ * `false` for any other status, a malformed document, or an issuer mismatch.
+ * It is `true` for every other failure, including `authorization_pending`,
+ * `slow_down`, and a network error. `cause` is the network error, the
+ * timeout, or the discovery failure, when there is one.
+ */
+export class DeviceGrantError extends OAuthError {
+  readonly retryable: boolean;
+  readonly errorDescription?: string;
+  readonly status?: number;
+  readonly cause?: unknown;
+
+  constructor(
+    errorCode: string,
+    options?: { errorDescription?: string; errorUri?: string; status?: number; retryable?: boolean; cause?: unknown },
+  ) {
+    super(errorCode, options?.errorDescription ?? `Device authorization grant failed: ${errorCode}`, options?.errorUri);
+    this.name = "DeviceGrantError";
+    this.retryable = options?.retryable ?? (!isPermanentErrorCode(errorCode) && errorCode !== "invalid_grant");
+    this.errorDescription = options?.errorDescription;
+    this.status = options?.status;
+    this.cause = options?.cause;
+  }
+}
+
+/**
  * The `state` on the callback is absent or does not match the value stored at
  * the begin step (RFC 6749 §10.12). The flow is rejected before any token
  * request.

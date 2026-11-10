@@ -222,6 +222,44 @@ code at authorize time, so completion sends no `resource` parameter. A callback
 carrying `error` throws `AuthorizationDeniedError` and a missing or non-matching
 `state` throws `StateMismatchError`, both before any token request.
 
+### Device Authorization Grant (RFC 8628)
+
+For a process with no browser and no redirect URI, such as a headless agent
+host. The device asks the zone for a user code, shows it to a person, and polls
+until the person approves or denies.
+
+```typescript
+import { fetchAuthorizationServerMetadata } from "@keycardai/oauth/discovery";
+import { pollDeviceToken, requestDeviceAuthorization } from "@keycardai/oauth/deviceAuthorization";
+import { WorkloadIdentity, FileTokenSource } from "@keycardai/oauth/server";
+
+const issuer = "https://your-zone.keycard.cloud";
+const credential = new WorkloadIdentity(new FileTokenSource(), { clientId: "my-client" });
+const metadata = await fetchAuthorizationServerMetadata(issuer);
+
+const authorization = await requestDeviceAuthorization(issuer, {
+  credential, // or `clientId` for a public client
+  metadata,
+  scopes: ["openid"],
+  resources: ["https://api.example.com"],
+});
+console.log(`Visit ${authorization.verificationUriComplete ?? authorization.verificationUri}`);
+console.log(`and confirm the code ${authorization.userCode}`);
+
+// Throws DeviceGrantError `authorization_pending` until the person confirms.
+const tokens = await pollDeviceToken(issuer, { credential, metadata, authorization });
+```
+
+`pollDeviceToken` polls once and requires `metadata`. Wait
+`authorization.interval` seconds before each poll, add 5 seconds after
+`slow_down`, and wait longer after a timeout or other network error
+(RFC 8628 §3.5). `DeviceAuthorization` is a plain value, so you can
+persist it and poll from another process that authenticates as the same client.
+
+When the request names more than one resource, the token is not for any one of
+them. To get a token for one resource, call `refreshAuthorization` with
+`resources` set to it and the same `credential`.
+
 ### UserInfo (OIDC Core 1.0 §5.3)
 
 ```typescript
@@ -278,6 +316,15 @@ issuer's `userinfo_endpoint`. Pass `{ metadata }` to skip discovery.
 | `AuthorizationRedirect` (type) | `@keycardai/oauth/webApp` | Begin-step result the application stores until the callback |
 | `refreshAuthorization` | `@keycardai/oauth/webApp` | Renews a grant with its `refresh_token`, as a public client, with a client secret, or with a `credential` |
 
+### Device Authorization Grant (RFC 8628)
+
+| Export | Import Path | Description |
+|---|---|---|
+| `requestDeviceAuthorization` | `@keycardai/oauth/deviceAuthorization` | Asks the zone for a device code and a user code |
+| `pollDeviceToken` | `@keycardai/oauth/deviceAuthorization` | Polls the token endpoint once |
+| `DeviceAuthorization` (type) | `@keycardai/oauth/deviceAuthorization` | The device authorization response, with `expiresAt` computed from the clock |
+| `Clock` (type), `systemClock` | `@keycardai/oauth/deviceAuthorization` | Time source; inject a fake in tests |
+
 ### UserInfo (OIDC Core 1.0)
 
 | Export | Import Path | Description |
@@ -315,6 +362,7 @@ issuer's `userinfo_endpoint`. Pass `{ metadata }` to skip discovery.
 | `AuthProviderConfigurationError` | `@keycardai/oauth/errors` | Configuration guard for auth providers |
 | `AuthorizationDeniedError` | `@keycardai/oauth/errors` | Web-app callback carried an OAuth `error` (e.g. `access_denied`) |
 | `StateMismatchError` | `@keycardai/oauth/errors` | Web-app callback `state` is absent or does not match the stored value |
+| `DeviceGrantError` | `@keycardai/oauth/errors` | Device grant failure, with `errorCode`, `errorDescription`, `status`, and `retryable` |
 | `PERMANENT_ERROR_CODES`, `isPermanentErrorCode` | `@keycardai/oauth/errors` | OAuth error codes that are not retryable, except on HTTP 429 or 5xx; classifies a bare error code |
 
 ### Utilities
