@@ -79,6 +79,8 @@ export type {
   BeginAuthorizationOptions,
   CompleteAuthorizationOptions,
   RefreshAuthorizationOptions,
+  RefreshOptionsBase,
+  RefreshWithCredentialOptions,
   AuthorizationRedirect,
 } from "./webApp.js";
 export { fetchUserInfo } from "./userinfo.js";

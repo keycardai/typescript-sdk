@@ -276,6 +276,7 @@ issuer's `userinfo_endpoint`. Pass `{ metadata }` to skip discovery.
 | `beginAuthorization` | `@keycardai/oauth/webApp` | Web-app flow: builds the authorize URL and returns `{ url, state, codeVerifier, resources }` |
 | `completeAuthorization` | `@keycardai/oauth/webApp` | Web-app flow: validates the callback and exchanges the code |
 | `AuthorizationRedirect` (type) | `@keycardai/oauth/webApp` | Begin-step result the application stores until the callback |
+| `refreshAuthorization` | `@keycardai/oauth/webApp` | Renews a grant with its `refresh_token`, as a public client, with a client secret, or with a `credential` |
 
 ### UserInfo (OIDC Core 1.0)
 

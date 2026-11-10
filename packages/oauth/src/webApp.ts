@@ -3,6 +3,7 @@ import base64url from "./base64url.js";
 import { basicAuthorization } from "./basicAuthorization.js";
 import { fetchAuthorizationServerMetadata, type OAuthAuthorizationServerMetadata } from "./discovery.js";
 import { AuthorizationDeniedError, ConfigurationError, OAuthError, RefreshGrantError, StateMismatchError } from "./errors.js";
+import { requireClientAuthentication, type ApplicationCredential, type ClientAuthenticator } from "./credentials.js";
 import { buildAuthorizeUrl, exchangeAuthorizationCode, generatePkcePair } from "./pkce.js";
 import { deserializeTokenResponse, type TokenResponse } from "./tokenExchange.js";
 
@@ -63,13 +64,10 @@ export interface CompleteAuthorizationOptions {
   timeoutMs?: number;
 }
 
-export interface RefreshAuthorizationOptions {
-  /** The `refresh_token` a previous token response carried. */
+/** Options both forms of `refreshAuthorization` share. */
+export interface RefreshOptionsBase {
+  /** The `refresh_token` a previous token response returned. */
   refreshToken: string;
-  /** The client the grant was issued to. */
-  clientId: string;
-  /** Client secret for confidential clients. Public clients omit it. */
-  clientSecret?: string;
   /**
    * RFC 8707 resource indicators, one `resource` parameter per entry, to
    * narrow the refreshed token to a subset of the granted resources.
@@ -82,6 +80,23 @@ export interface RefreshAuthorizationOptions {
   signal?: AbortSignal;
   /** Timeout in milliseconds for each request to the authorization server (default 10 seconds; 0 disables). */
   timeoutMs?: number;
+}
+
+/** Refresh as a client with `clientId`, and `clientSecret` for a confidential client. */
+export interface RefreshAuthorizationOptions extends RefreshOptionsBase {
+  /** The client the grant was issued to. */
+  clientId: string;
+  /** Client secret for confidential clients. Public clients omit it. */
+  clientSecret?: string;
+  credential?: never;
+}
+
+/** Refresh as a client that authenticates with a credential. */
+export interface RefreshWithCredentialOptions extends RefreshOptionsBase {
+  /** Authenticates the refresh with the credential's `clientAuthentication`. */
+  credential: ApplicationCredential;
+  clientId?: never;
+  clientSecret?: never;
 }
 
 /**
@@ -187,23 +202,44 @@ export async function completeAuthorization(
 }
 
 /**
- * Renew a grant the authorization-code flow issued (RFC 6749 §6).
+ * Redeem a refresh token for a new token (RFC 6749 §6).
  *
  * POSTs `grant_type=refresh_token` to the token endpoint, authenticating the
- * client the way `completeAuthorization` does: `client_id` in the body for a
- * public client, HTTP Basic for a confidential one. The response is the same
- * `TokenResponse` shape; when it carries a `refreshToken`, the server rotated
- * it and the caller must store the new value in place of the old one. The SDK
- * holds no state: where the refresh token lives is the caller's concern.
+ * client the way the grant that issued the refresh token did: `client_id` in
+ * the body for a public client, HTTP Basic for a confidential one, or the
+ * headers and form fields from `credential.clientAuthentication`.
  *
- * Failures throw `RefreshGrantError`. `invalid_grant` is not retryable and
- * means the user must authorize again; a transport failure or a 5xx is
+ * The SDK does not store the refresh token; the caller does. When the
+ * response has a `refreshToken`, replace the stored refresh token with it.
+ * When it does not, the stored refresh token is still valid.
+ *
+ * Throws `ConfigurationError` before any request when the client options
+ * are not valid, and before the refresh request when the metadata has no
+ * `token_endpoint`. Errors from discovery and from the credential's
+ * `clientAuthentication` are thrown as is. A failed refresh request throws
+ * `RefreshGrantError`, except a 2xx response without `access_token`, which
+ * throws `OAuthError` `invalid_response`. `invalid_grant` is not retryable
+ * and means the user must authorize again. A transport failure or a 5xx is
  * retryable and leaves the refresh token usable.
  */
 export async function refreshAuthorization(
   issuer: string,
-  options: RefreshAuthorizationOptions,
+  options: RefreshAuthorizationOptions | RefreshWithCredentialOptions,
 ): Promise<TokenResponse> {
+  let client: { credential: ClientAuthenticator } | { clientId: string; clientSecret?: string };
+  if (options.credential !== undefined) {
+    if (options.clientId !== undefined || options.clientSecret !== undefined) {
+      throw new ConfigurationError(
+        "refreshAuthorization: set either credential or clientId and clientSecret, not both",
+      );
+    }
+    client = { credential: requireClientAuthentication(options.credential, "refreshAuthorization") };
+  } else if (typeof options.clientId === "string" && options.clientId) {
+    client = { clientId: options.clientId, clientSecret: options.clientSecret };
+  } else {
+    throw new ConfigurationError("refreshAuthorization: clientId or credential is required");
+  }
+
   const metadata = options.metadata
     ?? await fetchAuthorizationServerMetadata(issuer, {
       signal: options.signal,
@@ -228,10 +264,14 @@ export async function refreshAuthorization(
   const headers: Record<string, string> = {
     "Content-Type": "application/x-www-form-urlencoded",
   };
-  if (options.clientSecret) {
-    headers["Authorization"] = basicAuthorization(options.clientId, options.clientSecret);
+  if ("credential" in client) {
+    const auth = await client.credential.clientAuthentication(issuer, metadata.token_endpoint);
+    Object.assign(headers, auth.headers);
+    for (const [name, value] of Object.entries(auth.form)) params.set(name, value);
+  } else if (client.clientSecret) {
+    headers["Authorization"] = basicAuthorization(client.clientId, client.clientSecret);
   } else {
-    params.set("client_id", options.clientId);
+    params.set("client_id", client.clientId);
   }
 
   let response: Response;
