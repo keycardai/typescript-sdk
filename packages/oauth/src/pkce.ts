@@ -1,5 +1,6 @@
 import { requestSignal } from "./requestSignal.js";
 import base64url from "./base64url.js";
+import { basicAuthorization } from "./basicAuthorization.js";
 import { fetchAuthorizationServerMetadata, type OAuthAuthorizationServerMetadata } from "./discovery.js";
 import { ConfigurationError, OAuthError } from "./errors.js";
 import { deserializeTokenResponse, type TokenResponse } from "./tokenExchange.js";
@@ -116,7 +117,7 @@ export async function exchangeAuthorizationCode(
     "Content-Type": "application/x-www-form-urlencoded",
   };
   if (options.clientId && options.clientSecret) {
-    headers["Authorization"] = `Basic ${btoa(`${options.clientId}:${options.clientSecret}`)}`;
+    headers["Authorization"] = basicAuthorization(options.clientId, options.clientSecret);
     params.delete("client_id");
   }
 

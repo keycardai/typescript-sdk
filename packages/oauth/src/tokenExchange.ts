@@ -1,5 +1,6 @@
 import { OAuthError } from "./errors.js";
 import type { ApplicationCredential } from "./credentials.js";
+import { basicAuthorization } from "./basicAuthorization.js";
 import { buildSubstituteUserToken } from "./jwt/substituteUser.js";
 import { DEFAULT_FETCH_TIMEOUT_MS, TokenEndpointResolver, type TokenEndpointCacheOptions } from "./tokenEndpoint.js";
 
@@ -161,8 +162,7 @@ export class TokenExchangeClient {
 
     const basicAuth = this.#resolveBasicAuth(options?.issuer);
     if (basicAuth) {
-      const credentials = btoa(`${basicAuth.clientId}:${basicAuth.clientSecret}`);
-      headers["Authorization"] = `Basic ${credentials}`;
+      headers["Authorization"] = basicAuthorization(basicAuth.clientId, basicAuth.clientSecret);
     }
 
     const response = await fetch(tokenEndpoint, {
