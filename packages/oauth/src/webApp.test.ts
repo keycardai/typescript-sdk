@@ -1,6 +1,6 @@
 import { jest } from '@jest/globals';
 import { beginAuthorization, completeAuthorization, refreshAuthorization } from './webApp.js';
-import { AuthorizationDeniedError, ConfigurationError, OAuthError, RefreshGrantError, StateMismatchError } from './errors.js';
+import { AuthorizationDeniedError, ConfigurationError, OAuthError, PERMANENT_ERROR_CODES, RefreshGrantError, StateMismatchError } from './errors.js';
 
 const ISSUER = 'https://auth.example.com';
 const AUTHORIZE_ENDPOINT = `${ISSUER}/authorize`;
@@ -451,6 +451,26 @@ describe('web-app flow', () => {
       expect(error.errorCode).toBe('invalid_response');
       expect(error.retryable).toBe(false);
       expect(error.status).toBe(200);
+    });
+
+    // RefreshGrantError.retryable must agree with PERMANENT_ERROR_CODES for a
+    // code that arrives on a status that is otherwise retryable.
+    it.each([
+      { status: 400, code: 'invalid_grant', retryable: false },
+      { status: 400, code: 'expired_token', retryable: false },
+      { status: 503, code: 'temporarily_unavailable', retryable: true },
+      ...PERMANENT_ERROR_CODES.map((code) => ({ status: 503, code, retryable: false })),
+    ])('classifies $code on HTTP $status as retryable $retryable', async ({ status, code, retryable }) => {
+      mockFetch(() => jsonResponse(status, { error: code }));
+
+      const failure = await refreshAuthorization(ISSUER, {
+        metadata: METADATA,
+        refreshToken: 'rt-1',
+        clientId: 'client-123',
+      }).catch((e: unknown) => e);
+
+      expect(failure).toBeInstanceOf(RefreshGrantError);
+      expect(failure).toMatchObject({ errorCode: code, retryable, status });
     });
 
     it('discovers the token endpoint when no metadata is supplied', async () => {

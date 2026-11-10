@@ -313,6 +313,7 @@ issuer's `userinfo_endpoint`. Pass `{ metadata }` to skip discovery.
 | `AuthProviderConfigurationError` | `@keycardai/oauth/errors` | Configuration guard for auth providers |
 | `AuthorizationDeniedError` | `@keycardai/oauth/errors` | Web-app callback carried an OAuth `error` (e.g. `access_denied`) |
 | `StateMismatchError` | `@keycardai/oauth/errors` | Web-app callback `state` is absent or does not match the stored value |
+| `PERMANENT_ERROR_CODES`, `isPermanentErrorCode` | `@keycardai/oauth/errors` | OAuth error codes that are never retryable; classifies a bare error code |
 
 ### Utilities
 

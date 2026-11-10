@@ -49,13 +49,31 @@ export class AuthorizationDeniedError extends OAuthError {
 }
 
 /**
+ * OAuth error codes that no retry can change. An authorization-server error
+ * with one of these codes is never retryable. Use it to classify an error
+ * code that arrives without its typed error, such as one read back from a
+ * queue or a log.
+ */
+export const PERMANENT_ERROR_CODES: readonly string[] = Object.freeze([
+  "access_denied",
+  "expired_token",
+  "insufficient_authorization",
+  "invalid_client",
+]);
+
+/** Reports whether `errorCode` is in `PERMANENT_ERROR_CODES`. */
+export function isPermanentErrorCode(errorCode: string): boolean {
+  return PERMANENT_ERROR_CODES.includes(errorCode);
+}
+
+/**
  * A refresh-token grant was not renewed. `errorCode` is the authorization
  * server's `error` when it returned one (`invalid_grant` means the refresh
  * token is expired, revoked, or was issued to another client, and the only
  * recovery is to authorize again), `invalid_response` otherwise. `retryable`
- * is `true` for a transport failure, HTTP 5xx, or 429, `false` for every
- * authorization-server error and other 4xx. `cause` carries the underlying
- * error for a transport failure.
+ * is `true` for a transport failure, HTTP 5xx, or 429, and `false` for every
+ * other 4xx and for a code in `PERMANENT_ERROR_CODES`, such as
+ * `expired_token`. `cause` holds the underlying error for a transport failure.
  */
 export class RefreshGrantError extends OAuthError {
   readonly retryable: boolean;
