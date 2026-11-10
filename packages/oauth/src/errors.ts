@@ -95,9 +95,11 @@ export class RefreshGrantError extends OAuthError {
 }
 
 /**
- * A device authorization request or a device token poll failed (RFC 8628).
+ * A device authorization request or a device token poll failed (RFC 8628),
+ * or the poll loop stopped because the device code expired.
  *
- * `errorCode` is the server's `error` for an OAuth error response. It is
+ * `errorCode` is the server's `error` for an OAuth error response, and
+ * `expired_token` when the loop stops at `expiresAt`. It is
  * `invalid_response` for a malformed response, for an HTTP error without an
  * OAuth error body, for a network error or timeout, and for a failed
  * discovery request.
@@ -128,6 +130,28 @@ export class DeviceGrantError extends OAuthError {
     this.errorDescription = options?.errorDescription;
     this.status = options?.status;
     this.cause = options?.cause;
+  }
+}
+
+/**
+ * `waitForDeviceToken` stopped on a network error, a timeout, an HTTP 5xx,
+ * or an HTTP 429, and did not poll again. `interval` is the wait in seconds
+ * the loop would have used before its next poll, including every
+ * `slow_down` increase, and doubled after a network error or timeout
+ * (RFC 8628 §3.5). `cause` is the original failure: the network error
+ * or timeout, or the `DeviceGrantError` for the 5xx or 429 response.
+ * `retryable` is always `true`.
+ */
+export class DevicePollError extends Error {
+  readonly retryable = true;
+  readonly interval: number;
+  readonly cause: unknown;
+
+  constructor(interval: number, cause: unknown) {
+    super(`Device token poll failed (next interval ${interval}s): ${cause instanceof Error ? cause.message : String(cause)}`);
+    this.name = "DevicePollError";
+    this.interval = interval;
+    this.cause = cause;
   }
 }
 

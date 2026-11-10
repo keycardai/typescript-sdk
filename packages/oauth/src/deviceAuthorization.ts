@@ -1,7 +1,7 @@
 import { requestSignal } from "./requestSignal.js";
 import { requireClientAuthentication, type ApplicationCredential, type ClientAuthenticator } from "./credentials.js";
 import { fetchAuthorizationServerMetadata, type OAuthAuthorizationServerMetadata } from "./discovery.js";
-import { ConfigurationError, DeviceGrantError, HTTPError, OAuthError } from "./errors.js";
+import { ConfigurationError, DeviceGrantError, DevicePollError, HTTPError, OAuthError } from "./errors.js";
 import { deserializeTokenResponse, type TokenResponse } from "./tokenExchange.js";
 
 // =============================================================================
@@ -10,19 +10,38 @@ import { deserializeTokenResponse, type TokenResponse } from "./tokenExchange.js
 
 const DEVICE_CODE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code";
 const DEFAULT_INTERVAL_SECONDS = 5;
+const SLOW_DOWN_INCREMENT_SECONDS = 5;
 
 /**
- * The time source for the device grant. Inject a fake in tests so that
- * `expiresAt` does not depend on real time.
+ * The time source and timer for the device grant. Inject a fake in tests so
+ * that `expiresAt` and the waits between polls do not depend on real time.
  */
 export interface Clock {
   /** The current time in milliseconds since the Unix epoch. */
   now(): number;
+  /** Resolves after `ms` milliseconds. Rejects with `signal.reason` when `signal` aborts. */
+  sleep(ms: number, signal?: AbortSignal): Promise<void>;
 }
 
-/** The real clock: `Date.now`. */
+/** The real clock: `Date.now` and `setTimeout`. */
 export const systemClock: Clock = {
   now: () => Date.now(),
+  sleep: (ms, signal) =>
+    new Promise<void>((resolve, reject) => {
+      if (signal?.aborted) {
+        reject(signal.reason);
+        return;
+      }
+      const onAbort = () => {
+        clearTimeout(timer);
+        reject(signal?.reason);
+      };
+      const timer = setTimeout(() => {
+        signal?.removeEventListener("abort", onAbort);
+        resolve();
+      }, ms);
+      signal?.addEventListener("abort", onAbort, { once: true });
+    }),
 };
 
 /**
@@ -89,6 +108,19 @@ export interface DeviceAuthorization {
 export type PollDeviceTokenOptions = DeviceClientOptions & {
   /** The response from `requestDeviceAuthorization`. `pollDeviceToken` reads only `deviceCode`. */
   authorization: DeviceAuthorization;
+};
+
+export type WaitForDeviceTokenOptions = DeviceClientOptions & {
+  /** The response from `requestDeviceAuthorization`, or a copy persisted from it. */
+  authorization: DeviceAuthorization;
+  /**
+   * The wait in seconds before the first poll, and the starting interval.
+   * Default: `authorization.interval`. A value below `authorization.interval`
+   * throws `ConfigurationError`.
+   */
+  interval?: number;
+  /** Reads the time for the expiry check and waits between polls. Default: `systemClock`. */
+  clock?: Clock;
 };
 
 /**
@@ -166,6 +198,103 @@ export async function pollDeviceToken(
   return withTransportError("Device token poll", options.signal, () =>
     poll(issuer, tokenEndpoint, client, options.authorization, options),
   );
+}
+
+/**
+ * Poll until the person approves or denies the request, following
+ * RFC 8628 §3.5.
+ *
+ * - It waits the interval before each poll, including the first.
+ * - On `authorization_pending` it polls again.
+ * - On `slow_down` it adds 5 seconds to the interval for this poll and every later one.
+ * - On a network error, a timeout, an HTTP 5xx, or an HTTP 429 it stops and
+ *   throws `DevicePollError`, also when the 5xx or 429 has an OAuth error
+ *   body. It does not poll again. After a network error or a timeout, the
+ *   error's `interval` is double the current interval.
+ * - On any other failure it stops and throws that error as is: a
+ *   `DeviceGrantError` for any other OAuth error or HTTP error, or the error
+ *   from the credential's `clientAuthentication`.
+ * - If the next poll would start after `authorization.expiresAt`, it stops
+ *   without waiting or polling and throws `DeviceGrantError` with code
+ *   `expired_token`.
+ *
+ * To resume after a `DevicePollError`, call it again before `expiresAt` with
+ * the same `authorization` and `interval` set to the error's `interval`.
+ *
+ * Polling again on `authorization_pending` and `slow_down` follows
+ * RFC 8628 §3.5 and is not a retry. `timeoutMs` bounds each request. It does
+ * not bound the waits or the whole loop, and it applies even when `signal`
+ * has a longer deadline.
+ *
+ * Throws `ConfigurationError` before any request when the client options
+ * are not exactly one of `credential` and `clientId`, when `authorization`
+ * has no `deviceCode`, no `expiresAt`, or an `interval` that is not a
+ * positive integer, when `interval` is below `authorization.interval`, or
+ * when `metadata` is not set and `issuer` is not an http or https URL. A
+ * failed discovery request throws `DeviceGrantError` before the first wait.
+ *
+ * When the device authorization request named more than one resource, the
+ * token is not for any one of them. NEVER store it as the token for one
+ * resource. To get a token for one resource, call `refreshAuthorization`
+ * with `resources` set to it.
+ */
+export async function waitForDeviceToken(
+  issuer: string,
+  options: WaitForDeviceTokenOptions,
+): Promise<TokenResponse> {
+  const client = resolveClient(options, "waitForDeviceToken");
+  const { authorization, signal } = options;
+  requireDeviceCode(authorization);
+  if (!Number.isFinite(authorization.expiresAt)) {
+    throw new ConfigurationError("waitForDeviceToken: the device authorization has no expiresAt");
+  }
+  if (!isPositiveInteger(authorization.interval)) {
+    throw new ConfigurationError(
+      `waitForDeviceToken: the device authorization interval ${JSON.stringify(authorization.interval)} is not a positive integer`,
+    );
+  }
+  let interval = authorization.interval;
+  if (options.interval !== undefined) {
+    if (!Number.isFinite(options.interval) || options.interval < authorization.interval) {
+      throw new ConfigurationError(
+        `waitForDeviceToken: interval ${options.interval} is below the device authorization interval ${authorization.interval}`,
+      );
+    }
+    interval = options.interval;
+  }
+  const clock = options.clock ?? systemClock;
+
+  const tokenEndpoint = requireEndpoint(issuer, await resolveMetadata(issuer, "waitForDeviceToken", options), "token_endpoint");
+
+  for (;;) {
+    if (clock.now() + interval * 1000 > authorization.expiresAt) {
+      throw new DeviceGrantError("expired_token", {
+        errorDescription: "The device code expired before the request was approved",
+      });
+    }
+    await clock.sleep(interval * 1000, signal);
+    signal?.throwIfAborted();
+
+    try {
+      return await poll(issuer, tokenEndpoint, client, authorization, options);
+    } catch (error) {
+      signal?.throwIfAborted();
+      if (error instanceof TransportFailure) {
+        throw new DevicePollError(interval * 2, error.cause);
+      }
+      if (error instanceof DeviceGrantError && isTransientStatus(error.status)) {
+        throw new DevicePollError(interval, error);
+      }
+      if (error instanceof DeviceGrantError && error.errorCode === "authorization_pending") {
+        continue;
+      }
+      if (error instanceof DeviceGrantError && error.errorCode === "slow_down") {
+        interval += SLOW_DOWN_INCREMENT_SECONDS;
+        continue;
+      }
+      throw error;
+    }
+  }
 }
 
 // =============================================================================
