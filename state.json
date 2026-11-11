@@ -12,8 +12,8 @@
     "version": "0.91.0"
   },
   "eve:eve@latest-tag": {
-    "run": "https://github.com/keycardai/typescript-sdk/actions/runs/42768640294",
-    "version": "1.0.0-rc.8"
+    "run": "https://github.com/keycardai/typescript-sdk/actions/runs/42972666986",
+    "version": "1.0.0-rc.9"
   },
   "langchain:langchain+@langchain/core+@langchain/langgraph+@langchain/langgraph-sdk": {
     "run": "https://github.com/keycardai/typescript-sdk/actions/runs/42972666986",
