@@ -453,13 +453,14 @@ describe('web-app flow', () => {
       expect(error.status).toBe(200);
     });
 
-    // RefreshGrantError.retryable must agree with PERMANENT_ERROR_CODES for a
-    // code that arrives on a status that is otherwise retryable.
+    // The status decides before the error code: a 429 or 5xx is retryable
+    // even with a code in PERMANENT_ERROR_CODES, and a 4xx is not.
     it.each([
       { status: 400, code: 'invalid_grant', retryable: false },
-      { status: 400, code: 'expired_token', retryable: false },
+      ...PERMANENT_ERROR_CODES.map((code) => ({ status: 400, code, retryable: false })),
       { status: 503, code: 'temporarily_unavailable', retryable: true },
-      ...PERMANENT_ERROR_CODES.map((code) => ({ status: 503, code, retryable: false })),
+      ...PERMANENT_ERROR_CODES.map((code) => ({ status: 503, code, retryable: true })),
+      ...PERMANENT_ERROR_CODES.map((code) => ({ status: 429, code, retryable: true })),
     ])('classifies $code on HTTP $status as retryable $retryable', async ({ status, code, retryable }) => {
       mockFetch(() => jsonResponse(status, { error: code }));
 

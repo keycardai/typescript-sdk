@@ -2,14 +2,7 @@ import { requestSignal } from "./requestSignal.js";
 import base64url from "./base64url.js";
 import { basicAuthorization } from "./basicAuthorization.js";
 import { fetchAuthorizationServerMetadata, type OAuthAuthorizationServerMetadata } from "./discovery.js";
-import {
-  AuthorizationDeniedError,
-  ConfigurationError,
-  isPermanentErrorCode,
-  OAuthError,
-  RefreshGrantError,
-  StateMismatchError,
-} from "./errors.js";
+import { AuthorizationDeniedError, ConfigurationError, OAuthError, RefreshGrantError, StateMismatchError } from "./errors.js";
 import { buildAuthorizeUrl, exchangeAuthorizationCode, generatePkcePair } from "./pkce.js";
 import { deserializeTokenResponse, type TokenResponse } from "./tokenExchange.js";
 
@@ -274,7 +267,7 @@ export async function refreshAuthorization(
         : errorBody.error;
       const errorUri = typeof errorBody.error_uri === "string" ? errorBody.error_uri : undefined;
       throw new RefreshGrantError(errorBody.error, description, {
-        retryable: retryable && !isPermanentErrorCode(errorBody.error),
+        retryable,
         status: response.status,
         errorUri,
       });
