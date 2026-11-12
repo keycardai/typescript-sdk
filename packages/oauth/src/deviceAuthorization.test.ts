@@ -11,7 +11,7 @@ import {
   type DeviceAuthorization,
 } from './deviceAuthorization.js';
 import type { ApplicationCredential, ClientAuthentication } from './credentials.js';
-import { ConfigurationError, DeviceGrantError, DevicePollError, HTTPError, OAuthError } from './errors.js';
+import { ConfigurationError, DeviceGrantError, DevicePollError, HTTPError, OAuthError, PERMANENT_ERROR_CODES } from './errors.js';
 import { WebIdentity } from './server/webIdentity.js';
 
 const ISSUER = 'https://zone.example.com';
@@ -465,13 +465,25 @@ describe('device authorization grant', () => {
       expect(clock.waits).toEqual([]);
     });
 
-    it('waitForDeviceToken with an interval below authorization.interval', async () => {
+    it.each([
+      { interval: 4, message: 'waitForDeviceToken: interval 4 is below the device authorization interval 5' },
+      { interval: 7.5, message: 'waitForDeviceToken: interval 7.5 is not a positive integer' },
+      { interval: Number.NaN, message: 'waitForDeviceToken: interval null is not a positive integer' },
+      { interval: Number.POSITIVE_INFINITY, message: 'waitForDeviceToken: interval null is not a positive integer' },
+      { interval: '7', message: 'waitForDeviceToken: interval "7" is not a positive integer' },
+    ])('waitForDeviceToken with an interval of $interval', async ({ interval, message }) => {
       const calls = mockFetch({});
       const clock = new FakeClock();
 
-      await expect(
-        waitForDeviceToken(ISSUER, { clientId: 'c', authorization: authorization(), interval: 4, clock }),
-      ).rejects.toThrow(ConfigurationError);
+      const error = await waitForDeviceToken(ISSUER, {
+        clientId: 'c',
+        authorization: authorization(),
+        interval: interval as number,
+        clock,
+      }).catch((e) => e);
+
+      expect(error).toBeInstanceOf(ConfigurationError);
+      expect(error.message).toBe(message);
       expect(calls).toHaveLength(0);
       expect(clock.waits).toEqual([]);
     });
@@ -594,20 +606,23 @@ describe('device authorization grant', () => {
       expect(credential.clientAuthentication.mock.calls).toEqual([[ISSUER, TOKEN_ENDPOINT]]);
     });
 
+    // The status decides before the code: a 429 or 5xx is retryable even with
+    // a permanent code or invalid_grant.
     it.each([
-      { code: 'authorization_pending', retryable: true },
-      { code: 'slow_down', retryable: true },
-      { code: 'access_denied', retryable: false },
-      { code: 'expired_token', retryable: false },
-      { code: 'invalid_grant', retryable: false },
-      { code: 'invalid_client', retryable: false },
-    ])('throws DeviceGrantError $code with retryable $retryable', async ({ code, retryable }) => {
-      mockFetch({ polls: [json(400, { error: code })] });
+      { status: 400, code: 'authorization_pending', retryable: true },
+      { status: 400, code: 'slow_down', retryable: true },
+      { status: 400, code: 'invalid_grant', retryable: false },
+      ...PERMANENT_ERROR_CODES.map((code) => ({ status: 400, code, retryable: false })),
+      { status: 503, code: 'invalid_grant', retryable: true },
+      ...PERMANENT_ERROR_CODES.map((code) => ({ status: 503, code, retryable: true })),
+      { status: 429, code: 'access_denied', retryable: true },
+    ])('throws DeviceGrantError $code on HTTP $status with retryable $retryable', async ({ status, code, retryable }) => {
+      mockFetch({ polls: [json(status, { error: code })] });
 
       const error = await pollDeviceToken(ISSUER, { clientId: 'c', authorization: authorization(), metadata: METADATA }).catch((e) => e);
 
       expect(error).toBeInstanceOf(DeviceGrantError);
-      expect(error).toMatchObject({ errorCode: code, retryable, status: 400 });
+      expect(error).toMatchObject({ errorCode: code, retryable, status });
     });
 
     it.each([
@@ -785,7 +800,7 @@ describe('device authorization grant', () => {
         interval: 5,
         cause: (c: unknown) => {
           expect(c).toBeInstanceOf(DeviceGrantError);
-          expect(c).toMatchObject({ errorCode: 'temporarily_unavailable', status: 503 });
+          expect(c).toMatchObject({ errorCode: 'temporarily_unavailable', status: 503, retryable: true });
         },
       },
       {
@@ -794,7 +809,7 @@ describe('device authorization grant', () => {
         interval: 5,
         cause: (c: unknown) => {
           expect(c).toBeInstanceOf(DeviceGrantError);
-          expect(c).toMatchObject({ errorCode: 'access_denied', status: 503, retryable: false });
+          expect(c).toMatchObject({ errorCode: 'access_denied', status: 503, retryable: true });
         },
       },
       {

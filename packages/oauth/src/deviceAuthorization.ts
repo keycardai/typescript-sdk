@@ -115,8 +115,8 @@ export type WaitForDeviceTokenOptions = DeviceClientOptions & {
   authorization: DeviceAuthorization;
   /**
    * The wait in seconds before the first poll, and the starting interval.
-   * Default: `authorization.interval`. A value below `authorization.interval`
-   * throws `ConfigurationError`.
+   * Default: `authorization.interval`. A value that is not a positive integer,
+   * or is below `authorization.interval`, throws `ConfigurationError`.
    */
   interval?: number;
   /** Reads the time for the expiry check and waits between polls. Default: `systemClock`. */
@@ -229,7 +229,8 @@ export async function pollDeviceToken(
  * Throws `ConfigurationError` before any request when the client options
  * are not exactly one of `credential` and `clientId`, when `authorization`
  * has no `deviceCode`, no `expiresAt`, or an `interval` that is not a
- * positive integer, when `interval` is below `authorization.interval`, or
+ * positive integer, when `interval` is not a positive integer or is below
+ * `authorization.interval`, or
  * when `metadata` is not set and `issuer` is not an http or https URL. A
  * failed discovery request throws `DeviceGrantError` before the first wait.
  *
@@ -255,7 +256,12 @@ export async function waitForDeviceToken(
   }
   let interval = authorization.interval;
   if (options.interval !== undefined) {
-    if (!Number.isFinite(options.interval) || options.interval < authorization.interval) {
+    if (!isPositiveInteger(options.interval)) {
+      throw new ConfigurationError(
+        `waitForDeviceToken: interval ${JSON.stringify(options.interval)} is not a positive integer`,
+      );
+    }
+    if (options.interval < authorization.interval) {
       throw new ConfigurationError(
         `waitForDeviceToken: interval ${options.interval} is below the device authorization interval ${authorization.interval}`,
       );

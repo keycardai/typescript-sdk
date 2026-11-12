@@ -104,10 +104,10 @@ export class RefreshGrantError extends OAuthError {
  * OAuth error body, for a network error or timeout, and for a failed
  * discovery request.
  *
- * `retryable` is `false` for a code in `PERMANENT_ERROR_CODES` and for
+ * `retryable` is `true` for an HTTP 5xx or 429, whatever the error code.
+ * Otherwise it is `false` for a code in `PERMANENT_ERROR_CODES` and for
  * `invalid_grant`, whose only recovery is a new device authorization
- * request. For an HTTP error without an OAuth error body it is `true` for a
- * 5xx or 429 and `false` for any other status. For a failed discovery
+ * request, and `false` for an HTTP error without an OAuth error body. For a failed discovery
  * request it is `true` for a network error, a timeout, a 5xx, or a 429, and
  * `false` for any other status, a malformed document, or an issuer mismatch.
  * It is `true` for every other failure, including `authorization_pending`,
@@ -126,9 +126,12 @@ export class DeviceGrantError extends OAuthError {
   ) {
     super(errorCode, options?.errorDescription ?? `Device authorization grant failed: ${errorCode}`, options?.errorUri);
     this.name = "DeviceGrantError";
-    this.retryable = options?.retryable ?? (!isPermanentErrorCode(errorCode) && errorCode !== "invalid_grant");
+    const status = options?.status;
+    const transientStatus = status !== undefined && (status >= 500 || status === 429);
+    this.retryable =
+      options?.retryable ?? (transientStatus || (!isPermanentErrorCode(errorCode) && errorCode !== "invalid_grant"));
     this.errorDescription = options?.errorDescription;
-    this.status = options?.status;
+    this.status = status;
     this.cause = options?.cause;
   }
 }
