@@ -89,11 +89,6 @@ export interface DeviceAuthorization {
 export type PollDeviceTokenOptions = DeviceClientOptions & {
   /** The response from `requestDeviceAuthorization`. `pollDeviceToken` reads only `deviceCode`. */
   authorization: DeviceAuthorization;
-  /**
-   * The zone's metadata. Required: fetch it once with
-   * `fetchAuthorizationServerMetadata` and pass it to every poll.
-   */
-  metadata: OAuthAuthorizationServerMetadata;
 };
 
 /**
@@ -146,15 +141,19 @@ export async function requestDeviceAuthorization(
  * Poll the token endpoint once (RFC 8628 §3.4) with
  * `authorization.deviceCode`. Returns the token once the person approves.
  *
- * Throws `ConfigurationError` before any request when the client options
- * are not exactly one of `credential` and `clientId`, when `metadata` is
- * missing, or when it has no `token_endpoint` or it is not an http or https
- * URL. An error from the credential's `clientAuthentication` is thrown as
- * is. Every other failure throws `DeviceGrantError`, including
- * `authorization_pending` and `slow_down`.
- *
- * If you call it in your own loop, wait longer after a timeout or other
+ * Without `metadata`, each call discovers it first. If you call it in your
+ * own loop, fetch the metadata once with `fetchAuthorizationServerMetadata`
+ * and pass it to every poll. Also wait longer after a timeout or other
  * network error (RFC 8628 §3.5).
+ *
+ * Throws `ConfigurationError` before any request when the client options
+ * are not exactly one of `credential` and `clientId`, when `authorization`
+ * has no `deviceCode`, or when `metadata` is not set and `issuer` is not an
+ * http or https URL. Throws `ConfigurationError` before the poll when the
+ * metadata has no `token_endpoint` or it is not an http or https URL. An
+ * error from the credential's `clientAuthentication` is thrown as is. Every
+ * other failure throws `DeviceGrantError`, including a failed discovery
+ * request, `authorization_pending`, and `slow_down`.
  */
 export async function pollDeviceToken(
   issuer: string,
@@ -162,10 +161,8 @@ export async function pollDeviceToken(
 ): Promise<TokenResponse> {
   const client = resolveClient(options, "pollDeviceToken");
   requireDeviceCode(options.authorization);
-  if (!options.metadata) {
-    throw new ConfigurationError("pollDeviceToken: metadata is required");
-  }
-  const tokenEndpoint = requireEndpoint(issuer, options.metadata, "token_endpoint");
+  const metadata = await resolveMetadata(issuer, "pollDeviceToken", options);
+  const tokenEndpoint = requireEndpoint(issuer, metadata, "token_endpoint");
   return withTransportError("Device token poll", options.signal, () =>
     poll(issuer, tokenEndpoint, client, options.authorization, options),
   );

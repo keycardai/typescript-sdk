@@ -342,16 +342,6 @@ describe('device authorization grant', () => {
       expect(calls).toHaveLength(0);
     });
 
-    it('pollDeviceToken without metadata', async () => {
-      const calls = mockFetch({});
-
-      const error = await pollDeviceToken(ISSUER, { clientId: 'c', authorization: authorization() } as never).catch((e) => e);
-
-      expect(error).toBeInstanceOf(ConfigurationError);
-      expect(error.message).toBe('pollDeviceToken: metadata is required');
-      expect(calls).toHaveLength(0);
-    });
-
     const badEndpoints = ['not a url', 'ftp://zone.example.com/token', '/oauth/2/token'];
     const endpointCases = [
       ...badEndpoints.map((endpoint) => ({
@@ -385,6 +375,7 @@ describe('device authorization grant', () => {
   describe('discovery failures', () => {
     const operations = [
       { name: 'requestDeviceAuthorization', run: (issuer: string, o: object) => requestDeviceAuthorization(issuer, { clientId: 'c', ...o }) },
+      { name: 'pollDeviceToken', run: (issuer: string, o: object) => pollDeviceToken(issuer, { clientId: 'c', authorization: authorization(), ...o }) },
     ];
     const networkFailure = new TypeError('fetch failed');
     const isHTTPError = (c: unknown) => expect(c).toBeInstanceOf(HTTPError);
@@ -466,6 +457,15 @@ describe('device authorization grant', () => {
   });
 
   describe('pollDeviceToken', () => {
+    it('discovers the token endpoint when no metadata is supplied', async () => {
+      const calls = mockFetch({ discovery: json(200, METADATA), polls: [token] });
+
+      const result = await pollDeviceToken(ISSUER, { clientId: 'c', authorization: authorization() });
+
+      expect(result).toStrictEqual(EXPECTED_TOKEN);
+      expect(calls.map((c) => c.url)).toEqual([DISCOVERY_URL, TOKEN_ENDPOINT]);
+    });
+
     it('posts the device code grant with the same client authentication and no resource or scope', async () => {
       const credential = fakeCredential();
       const calls = mockFetch({ polls: [token] });

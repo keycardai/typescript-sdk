@@ -250,7 +250,7 @@ console.log(`and confirm the code ${authorization.userCode}`);
 const tokens = await pollDeviceToken(issuer, { credential, metadata, authorization });
 ```
 
-`pollDeviceToken` polls once and requires `metadata`. Wait
+`pollDeviceToken` polls once. Pass `metadata` so it does not discover on every poll. Wait
 `authorization.interval` seconds before each poll, add 5 seconds after
 `slow_down`, and wait longer after a timeout or other network error
 (RFC 8628 §3.5). `DeviceAuthorization` is a plain value, so you can
