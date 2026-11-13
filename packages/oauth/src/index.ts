@@ -25,6 +25,7 @@ export {
   PERMANENT_ERROR_CODES,
   isPermanentErrorCode,
   DeviceGrantError,
+  DevicePollError,
 } from "./errors.js";
 export type { TokenEndpointCacheOptions } from "./tokenEndpoint.js";
 export { JWTSigner } from "./jwt/signer.js";
@@ -87,6 +88,7 @@ export type {
 export {
   requestDeviceAuthorization,
   pollDeviceToken,
+  waitForDeviceToken,
   systemClock,
 } from "./deviceAuthorization.js";
 export type {
@@ -95,6 +97,7 @@ export type {
   DeviceClientOptions,
   RequestDeviceAuthorizationOptions,
   PollDeviceTokenOptions,
+  WaitForDeviceTokenOptions,
 } from "./deviceAuthorization.js";
 export { fetchUserInfo } from "./userinfo.js";
 export type { UserInfoResponse, FetchUserInfoOptions } from "./userinfo.js";

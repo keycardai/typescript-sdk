@@ -230,8 +230,10 @@ until the person approves or denies.
 
 ```typescript
 import { fetchAuthorizationServerMetadata } from "@keycardai/oauth/discovery";
-import { pollDeviceToken, requestDeviceAuthorization } from "@keycardai/oauth/deviceAuthorization";
+import { requestDeviceAuthorization, waitForDeviceToken } from "@keycardai/oauth/deviceAuthorization";
+import { DevicePollError } from "@keycardai/oauth/errors";
 import { WorkloadIdentity, FileTokenSource } from "@keycardai/oauth/server";
+import type { TokenResponse } from "@keycardai/oauth/tokenExchange";
 
 const issuer = "https://your-zone.keycard.cloud";
 const credential = new WorkloadIdentity(new FileTokenSource(), { clientId: "my-client" });
@@ -246,15 +248,25 @@ const authorization = await requestDeviceAuthorization(issuer, {
 console.log(`Visit ${authorization.verificationUriComplete ?? authorization.verificationUri}`);
 console.log(`and confirm the code ${authorization.userCode}`);
 
-// Throws DeviceGrantError `authorization_pending` until the person confirms.
-const tokens = await pollDeviceToken(issuer, { credential, metadata, authorization });
+let tokens: TokenResponse | undefined;
+let interval: number | undefined;
+while (!tokens) {
+  try {
+    tokens = await waitForDeviceToken(issuer, { credential, metadata, authorization, interval });
+  } catch (error) {
+    if (!(error instanceof DevicePollError)) throw error;
+    interval = error.interval;
+  }
+}
 ```
 
-`pollDeviceToken` polls once. Pass `metadata` so it does not discover on every poll. Wait
-`authorization.interval` seconds before each poll, add 5 seconds after
-`slow_down`, and wait longer after a timeout or other network error
-(RFC 8628 §3.5). `DeviceAuthorization` is a plain value, so you can
-persist it and poll from another process that authenticates as the same client.
+The doc comment on `waitForDeviceToken` lists the poll loop rules and when it
+throws `DevicePollError`. The loop above resumes it after that error.
+`DeviceAuthorization` is a plain value, so you can persist it and poll from
+another process that authenticates as the same client. `pollDeviceToken` polls
+once. Pass `metadata` so it does not discover on every poll. If you call it in
+your own loop, wait longer after a timeout or other network error
+(RFC 8628 §3.5).
 
 When the request names more than one resource, the token is not for any one of
 them. To get a token for one resource, call `refreshAuthorization` with
@@ -322,8 +334,9 @@ issuer's `userinfo_endpoint`. Pass `{ metadata }` to skip discovery.
 |---|---|---|
 | `requestDeviceAuthorization` | `@keycardai/oauth/deviceAuthorization` | Asks the zone for a device code and a user code |
 | `pollDeviceToken` | `@keycardai/oauth/deviceAuthorization` | Polls the token endpoint once |
+| `waitForDeviceToken` | `@keycardai/oauth/deviceAuthorization` | Polls until the person approves or denies, per RFC 8628 §3.5 |
 | `DeviceAuthorization` (type) | `@keycardai/oauth/deviceAuthorization` | The device authorization response, with `expiresAt` computed from the clock |
-| `Clock` (type), `systemClock` | `@keycardai/oauth/deviceAuthorization` | Time source; inject a fake in tests |
+| `Clock` (type), `systemClock` | `@keycardai/oauth/deviceAuthorization` | Time source and timer; inject a fake in tests |
 
 ### UserInfo (OIDC Core 1.0)
 
@@ -363,6 +376,7 @@ issuer's `userinfo_endpoint`. Pass `{ metadata }` to skip discovery.
 | `AuthorizationDeniedError` | `@keycardai/oauth/errors` | Web-app callback carried an OAuth `error` (e.g. `access_denied`) |
 | `StateMismatchError` | `@keycardai/oauth/errors` | Web-app callback `state` is absent or does not match the stored value |
 | `DeviceGrantError` | `@keycardai/oauth/errors` | Device grant failure, with `errorCode`, `errorDescription`, `status`, and `retryable` |
+| `DevicePollError` | `@keycardai/oauth/errors` | `waitForDeviceToken` stopped on a network error, 5xx, or 429; has `interval` and the original failure as `cause` |
 | `PERMANENT_ERROR_CODES`, `isPermanentErrorCode` | `@keycardai/oauth/errors` | OAuth error codes that are not retryable, except on HTTP 429 or 5xx; classifies a bare error code |
 
 ### Utilities
