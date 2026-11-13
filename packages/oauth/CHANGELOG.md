@@ -1,3 +1,143 @@
+## 0.27.0-keycardai-oauth (2026-11-13)
+
+
+- feat(oauth): poll until done for the device grant (#343)
+- * feat(oauth): poll until done for the device grant
+- `waitForDeviceToken` polls until the person approves or denies, following
+RFC 8628 §3.5. It waits the interval before each poll, polls again on
+`authorization_pending`, and adds 5 seconds to the interval on `slow_down`.
+When the next poll would start after `expiresAt`, it throws
+`DeviceGrantError` `expired_token` without sending that poll.
+- A network error, a timeout, a 5xx, or a 429 stops the loop with
+`DevicePollError`. The error has the next `interval` and the original
+failure as `cause`. To resume, call `waitForDeviceToken` again with that
+`interval`, or a larger one after a timeout. Any other failure is thrown
+as is.
+- `timeoutMs` bounds each request but not the waits, also when the caller's
+signal has a longer deadline. Aborting the signal ends the wait or the
+request in flight, and no request is sent after the abort. `Clock` gets a
+`sleep` method, so tests run the loop without real delays.
+- A persisted `DeviceAuthorization` whose `interval` is not a positive
+integer throws `ConfigurationError` before any request.
+- Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+- * fix(oauth): device grant interval check and 429 or 5xx retryability
+- `waitForDeviceToken` throws `ConfigurationError` for an `interval` that is
+not a positive integer, such as 7.5, NaN, or a string. A value below
+`authorization.interval` still throws.
+- `DeviceGrantError` is retryable for a 429 or 5xx, whatever its error code.
+The OAuth error that is the cause of a `DevicePollError` is retryable too,
+so the two agree. `RefreshGrantError` follows the same rule.
+- Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+- ---------
+- Co-authored-by: Claude Opus 5.5 <noreply@anthropic.com>
+- feat(oauth): device authorization request and single poll (#342)
+- * feat(oauth): device authorization request and single poll
+- Adds the device side of the RFC 8628 device authorization grant, in
+`@keycardai/oauth/deviceAuthorization`.
+- - `requestDeviceAuthorization` asks the zone for a device code and a user
+  code. It returns a `DeviceAuthorization`, a plain value whose `expiresAt`
+  comes from an injectable `Clock`.
+- `pollDeviceToken` polls the token endpoint once. It requires `metadata`,
+  so a caller's poll loop does not fetch discovery on every poll.
+- Both authenticate with a `credential` or as a public `clientId`. The options
+type requires exactly one of them.
+- Configuration problems throw `ConfigurationError` before any request,
+including an endpoint or an issuer that is not an http or https URL. An
+error from the credential is thrown as is. Every other failure throws
+`DeviceGrantError` with the server's `error` code, or `invalid_response`
+for a malformed response, an HTTP error without an OAuth body, a network
+error, a timeout, or a failed discovery request. A timeout while reading
+the response body is a network error.
+- A failed discovery request is `retryable` for a network error, a timeout,
+a 5xx, or a 429, and not for any other status, a malformed document, or an
+issuer mismatch (base spec, "Metadata failures are not sticky"). Its
+`cause` is the discovery error. An abort during discovery rejects with
+`signal.reason`. `fetchAuthorizationServerMetadata` throws a failure to
+read the body as is, so a timeout there is not reported as malformed JSON.
+- `device_authorization_endpoint` is typed in discovery metadata.
+- Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+- * feat(oauth): pollDeviceToken discovers when metadata is not set
+- `pollDeviceToken` takes an issuer or metadata, as the spec's poll inputs
+say. Without `metadata`, each call discovers it first, the same way
+`requestDeviceAuthorization` does. A caller that polls in its own loop
+passes `metadata` so it does not discover on every poll. A failed
+discovery throws `DeviceGrantError` `invalid_response`.
+- Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+- ---------
+- Co-authored-by: Claude Opus 5.5 <noreply@anthropic.com>
+- feat(oauth): refresh with a credential (#341)
+- `refreshAuthorization` takes a `credential` in place of `clientId` and
+`clientSecret`. It authenticates the refresh with the credential's
+`clientAuthentication`, called with the token endpoint. A device that got
+its refresh token from the device grant redeems it this way, with
+`resources` set to get a token for one resource.
+- The options are `RefreshAuthorizationOptions`, unchanged for a client
+with `clientId`, or the new `RefreshWithCredentialOptions`. Both extend
+`RefreshOptionsBase`. Each declares the other's client fields as `never`,
+so the compiler rejects a `credential` together with `clientId` or
+`clientSecret`. At run time, those combinations, an empty `clientId`, and
+a credential without `clientAuthentication` throw `ConfigurationError`
+before any request.
+- Co-authored-by: Claude Opus 5.5 <noreply@anthropic.com>
+- feat(oauth): client authentication on credentials (#340)
+- `ApplicationCredential` gets an optional `clientAuthentication(issuer,
+endpoint)`. It returns the headers and form fields that authenticate the
+client on one request to the zone, and never a grant parameter such as
+`grant_type`. Callers call it once per request.
+- - `ClientSecret` returns an HTTP Basic header.
+- `WebIdentity` signs a new `client_assertion` per call, with `aud` set to
+  the endpoint the request goes to.
+- `WorkloadIdentity` sends the platform token as `client_assertion`, and
+  `client_id` when one is configured.
+- The optional `checkClientAuthentication()` throws `ConfigurationError` when
+the credential cannot authenticate, such as a `WebIdentity` without
+`clientId`. `requireClientAuthentication` requires `clientAuthentication`
+and runs `checkClientAuthentication`. An operation calls it before it sends
+any request, including discovery.
+- Both methods are optional. Credentials implemented outside the SDK, such as
+`WorkersClientSecret` in `@keycardai/cloudflare`, compile unchanged.
+- Co-authored-by: Claude Opus 5.5 <noreply@anthropic.com>
+- feat(oauth): export the permanent error codes (#339)
+- * feat(oauth): export the permanent error codes
+- `PERMANENT_ERROR_CODES` lists the OAuth error codes that no retry can
+change: `access_denied`, `expired_token`, `insufficient_authorization`, and
+`invalid_client`. The array is frozen. It and `isPermanentErrorCode` are
+exported from `@keycardai/oauth` and `@keycardai/oauth/errors`. A consumer
+that has only an error code, such as one read back from a queue, classifies
+it the same way the SDK does. The base spec's Retryability section asks for
+the set to be exported by name.
+- `RefreshGrantError` is not retryable for a permanent code, also when it
+arrives on a 5xx or 429.
+- Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+- * fix(oauth): a 429 or 5xx refresh failure is retryable whatever its code
+- The HTTP status decides before the error code. `RefreshGrantError` is
+retryable for a 429 or 5xx, also when the body has a code in
+`PERMANENT_ERROR_CODES`, and not retryable for any other 4xx. The device
+grant's `DevicePollError` classifies the same response the same way.
+- Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+- ---------
+- Co-authored-by: Claude Opus 5.5 <noreply@anthropic.com>
+- fix(oauth): percent-encode the client ID and secret in HTTP Basic (#338)
+- RFC 6749 §2.3.1 encodes the client ID and secret before they go into the
+Basic credential. The SDK encoded neither. A client ID with a colon split
+in the wrong place on the server, a secret with `%` decoded to a different
+value, and a character outside Latin-1 made `btoa` throw.
+- The four call sites now use `basicAuthorization`, which encodes each half
+with `encodeURIComponent`. A space becomes `%20`. Each half decodes to the
+original with an RFC 6749 Appendix B form decoder, and with the
+`decodeURIComponent` that Keycard zones use (svc-sts
+`packages/w3/src/auth/basic.js`).
+- Co-authored-by: Claude Opus 5.5 <noreply@anthropic.com>
+- fix(oauth): close the loopback callback connection (#337)
+- The loopback server answers one request. The callback response now sends
+`Connection: close`, so Node ends the socket once the response is written.
+Before, the idle keep-alive socket stayed open until the server's
+keep-alive timeout, and kept a Jest worker running after the oauth test
+suite finished. A test now checks that the callback socket closes.
+- The timeout test in `pkce.test.ts` passes a no-op `openBrowser`, so the
+test run does not open a browser tab.
+- Co-authored-by: Claude Opus 5.5 <noreply@anthropic.com>
+
 ## 0.26.6-keycardai-oauth (2026-11-06)
 
 
