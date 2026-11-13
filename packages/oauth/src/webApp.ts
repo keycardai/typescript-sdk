@@ -1,5 +1,6 @@
 import { requestSignal } from "./requestSignal.js";
 import base64url from "./base64url.js";
+import { basicAuthorization } from "./basicAuthorization.js";
 import { fetchAuthorizationServerMetadata, type OAuthAuthorizationServerMetadata } from "./discovery.js";
 import { AuthorizationDeniedError, ConfigurationError, OAuthError, RefreshGrantError, StateMismatchError } from "./errors.js";
 import { buildAuthorizeUrl, exchangeAuthorizationCode, generatePkcePair } from "./pkce.js";
@@ -228,7 +229,7 @@ export async function refreshAuthorization(
     "Content-Type": "application/x-www-form-urlencoded",
   };
   if (options.clientSecret) {
-    headers["Authorization"] = `Basic ${btoa(`${options.clientId}:${options.clientSecret}`)}`;
+    headers["Authorization"] = basicAuthorization(options.clientId, options.clientSecret);
   } else {
     params.set("client_id", options.clientId);
   }
