@@ -1,4 +1,6 @@
-import type { ApplicationCredential } from "../credentials.js";
+import type { ApplicationCredential, ClientAuthentication } from "../credentials.js";
+import { basicAuthorization } from "../basicAuthorization.js";
+import { ConfigurationError } from "../errors.js";
 import type { TokenExchangeRequest } from "../tokenExchange.js";
 
 const ACCESS_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:access_token";
@@ -91,6 +93,22 @@ export class ClientSecret implements ApplicationCredential {
     }
     const tuple = this.#credentialsByIssuer.get(normalizeIssuer(issuer));
     return tuple ? { clientId: tuple[0], clientSecret: tuple[1] } : null;
+  }
+
+  /**
+   * Returns an HTTP Basic `Authorization` header for the zone `issuer`. `form`
+   * is empty. A multi-zone credential throws `ConfigurationError` for an
+   * issuer it has no credentials for.
+   */
+  async clientAuthentication(issuer: string, _endpoint: string): Promise<ClientAuthentication> {
+    const auth = this.getAuth(issuer);
+    if (!auth) {
+      throw new ConfigurationError(`ClientSecret: no client credentials configured for issuer "${issuer}"`);
+    }
+    return {
+      headers: { Authorization: basicAuthorization(auth.clientId, auth.clientSecret) },
+      form: {},
+    };
   }
 
   async prepareTokenExchangeRequest(
