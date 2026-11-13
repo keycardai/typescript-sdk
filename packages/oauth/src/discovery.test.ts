@@ -52,6 +52,30 @@ describe('fetchAuthorizationServerMetadata', () => {
     expect(metadata.response_types_supported).toBeUndefined();
   });
 
+  it.each([
+    {
+      name: 'present',
+      body: { issuer: ISSUER, device_authorization_endpoint: `${ISSUER}/device` },
+      expected: `${ISSUER}/device`,
+    },
+    { name: 'absent', body: { issuer: ISSUER }, expected: undefined },
+  ])('types device_authorization_endpoint when $name', async ({ body, expected }) => {
+    mockFetch(body);
+
+    const metadata = await fetchAuthorizationServerMetadata(ISSUER);
+    const endpoint: string | undefined = metadata.device_authorization_endpoint;
+
+    expect(endpoint).toBe(expected);
+  });
+
+  it('rejects a device_authorization_endpoint that is not a string', async () => {
+    mockFetch({ issuer: ISSUER, device_authorization_endpoint: 42 });
+
+    await expect(fetchAuthorizationServerMetadata(ISSUER)).rejects.toMatchObject({
+      errorCode: 'invalid_response',
+    });
+  });
+
   it('throws HTTPError on a non-2xx response', async () => {
     mockFetch({}, 503);
 

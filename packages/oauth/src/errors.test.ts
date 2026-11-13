@@ -1,4 +1,4 @@
-import { PERMANENT_ERROR_CODES, isPermanentErrorCode } from './errors.js';
+import { DeviceGrantError, PERMANENT_ERROR_CODES, isPermanentErrorCode } from './errors.js';
 
 describe('PERMANENT_ERROR_CODES', () => {
   it('lists the permanent codes and cannot be changed', () => {
@@ -14,4 +14,13 @@ describe('PERMANENT_ERROR_CODES', () => {
   ])('isPermanentErrorCode($code) is $permanent', ({ code, permanent }) => {
     expect(isPermanentErrorCode(code)).toBe(permanent);
   });
+
+  // Classifying a code by membership in PERMANENT_ERROR_CODES must match
+  // DeviceGrantError.retryable.
+  it.each([...PERMANENT_ERROR_CODES, 'authorization_pending', 'server_error', 'invalid_response'])(
+    'agrees with DeviceGrantError.retryable for %s',
+    (code) => {
+      expect(new DeviceGrantError(code).retryable).toBe(!isPermanentErrorCode(code));
+    },
+  );
 });

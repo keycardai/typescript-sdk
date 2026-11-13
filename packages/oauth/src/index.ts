@@ -24,6 +24,7 @@ export {
   TokenEndpointDiscoveryError,
   PERMANENT_ERROR_CODES,
   isPermanentErrorCode,
+  DeviceGrantError,
 } from "./errors.js";
 export type { TokenEndpointCacheOptions } from "./tokenEndpoint.js";
 export { JWTSigner } from "./jwt/signer.js";
@@ -83,6 +84,18 @@ export type {
   RefreshWithCredentialOptions,
   AuthorizationRedirect,
 } from "./webApp.js";
+export {
+  requestDeviceAuthorization,
+  pollDeviceToken,
+  systemClock,
+} from "./deviceAuthorization.js";
+export type {
+  Clock,
+  DeviceAuthorization,
+  DeviceClientOptions,
+  RequestDeviceAuthorizationOptions,
+  PollDeviceTokenOptions,
+} from "./deviceAuthorization.js";
 export { fetchUserInfo } from "./userinfo.js";
 export type { UserInfoResponse, FetchUserInfoOptions } from "./userinfo.js";
 export { resolveIssuerFromChallenge, authenticateFromChallenge } from "./challenge.js";
