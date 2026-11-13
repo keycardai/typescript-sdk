@@ -312,7 +312,10 @@ async function waitForCode(
         const code = reqUrl.searchParams.get("code");
         const error = reqUrl.searchParams.get("error");
 
-        res.writeHead(200, { "Content-Type": "text/html" });
+        // The server handles one request. `Connection: close` makes Node end the
+        // socket once the response is written, so an idle keep-alive socket does
+        // not hold the process open after `server.close()`.
+        res.writeHead(200, { "Content-Type": "text/html", Connection: "close" });
         res.end("<html><body><p>Authentication complete. You can close this tab.</p></body></html>");
 
         server.close();

@@ -255,6 +255,59 @@ describe('authenticate', () => {
     expect(result.accessToken).toBe('pkce-tok');
   }, 8000);
 
+  // Node's default server keep-alive timeout is 5 seconds. The 3 second test
+  // timeout fails the test if the socket stays open, instead of leaving an open
+  // handle that hangs Jest on exit.
+  it('closes the callback connection after the response', async () => {
+    const testPort = 19873;
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.includes('/.well-known/')) {
+        return metadataResponse({ authorization_endpoint: 'https://auth.example.com/authorize' });
+      }
+      return jsonResponse(200, { access_token: 'pkce-tok', token_type: 'bearer' });
+    });
+
+    let authorizeUrl: string | undefined;
+    const authPromise = authenticate(ISSUER, {
+      clientId: 'my-client',
+      port: testPort,
+      timeoutMs: 2000,
+      openBrowser: (url) => {
+        authorizeUrl = url;
+      },
+    });
+    await new Promise((r) => setTimeout(r, 250));
+    const state = new URL(authorizeUrl!).searchParams.get('state')!;
+
+    const { Agent, request } = await import('node:http');
+    const agent = new Agent({ keepAlive: true });
+    try {
+      let socketClosed!: Promise<void>;
+      const connection = await new Promise<string | undefined>((resolve, reject) => {
+        const req = request(
+          `http://localhost:${testPort}/callback?code=auth-code-xyz&state=${encodeURIComponent(state)}`,
+          { agent },
+          (res) => {
+            res.resume();
+            resolve(res.headers.connection);
+          },
+        );
+        req.on('socket', (socket) => {
+          socketClosed = new Promise((r) => socket.once('close', () => r()));
+        });
+        req.on('error', reject);
+        req.end();
+      });
+
+      expect(connection).toBe('close');
+      await socketClosed;
+      expect((await authPromise).accessToken).toBe('pkce-tok');
+    } finally {
+      agent.destroy();
+    }
+  }, 3000);
+
   it('throws ConfigurationError before opening a browser when the AS does not advertise authorization_endpoint', async () => {
     fetchMock.mockImplementationOnce(async () =>
       new Response(JSON.stringify({ issuer: ISSUER, token_endpoint: TOKEN_ENDPOINT }), {
@@ -318,7 +371,7 @@ describe('authenticate', () => {
     );
 
     await expect(
-      authenticate(ISSUER, { clientId: 'my-client', port: testPort, timeoutMs: 200 }),
+      authenticate(ISSUER, { clientId: 'my-client', port: testPort, timeoutMs: 200, openBrowser: () => {} }),
     ).rejects.toThrow(/timed out/);
   }, 3000);
 });
