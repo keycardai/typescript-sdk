@@ -222,6 +222,11 @@ code at authorize time, so completion sends no `resource` parameter. A callback
 carrying `error` throws `AuthorizationDeniedError` and a missing or non-matching
 `state` throws `StateMismatchError`, both before any token request.
 
+A confidential client can pass `credential` to `completeAuthorization` in place
+of `clientId` and `clientSecret`. For example, a `WebIdentity` with `clientId`
+sends a `private_key_jwt` client assertion whose audience is the token
+endpoint. `beginAuthorization` still takes `clientId`.
+
 ### Device Authorization Grant (RFC 8628)
 
 For a process with no browser and no redirect URI, such as a headless agent
@@ -324,7 +329,7 @@ issuer's `userinfo_endpoint`. Pass `{ metadata }` to skip discovery.
 | `authenticate` | `@keycardai/oauth/pkce` | Full browser-launch and loopback-callback flow. **Node.js only** |
 | `Pkce` (type) | `@keycardai/oauth/pkce` | `{ codeVerifier, codeChallenge, codeChallengeMethod }` |
 | `beginAuthorization` | `@keycardai/oauth/webApp` | Web-app flow: builds the authorize URL and returns `{ url, state, codeVerifier, resources }` |
-| `completeAuthorization` | `@keycardai/oauth/webApp` | Web-app flow: validates the callback and exchanges the code |
+| `completeAuthorization` | `@keycardai/oauth/webApp` | Web-app flow: validates the callback and exchanges the code, as a public client, with a client secret, or with a `credential` |
 | `AuthorizationRedirect` (type) | `@keycardai/oauth/webApp` | Begin-step result the application stores until the callback |
 | `refreshAuthorization` | `@keycardai/oauth/webApp` | Renews a grant with its `refresh_token`, as a public client, with a client secret, or with a `credential` |
 

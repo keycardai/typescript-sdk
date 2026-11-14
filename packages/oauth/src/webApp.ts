@@ -1,10 +1,11 @@
 import { requestSignal } from "./requestSignal.js";
 import base64url from "./base64url.js";
-import { basicAuthorization } from "./basicAuthorization.js";
 import { fetchAuthorizationServerMetadata, type OAuthAuthorizationServerMetadata } from "./discovery.js";
 import { AuthorizationDeniedError, ConfigurationError, OAuthError, RefreshGrantError, StateMismatchError } from "./errors.js";
-import { requireClientAuthentication, type ApplicationCredential, type ClientAuthenticator } from "./credentials.js";
-import { buildAuthorizeUrl, exchangeAuthorizationCode, generatePkcePair } from "./pkce.js";
+import type { ApplicationCredential } from "./credentials.js";
+import { redeemAuthorizationCode } from "./authorizationCode.js";
+import { buildAuthorizeUrl, generatePkcePair } from "./pkce.js";
+import { addClientAuthentication, resolveTokenClient } from "./tokenClient.js";
 import { deserializeTokenResponse, type TokenResponse } from "./tokenExchange.js";
 
 // =============================================================================
@@ -45,23 +46,38 @@ export interface AuthorizationRedirect {
   resources: string[];
 }
 
-export interface CompleteAuthorizationOptions {
+/** Options both forms of `completeAuthorization` share. */
+export interface CompleteOptionsBase {
   /** Query parameters the callback route received. */
   callbackParams: URLSearchParams | Record<string, string>;
   /** The `state` stored at the begin step. */
   state: string;
   /** The `codeVerifier` stored at the begin step. */
   codeVerifier: string;
-  clientId: string;
   /** The same registered redirect URI used at the begin step. */
   redirectUri: string;
-  /** Client secret for confidential clients. Public clients omit it. */
-  clientSecret?: string;
   /** Pre-discovered metadata. When set, no discovery request is made. */
   metadata?: OAuthAuthorizationServerMetadata;
   signal?: AbortSignal;
   /** Timeout in milliseconds for each request to the authorization server (default 10 seconds; 0 disables). */
   timeoutMs?: number;
+}
+
+/** Complete as a client with `clientId`, and `clientSecret` for a confidential client. */
+export interface CompleteAuthorizationOptions extends CompleteOptionsBase {
+  /** The client the authorization was requested for. */
+  clientId: string;
+  /** Client secret for confidential clients. Public clients omit it. */
+  clientSecret?: string;
+  credential?: never;
+}
+
+/** Complete as a client that authenticates with a credential. */
+export interface CompleteWithCredentialOptions extends CompleteOptionsBase {
+  /** Authenticates the code redemption with the credential's `clientAuthentication`. */
+  credential: ApplicationCredential;
+  clientId?: never;
+  clientSecret?: never;
 }
 
 /** Options both forms of `refreshAuthorization` share. */
@@ -153,7 +169,14 @@ export async function beginAuthorization(
  * Callback validation happens before discovery or any token request: a
  * callback carrying `error` throws `AuthorizationDeniedError`, a missing or
  * non-matching `state` throws `StateMismatchError`, and a missing `code`
- * throws `OAuthError("invalid_request")`.
+ * throws `OAuthError("invalid_request")`. Then `ConfigurationError` is
+ * thrown, still before any request, when the client options are not valid.
+ *
+ * The token request authenticates the client the same way
+ * `refreshAuthorization` does: `client_id` in the body for a public client,
+ * HTTP Basic for a confidential one, or the headers and form fields from
+ * `credential.clientAuthentication`, called with the token endpoint. Errors
+ * from discovery and from the credential are thrown as is.
  *
  * No RFC 8707 `resource` parameter is sent on the token request: the
  * authorization server derives the issued token's audience from the
@@ -162,7 +185,7 @@ export async function beginAuthorization(
  */
 export async function completeAuthorization(
   issuer: string,
-  options: CompleteAuthorizationOptions,
+  options: CompleteAuthorizationOptions | CompleteWithCredentialOptions,
 ): Promise<TokenResponse> {
   const params = options.callbackParams instanceof URLSearchParams
     ? options.callbackParams
@@ -190,11 +213,10 @@ export async function completeAuthorization(
     );
   }
 
-  return exchangeAuthorizationCode(issuer, code, {
+  const client = resolveTokenClient(options, "completeAuthorization");
+  return redeemAuthorizationCode(issuer, code, client, {
     codeVerifier: options.codeVerifier,
     redirectUri: options.redirectUri,
-    clientId: options.clientId,
-    clientSecret: options.clientSecret,
     metadata: options.metadata,
     signal: options.signal,
     timeoutMs: options.timeoutMs,
@@ -226,19 +248,7 @@ export async function refreshAuthorization(
   issuer: string,
   options: RefreshAuthorizationOptions | RefreshWithCredentialOptions,
 ): Promise<TokenResponse> {
-  let client: { credential: ClientAuthenticator } | { clientId: string; clientSecret?: string };
-  if (options.credential !== undefined) {
-    if (options.clientId !== undefined || options.clientSecret !== undefined) {
-      throw new ConfigurationError(
-        "refreshAuthorization: set either credential or clientId and clientSecret, not both",
-      );
-    }
-    client = { credential: requireClientAuthentication(options.credential, "refreshAuthorization") };
-  } else if (typeof options.clientId === "string" && options.clientId) {
-    client = { clientId: options.clientId, clientSecret: options.clientSecret };
-  } else {
-    throw new ConfigurationError("refreshAuthorization: clientId or credential is required");
-  }
+  const client = resolveTokenClient(options, "refreshAuthorization");
 
   const metadata = options.metadata
     ?? await fetchAuthorizationServerMetadata(issuer, {
@@ -264,15 +274,7 @@ export async function refreshAuthorization(
   const headers: Record<string, string> = {
     "Content-Type": "application/x-www-form-urlencoded",
   };
-  if ("credential" in client) {
-    const auth = await client.credential.clientAuthentication(issuer, metadata.token_endpoint);
-    Object.assign(headers, auth.headers);
-    for (const [name, value] of Object.entries(auth.form)) params.set(name, value);
-  } else if (client.clientSecret) {
-    headers["Authorization"] = basicAuthorization(client.clientId, client.clientSecret);
-  } else {
-    params.set("client_id", client.clientId);
-  }
+  await addClientAuthentication(client, issuer, metadata.token_endpoint, headers, params);
 
   let response: Response;
   try {

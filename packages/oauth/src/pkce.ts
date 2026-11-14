@@ -1,9 +1,8 @@
-import { requestSignal } from "./requestSignal.js";
 import base64url from "./base64url.js";
-import { basicAuthorization } from "./basicAuthorization.js";
 import { fetchAuthorizationServerMetadata, type OAuthAuthorizationServerMetadata } from "./discovery.js";
 import { ConfigurationError, OAuthError } from "./errors.js";
-import { deserializeTokenResponse, type TokenResponse } from "./tokenExchange.js";
+import { redeemAuthorizationCode } from "./authorizationCode.js";
+import type { TokenResponse } from "./tokenExchange.js";
 
 // =============================================================================
 // PKCE primitives (RFC 7636)
@@ -95,68 +94,12 @@ export async function exchangeAuthorizationCode(
   code: string,
   options: ExchangeAuthorizationCodeOptions,
 ): Promise<TokenResponse> {
-  const metadata = options.metadata ?? await fetchAuthorizationServerMetadata(issuer, {
-    signal: options.signal,
-    timeoutMs: options.timeoutMs,
-  });
-  if (!metadata.token_endpoint) {
-    throw new ConfigurationError(
-      `Authorization server "${issuer}" does not advertise a token_endpoint`,
-    );
-  }
-
-  const params = new URLSearchParams();
-  params.set("grant_type", "authorization_code");
-  params.set("code", code);
-  params.set("code_verifier", options.codeVerifier);
-  params.set("redirect_uri", options.redirectUri);
-  if (options.resource) params.set("resource", options.resource);
-  if (options.clientId) params.set("client_id", options.clientId);
-
-  const headers: Record<string, string> = {
-    "Content-Type": "application/x-www-form-urlencoded",
-  };
-  if (options.clientId && options.clientSecret) {
-    headers["Authorization"] = basicAuthorization(options.clientId, options.clientSecret);
-    params.delete("client_id");
-  }
-
-  const response = await fetch(metadata.token_endpoint, {
-    method: "POST",
-    headers,
-    body: params.toString(),
-    signal: requestSignal(options.signal, options.timeoutMs),
-  });
-
-  if (!response.ok) {
-    let errorBody: Record<string, unknown> | null = null;
-    try {
-      const json = await response.json() as unknown;
-      if (json && typeof json === "object" && !Array.isArray(json)) {
-        errorBody = json as Record<string, unknown>;
-      }
-    } catch {
-      // non-JSON error body — fall through to generic error
-    }
-    if (errorBody && typeof errorBody.error === "string") {
-      const description = typeof errorBody.error_description === "string"
-        ? errorBody.error_description
-        : errorBody.error;
-      const errorUri = typeof errorBody.error_uri === "string" ? errorBody.error_uri : undefined;
-      throw new OAuthError(errorBody.error, description, errorUri);
-    }
-    throw new OAuthError(
-      "invalid_response",
-      `Authorization code exchange failed (HTTP ${response.status})`,
-    );
-  }
-
-  const json = await response.json() as unknown;
-  if (!json || typeof json !== "object" || Array.isArray(json)) {
-    throw new OAuthError("invalid_response", "Token endpoint response is not a valid JSON object");
-  }
-  return deserializeTokenResponse(json as Record<string, unknown>);
+  const client = options.clientId
+    ? { clientId: options.clientId, clientSecret: options.clientSecret }
+    : undefined;
+  return redeemAuthorizationCode(issuer, code, client, options);
 }
+
 
 // =============================================================================
 // Authorization URL builder
