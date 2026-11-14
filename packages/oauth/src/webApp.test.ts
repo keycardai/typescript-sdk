@@ -3,6 +3,7 @@ import { beginAuthorization, completeAuthorization, refreshAuthorization } from 
 import { AuthorizationDeniedError, ConfigurationError, OAuthError, PERMANENT_ERROR_CODES, RefreshGrantError, StateMismatchError } from './errors.js';
 import type { ApplicationCredential } from './credentials.js';
 import { WebIdentity } from './server/webIdentity.js';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -290,7 +291,10 @@ describe('web-app flow', () => {
 
       const headers = calls[0].init?.headers as Record<string, string>;
       expect(headers['Authorization']).toBe(`Basic ${btoa('client-123:shh')}`);
-      expect(new URLSearchParams(String(calls[0].init?.body)).has('client_id')).toBe(false);
+      const body = new URLSearchParams(String(calls[0].init?.body));
+      expect(body.has('client_id')).toBe(false);
+      expect(body.has('client_secret')).toBe(false);
+      expect(body.has('client_assertion')).toBe(false);
     });
 
     it('discovers the token endpoint when no metadata is supplied', async () => {
@@ -310,6 +314,104 @@ describe('web-app flow', () => {
 
       expect(calls[0].url).toContain('/.well-known/oauth-authorization-server');
       expect(calls[1].url).toBe(TOKEN_ENDPOINT);
+    });
+
+    describe('with a credential', () => {
+      const callback = {
+        state: 'stored-state',
+        codeVerifier: 'stored-verifier',
+        redirectUri: REDIRECT_URI,
+        callbackParams: { code: 'auth-code', state: 'stored-state' },
+      };
+
+      const credential = (): ApplicationCredential => ({
+        getAuth: () => null,
+        prepareTokenExchangeRequest: async () => ({ subjectToken: 'unused' }),
+        clientAuthentication: jest.fn(async (_issuer: string, endpoint: string) => ({
+          headers: { 'X-Client-Auth': `header-for:${endpoint}` },
+          form: {
+            client_assertion: `assertion-for:${endpoint}`,
+            client_assertion_type: 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',
+          },
+        })),
+      });
+
+      it('redeems the code with the credential headers and form fields and no client_id or secret', async () => {
+        const cred = credential();
+        const calls = mockFetch(() => jsonResponse(200, { access_token: 'at', token_type: 'Bearer' }));
+
+        const token = await completeAuthorization(ISSUER, {
+          ...callback,
+          metadata: METADATA,
+          credential: cred,
+        });
+
+        expect(token.accessToken).toBe('at');
+        expect(calls).toHaveLength(1);
+        expect(calls[0].url).toBe(TOKEN_ENDPOINT);
+        expect(calls[0].init?.headers).toEqual({
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'X-Client-Auth': `header-for:${TOKEN_ENDPOINT}`,
+        });
+        expect([...new URLSearchParams(String(calls[0].init?.body)).entries()]).toEqual([
+          ['grant_type', 'authorization_code'],
+          ['code', 'auth-code'],
+          ['code_verifier', 'stored-verifier'],
+          ['redirect_uri', REDIRECT_URI],
+          ['client_assertion', `assertion-for:${TOKEN_ENDPOINT}`],
+          ['client_assertion_type', 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer'],
+        ]);
+        expect(cred.clientAuthentication).toHaveBeenCalledWith(ISSUER, TOKEN_ENDPOINT);
+      });
+
+      it('sends a WebIdentity assertion whose audience is the token endpoint', async () => {
+        const storageDir = mkdtempSync(join(tmpdir(), 'complete-keys-'));
+        try {
+          const calls = mockFetch(() => jsonResponse(200, { access_token: 'at', token_type: 'Bearer' }));
+
+          await completeAuthorization(ISSUER, {
+            ...callback,
+            metadata: METADATA,
+            credential: new WebIdentity({ clientId: 'cred-abc', storageDir }),
+          });
+
+          const body = new URLSearchParams(String(calls[0].init?.body));
+          expect(body.get('client_assertion_type')).toBe('urn:ietf:params:oauth:client-assertion-type:jwt-bearer');
+          const assertion = body.get('client_assertion') ?? '';
+          const payload = JSON.parse(Buffer.from(assertion.split('.')[1], 'base64url').toString('utf-8'));
+          expect(payload).toMatchObject({ iss: 'cred-abc', sub: 'cred-abc', aud: TOKEN_ENDPOINT });
+        } finally {
+          rmSync(storageDir, { recursive: true, force: true });
+        }
+      });
+
+      it.each([
+        { name: 'credential together with clientId', options: { credential: credential(), clientId: 'client-123' } },
+        { name: 'credential together with clientSecret', options: { credential: credential(), clientSecret: 'shh' } },
+        { name: 'credential together with an empty clientId', options: { credential: credential(), clientId: '' } },
+        { name: 'an empty clientId', options: { clientId: '' } },
+        { name: 'neither credential nor clientId', options: {} },
+        {
+          name: 'a credential without clientAuthentication',
+          options: {
+            credential: {
+              getAuth: () => null,
+              prepareTokenExchangeRequest: async () => ({ subjectToken: 'unused' }),
+            },
+          },
+        },
+        {
+          name: 'a WebIdentity without clientId',
+          options: { credential: new WebIdentity({ storageDir: join(tmpdir(), 'complete-unused-keys') }) },
+        },
+      ])('$name throws ConfigurationError before any request', async ({ options }) => {
+        const calls = mockFetch(() => jsonResponse(200, METADATA));
+
+        await expect(
+          completeAuthorization(ISSUER, { ...callback, ...options }),
+        ).rejects.toThrow(ConfigurationError);
+        expect(calls).toHaveLength(0);
+      });
     });
   });
 
