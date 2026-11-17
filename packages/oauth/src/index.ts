@@ -26,6 +26,16 @@ export {
   isPermanentErrorCode,
   DeviceGrantError,
   DevicePollError,
+  NetworkError,
+  AgentError,
+  AgentErrorCode,
+  AgentResponseError,
+  isDeclined,
+  isRateLimited,
+  isPrompterUnavailable,
+  isAuthorizationRequired,
+  isApplicationNotFound,
+  isUnavailable,
 } from "./errors.js";
 export type { TokenEndpointCacheOptions } from "./tokenEndpoint.js";
 export { JWTSigner } from "./jwt/signer.js";
