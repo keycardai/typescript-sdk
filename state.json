@@ -8,8 +8,8 @@
     "version": "0.6.0"
   },
   "eve:eve": {
-    "run": "https://github.com/keycardai/typescript-sdk/actions/runs/44031539936",
-    "version": "1.0.1"
+    "run": "https://github.com/keycardai/typescript-sdk/actions/runs/44251602986",
+    "version": "1.0.2"
   },
   "eve:eve@latest-tag": {
     "run": "https://github.com/keycardai/typescript-sdk/actions/runs/43685425731",
