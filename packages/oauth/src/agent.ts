@@ -246,8 +246,9 @@ function resolveSocket(
   return { path: path.join(defaultAgentDir(get), "agent.sock"), rule: "default" };
 }
 
-// Transcribes the Keycard CLI's Config.AgentSocketPath (config_unix.go),
-// minus its keycard.toml fallbacks and its directory creation.
+// Transcribes the Keycard CLI's Config.AgentSocketPath and runDir
+// (config_unix.go) and xdgDir (config.go), minus their keycard.toml
+// fallbacks and their directory creation.
 function defaultAgentDir(get: (name: string) => string | undefined): string {
   const agentDir = get("KEYCARD_AGENT_DIR");
   if (agentDir) return agentDir;

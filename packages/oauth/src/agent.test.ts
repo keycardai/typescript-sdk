@@ -508,7 +508,7 @@ describe("AgentTokenSource response", () => {
   });
 
   it.each(Object.values(AgentErrorCode))("34: retryable for %s", (code) => {
-    expect(new AgentError(code, "").retryable).toBe(code === "resource_exhausted" || code === "unavailable");
+    expect(new AgentError(code, "").retryable).toBe(["resource_exhausted", "unavailable"].includes(code));
   });
 });
 
