@@ -114,8 +114,8 @@ export class AgentTokenSource implements ResourceTokenSource {
   /**
    * Asks the agent for a token for `resource` carrying `options.scopes`.
    *
-   * Throws {@link ConfigurationError} for an empty resource or an
-   * unresolvable socket, {@link NetworkError} when the agent cannot be
+   * Throws {@link ConfigurationError} for an empty resource, an `org` or
+   * `zone` that is not printable ASCII, or an unresolvable socket, {@link NetworkError} when the agent cannot be
    * reached, {@link AgentError} when the agent refuses,
    * {@link AgentResponseError} for an unusable 200 response, and
    * {@link HTTPError} for any other non-200 response. Rejects with
@@ -124,6 +124,13 @@ export class AgentTokenSource implements ResourceTokenSource {
   async resourceToken(resource: string, options?: ResourceTokenOptions): Promise<TokenResponse> {
     if (!resource) {
       throw new ConfigurationError("AgentTokenSource: resource is required");
+    }
+    // Both travel as headers, where node:http throws a bare TypeError on a
+    // control byte and sends a non-ASCII id as Latin-1, not UTF-8.
+    for (const [name, value] of [["org", this.#org], ["zone", this.#zone]] as const) {
+      if (value && /[^\x20-\x7e]/.test(value)) {
+        throw new ConfigurationError(`AgentTokenSource: ${name} must be printable ASCII`);
+      }
     }
     const socket = resolveSocket(this.#socket, this.#env ?? process.env);
 
@@ -164,9 +171,13 @@ export class AgentTokenSource implements ResourceTokenSource {
     if (typeof token !== "string" || !token) {
       throw new AgentResponseError("Keycard agent response has no token");
     }
-    // The token may be an opaque third-party secret headed for an Authorization header.
+    // The token may be an opaque third-party secret headed for an Authorization
+    // header, which carries neither a control byte nor a character above U+00FF.
     if (/[\x00-\x1f\x7f]/.test(token)) {
       throw new AgentResponseError("Keycard agent token contains a control character");
+    }
+    if (/[^\x00-\xff]/.test(token)) {
+      throw new AgentResponseError("Keycard agent token contains a character above U+00FF");
     }
 
     const result: TokenResponse = { accessToken: token, tokenType: "Bearer" };

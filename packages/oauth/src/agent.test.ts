@@ -154,6 +154,19 @@ describe("AgentTokenSource request", () => {
     expect(JSON.parse(agent.requests[1].body)).not.toHaveProperty("appId");
   });
 
+  it.each([
+    ["org", { org: "org_1\r\nX-Injected: 1" }],
+    ["zone", { zone: "zone\x00" }],
+    ["org", { org: "örg" }],
+  ])("rejects a %s a header cannot carry with a configuration error and sends nothing", async (_name, options) => {
+    const agent = await fakeAgent();
+
+    const error = await rejection(new AgentTokenSource({ socket: agent.socketPath, ...options }).resourceToken(RESOURCE));
+
+    expect(error).toBeInstanceOf(ConfigurationError);
+    expect(agent.requests).toHaveLength(0);
+  });
+
   it("4: sends the resource byte for byte, unnormalized", async () => {
     const agent = await fakeAgent();
     const resource = "HTTPS://API.Example.COM:443/a/./b/../c";
@@ -521,6 +534,19 @@ describe("AgentTokenSource response", () => {
 
     expect(error).toBeInstanceOf(AgentResponseError);
     expect((error as Error).message).not.toContain(token);
+  });
+
+  it("rejects a token a header cannot carry without echoing it", async () => {
+    const token = "tokĀen";
+
+    const error = await rejection(mint({ body: { token } }));
+
+    expect(error).toBeInstanceOf(AgentResponseError);
+    expect((error as Error).message).not.toContain(token);
+  });
+
+  it("accepts a token with Latin-1 bytes a header can carry", async () => {
+    expect((await mint({ body: { token: "tokén" } })).accessToken).toBe("tokén");
   });
 
   it.each(Object.values(AgentErrorCode))("34: retryable for %s", (code) => {
