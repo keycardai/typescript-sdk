@@ -70,6 +70,8 @@ export interface AgentTokenSourceOptions {
 
 const ISSUE_TOKEN_PATH = "/keycard.agent.v1.AgentService/IssueToken";
 const MAX_ERROR_BODY_BYTES = 64 * 1024;
+// Nothing checks who owns the socket, so its peer could stream an endless body.
+const MAX_RESPONSE_BYTES = 1024 * 1024;
 
 type SocketRule = "option" | "env" | "default";
 
@@ -328,7 +330,7 @@ function post(
       },
       (response) => {
         const status = response.statusCode ?? 0;
-        const limit = status === 200 ? Infinity : MAX_ERROR_BODY_BYTES;
+        const limit = status === 200 ? MAX_RESPONSE_BYTES : MAX_ERROR_BODY_BYTES;
         const chunks: Buffer[] = [];
         let size = 0;
         const finish = () =>
@@ -336,8 +338,12 @@ function post(
         response.on("data", (chunk: Buffer) => {
           chunks.push(chunk);
           size += chunk.length;
-          if (size >= limit) {
-            finish();
+          if (size > limit) {
+            if (status === 200) {
+              settle(() => reject(new AgentResponseError("Keycard agent response exceeds 1 MiB")));
+            } else {
+              finish();
+            }
             response.destroy();
           }
         });

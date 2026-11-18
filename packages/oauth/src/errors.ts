@@ -397,8 +397,8 @@ export class AgentError extends OAuthError {
 
 /**
  * The local Keycard agent answered 200 with a response the SDK cannot use: a
- * body that is not JSON, a missing or empty token, a token carrying a control
- * character, or an unparseable expiry. The message never includes the token.
+ * body over 1 MiB or not JSON, a missing or empty token, a token carrying a
+ * control character, or an unparseable expiry. The message never includes the token.
  * `retryable` is always `false`.
  */
 export class AgentResponseError extends OAuthError {

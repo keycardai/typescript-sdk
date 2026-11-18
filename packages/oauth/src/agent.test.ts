@@ -482,9 +482,25 @@ describe("AgentTokenSource response", () => {
   });
 
   it("reads a bounded prefix of an error body", async () => {
-    const error = await rejection(mint({ status: 500, body: "x".repeat(1024 * 1024) }));
+    // Read whole, this body is a valid Connect error; only the bound turns it into unparseable JSON.
+    const body = { code: "permission_denied", message: "x".repeat(100 * 1024) };
+
+    const error = await rejection(mint({ status: 403, body }));
 
     expect(error).toBeInstanceOf(HTTPError);
+    expect(error).not.toBeInstanceOf(AgentError);
+  });
+
+  it("reads a 200 body larger than the error bound whole", async () => {
+    const token = "t".repeat(200 * 1024);
+
+    expect((await mint({ body: { token } })).accessToken).toBe(token);
+  });
+
+  it("rejects a 200 body over 1 MiB without reading the rest", async () => {
+    const error = await rejection(mint({ body: { token: "t".repeat(2 * 1024 * 1024) } }));
+
+    expect(error).toBeInstanceOf(AgentResponseError);
   });
 
   it.each([
