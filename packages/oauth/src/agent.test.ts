@@ -81,6 +81,19 @@ async function startFakeAgent(socketPath?: string): Promise<FakeAgent> {
   return agent;
 }
 
+const unixOnly = process.platform === "win32" ? describe.skip : describe;
+
+async function withKeycardSocket<T>(value: string, fn: () => Promise<T>): Promise<T> {
+  const saved = process.env.KEYCARD_SOCKET;
+  process.env.KEYCARD_SOCKET = value;
+  try {
+    return await fn();
+  } finally {
+    if (saved === undefined) delete process.env.KEYCARD_SOCKET;
+    else process.env.KEYCARD_SOCKET = saved;
+  }
+}
+
 async function rejection(promise: Promise<unknown>): Promise<unknown> {
   try {
     await promise;
@@ -152,21 +165,34 @@ describe("AgentTokenSource request", () => {
 
     await new AgentTokenSource({ socket: agent.socketPath, org: "org_1", zone: "zone_1" }).resourceToken(RESOURCE);
     await new AgentTokenSource({ socket: agent.socketPath }).resourceToken(RESOURCE);
+    await new AgentTokenSource({ socket: agent.socketPath, org: "", zone: "" }).resourceToken(RESOURCE);
 
     expect(agent.requests[0].headers["keycard-org"]).toBe("org_1");
     expect(agent.requests[0].headers["keycard-zone"]).toBe("zone_1");
-    expect(agent.requests[1].headers).not.toHaveProperty("keycard-org");
-    expect(agent.requests[1].headers).not.toHaveProperty("keycard-zone");
+    for (const request of agent.requests.slice(1)) {
+      expect(request.headers).not.toHaveProperty("keycard-org");
+      expect(request.headers).not.toHaveProperty("keycard-zone");
+    }
   });
 
-  it("3: sends appId only when set", async () => {
+  it("3: sends appId only when set and non-empty", async () => {
     const agent = await fakeAgent();
 
     await new AgentTokenSource({ socket: agent.socketPath, appId: "incident-digest" }).resourceToken(RESOURCE);
     await new AgentTokenSource({ socket: agent.socketPath }).resourceToken(RESOURCE);
+    await new AgentTokenSource({ socket: agent.socketPath, appId: "" }).resourceToken(RESOURCE);
 
     expect(JSON.parse(agent.requests[0].body).appId).toBe("incident-digest");
     expect(JSON.parse(agent.requests[1].body)).not.toHaveProperty("appId");
+    expect(JSON.parse(agent.requests[2].body)).not.toHaveProperty("appId");
+  });
+
+  it("sends scopes as given, in order and with duplicates", async () => {
+    const agent = await fakeAgent();
+
+    await new AgentTokenSource({ socket: agent.socketPath }).resourceToken(RESOURCE, { scopes: ["b", "a", "b"] });
+
+    expect(JSON.parse(agent.requests[0].body).scopes).toStrictEqual(["b", "a", "b"]);
   });
 
   it.each([
@@ -316,14 +342,10 @@ describe("AgentTokenSource socket resolution", () => {
   it("7: dials KEYCARD_SOCKET from env, not from the process environment", async () => {
     const fromEnv = await fakeAgent();
     const fromProcess = await fakeAgent();
-    const saved = process.env.KEYCARD_SOCKET;
-    process.env.KEYCARD_SOCKET = fromProcess.socketPath;
-    try {
-      await new AgentTokenSource({ env: { KEYCARD_SOCKET: fromEnv.socketPath } }).resourceToken(RESOURCE);
-    } finally {
-      if (saved === undefined) delete process.env.KEYCARD_SOCKET;
-      else process.env.KEYCARD_SOCKET = saved;
-    }
+
+    await withKeycardSocket(fromProcess.socketPath, () =>
+      new AgentTokenSource({ env: { KEYCARD_SOCKET: fromEnv.socketPath } }).resourceToken(RESOURCE),
+    );
 
     expect(fromEnv.requests).toHaveLength(1);
     expect(fromProcess.requests).toHaveLength(0);
@@ -332,23 +354,14 @@ describe("AgentTokenSource socket resolution", () => {
   it("7: reads the process environment when env is not given, on every call", async () => {
     const first = await fakeAgent();
     const second = await fakeAgent();
-    const saved = process.env.KEYCARD_SOCKET;
     const source = new AgentTokenSource();
-    try {
-      process.env.KEYCARD_SOCKET = first.socketPath;
-      await source.resourceToken(RESOURCE);
-      process.env.KEYCARD_SOCKET = second.socketPath;
-      await source.resourceToken(RESOURCE);
-    } finally {
-      if (saved === undefined) delete process.env.KEYCARD_SOCKET;
-      else process.env.KEYCARD_SOCKET = saved;
-    }
+
+    await withKeycardSocket(first.socketPath, () => source.resourceToken(RESOURCE));
+    await withKeycardSocket(second.socketPath, () => source.resourceToken(RESOURCE));
 
     expect(first.requests).toHaveLength(1);
     expect(second.requests).toHaveLength(1);
   });
-
-  const unixOnly = process.platform === "win32" ? describe.skip : describe;
 
   unixOnly("default socket", () => {
     it.each([
@@ -470,13 +483,31 @@ describe("AgentTokenSource response", () => {
     ["2026-11-17T12:00:30.123456789Z", "2026-11-17T12:00:00.500Z", 29],
     ["2026-11-17T12:00:30.999999999Z", "2026-11-17T12:00:00Z", 30],
     ["2026-11-17T13:00:30.000000001+01:00", "2026-11-17T12:00:00Z", 30],
+    ["2026-11-17T06:30:30-05:30", "2026-11-17T12:00:00Z", 30],
+    ["2026-11-17t12:00:30z", "2026-11-17T12:00:00Z", 30],
+    ["2026-11-17T12:00:30.5Z", "2026-11-17T12:00:00.400Z", 30],
+    ["2026-12-31T23:59:60Z", "2026-12-31T23:59:00Z", 60],
   ])("26: parses %s against the injected clock at %s", async (expiresAt, now, expected) => {
     const token = await mint({ body: { token: "t", expiresAt } }, { clock: { now: () => Date.parse(now) } });
 
     expect(token.expiresIn).toBe(expected);
   });
 
-  it.each(["tomorrow", "2026-11-17", "2026-11-17T12:00:00", "2026-11-17T12:00:00.1234567890Z", "2026-02-30T00:00:00Z", 1700000000])(
+  it.each([
+    "tomorrow",
+    "2026-11-17",
+    "2026-11-17T12:00:00",
+    "2026-11-17T12:00:00.1234567890Z",
+    "2026-02-30T00:00:00Z",
+    "2026-13-01T00:00:00Z",
+    "2026-11-17T24:00:00Z",
+    "2026-11-17T12:60:00Z",
+    "2026-11-17T12:00:61Z",
+    "2026-11-17T12:00:00+24:00",
+    "2026-11-17T12:00:00+01:60",
+    "2026-11-17T12:00:00+0100",
+    1700000000,
+  ])(
     "rejects an unparseable expiresAt %p",
     async (expiresAt) => {
       const error = await rejection(mint({ body: { token: "t", expiresAt } }));
@@ -612,12 +643,15 @@ describe("AgentTokenSource response", () => {
 });
 
 describe("resourceTransport", () => {
-  function stubSource(token = "resource-token"): ResourceTokenSource & { calls: unknown[][] } {
+  function stubSource(token = "resource-token"): ResourceTokenSource & { calls: unknown[][]; signals: unknown[] } {
     const calls: unknown[][] = [];
+    const signals: unknown[] = [];
     return {
       calls,
+      signals,
       async resourceToken(resource, options) {
         calls.push([resource, options?.scopes]);
+        signals.push(options?.signal);
         return { accessToken: token, tokenType: "Bearer" };
       },
     };
@@ -688,6 +722,43 @@ describe("resourceTransport", () => {
     expect(fetchMock.mock.calls[0][0]).toBe(request);
     expect(init).toStrictEqual({ method: "GET", headers: { "X-Init": "1" } });
     expect(init.headers).toBe(initHeaders);
+  });
+
+  it("hands the source init.signal over the Request's, else the Request's", async () => {
+    const source = stubSource();
+    const send = resourceTransport({ source, resource: RESOURCE, fetch: recordingFetch() as typeof fetch });
+    const fromRequest = new AbortController();
+    const fromInit = new AbortController();
+    const request = new Request("https://api.example.com", { signal: fromRequest.signal });
+
+    await send(request);
+    await send(request, { signal: fromInit.signal });
+
+    // A Request carries a signal that follows its init's, not the same object.
+    const [first, second] = source.signals as AbortSignal[];
+    fromRequest.abort();
+    expect(first.aborted).toBe(true);
+    expect(second).toBe(fromInit.signal);
+  });
+
+  it("replaces a Request's headers with init.headers, as fetch does", async () => {
+    const fetchMock = recordingFetch();
+    const send = resourceTransport({ source: stubSource(), resource: RESOURCE, fetch: fetchMock as typeof fetch });
+
+    await send(new Request("https://api.example.com", { headers: { "X-Trace": "1" } }), { headers: { Accept: "text/plain" } });
+
+    const headers = new Headers(fetchMock.mock.calls[0][1]?.headers);
+    expect(headers.get("x-trace")).toBeNull();
+    expect(headers.get("accept")).toBe("text/plain");
+  });
+
+  it("forwards the caller's other init fields", async () => {
+    const fetchMock = recordingFetch();
+    const send = resourceTransport({ source: stubSource(), resource: RESOURCE, fetch: fetchMock as typeof fetch });
+
+    await send("https://api.example.com", { method: "POST", body: "payload", redirect: "manual" });
+
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: "POST", body: "payload", redirect: "manual" });
   });
 
   it("uses the global fetch by default", async () => {
@@ -775,8 +846,6 @@ describe("integration against a fake agent", () => {
 
     expect(JSON.parse(agent.requests[0].body).appId).toBe("urn:app:zazu");
   });
-
-  const unixOnly = process.platform === "win32" ? describe.skip : describe;
 
   unixOnly("default socket", () => {
     // The socket path has to fit sockaddr_un (104 bytes on macOS).
