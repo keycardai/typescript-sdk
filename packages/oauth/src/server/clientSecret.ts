@@ -1,4 +1,4 @@
-import type { ApplicationCredential, ClientAuthentication } from "../credentials.js";
+import { createClientAuthentication, type ApplicationCredential, type ClientAuthentication } from "../credentials.js";
 import { basicAuthorization } from "../basicAuthorization.js";
 import { ConfigurationError } from "../errors.js";
 import type { TokenExchangeRequest } from "../tokenExchange.js";
@@ -105,10 +105,7 @@ export class ClientSecret implements ApplicationCredential {
     if (!auth) {
       throw new ConfigurationError(`ClientSecret: no client credentials configured for issuer "${issuer}"`);
     }
-    return {
-      headers: { Authorization: basicAuthorization(auth.clientId, auth.clientSecret) },
-      form: {},
-    };
+    return createClientAuthentication({ Authorization: basicAuthorization(auth.clientId, auth.clientSecret) }, {});
   }
 
   async prepareTokenExchangeRequest(

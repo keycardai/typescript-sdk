@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import type { ApplicationCredential, ClientAuthentication } from "../credentials.js";
+import { createClientAuthentication, type ApplicationCredential, type ClientAuthentication } from "../credentials.js";
 import { ConfigurationError } from "../errors.js";
 import type { TokenExchangeRequest } from "../tokenExchange.js";
 import { PrivateKeyManager, FilePrivateKeyStorage } from "./privateKey.js";
@@ -128,13 +128,13 @@ export class WebIdentity implements ApplicationCredential {
     }
     await this.bootstrap();
     const clientAssertion = await this.#keyManager.createClientAssertion(clientId, endpoint);
-    return {
-      headers: {},
-      form: {
+    return createClientAuthentication(
+      {},
+      {
         client_assertion: clientAssertion,
         client_assertion_type: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
       },
-    };
+    );
   }
 
   /** Throws `ConfigurationError` when `clientId` is not set. */
