@@ -188,6 +188,8 @@ export class AgentTokenSource implements ResourceTokenSource {
       }
       result.expiresIn = Math.max(0, Math.floor((expiresAtMs - this.#clock.now()) / 1000));
     }
+    // The spec reads `scopes` from the response, but IssueTokenResponse does
+    // not define it yet, so a current agent leaves `scope` absent.
     if (Array.isArray(scopes) && scopes.length > 0 && scopes.every((s) => typeof s === "string")) {
       result.scope = scopes as string[];
     }
@@ -212,6 +214,13 @@ export interface ResourceTransportOptions {
  * value, with a token from `source` for `resource`. The resource is fixed,
  * never derived from the request URL: use one transport per resource.
  *
+ * Nothing checks the request URL against `resource`: the token goes to
+ * whatever URL the transport is called with, so never call it with a URL an
+ * untrusted party chose. Redirects are left to the `fetch` in use. Node's
+ * global `fetch` drops `Authorization` on a cross-origin redirect; a
+ * replacement passed as `options.fetch` may not, so pass
+ * `redirect: "manual"` in `init` when that matters.
+ *
  * The caller's `Request` and `init` are not modified. An error from the
  * source propagates as thrown, so the agent predicates apply to it, and the
  * request is not sent. The transport adds no timeout; `init.signal` bounds
@@ -226,7 +235,7 @@ export function resourceTransport(options: ResourceTransportOptions): typeof fet
   if (!options.resource) {
     throw new ConfigurationError("resourceTransport: resource is required");
   }
-  const { source, resource, scopes } = options;
+  const { source, resource, scopes, fetch: send } = options;
 
   return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const signal = init?.signal ?? (input instanceof Request ? input.signal : undefined);
@@ -235,7 +244,7 @@ export function resourceTransport(options: ResourceTransportOptions): typeof fet
     // init.headers, when given, replaces the Request's headers, as fetch does.
     const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
     headers.set("Authorization", `Bearer ${token.accessToken}`);
-    return (options.fetch ?? fetch)(input, { ...init, headers });
+    return (send ?? fetch)(input, { ...init, headers });
   };
 }
 

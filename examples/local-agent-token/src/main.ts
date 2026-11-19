@@ -55,6 +55,13 @@ function preview(token: string): string {
   return token.length <= 6 ? token : token.slice(0, 6);
 }
 
+// Text from the agent or the resource, made safe to print: control, format
+// (bidi, zero-width) and other non-printing characters become a space, so
+// none can move the cursor or hide text, and the length is capped.
+function untrusted(text: string): string {
+  return text.replace(/[\p{C}]/gu, " ").slice(0, 500);
+}
+
 async function main(): Promise<void> {
   const resource = process.env.KEYCARD_RESOURCE || "https://api.github.com";
   const url = process.env.KEYCARD_URL || "https://api.github.com/user";
@@ -70,25 +77,27 @@ async function main(): Promise<void> {
   const token = await source.resourceToken(resource, { scopes });
   console.log(`Token for ${resource}: ${preview(token.accessToken)}...`);
   console.log(`  expires in: ${token.expiresIn ?? "never"} seconds`);
-  console.log(`  scope:      ${token.scope?.join(" ") ?? "(not reported)"}`);
+  if (token.scope) console.log(`  scope:      ${untrusted(token.scope.join(" "))}`);
 
   const send = resourceTransport({ source, resource, scopes });
   const response = await send(url, { headers: { Accept: "application/json" } });
   console.log(`GET ${url}: ${response.status}`);
-  console.log((await response.text()).slice(0, 500));
+  console.log(untrusted(await response.text()));
 }
 
 main().catch((error: unknown) => {
+  const message = untrusted(error instanceof Error ? error.message : String(error));
   if (isDeclined(error)) {
-    console.error("The request was declined.");
+    // Also the daemon's answer for an org and zone it has no session for.
+    console.error(`Refused: ${message}. If you did not decline a prompt, check KEYCARD_ORG and KEYCARD_ZONE.`);
   } else if (isApplicationNotFound(error)) {
     console.error("KEYCARD_APP_ID names no application in the zone.");
   } else if (isAuthorizationRequired(error)) {
-    console.error(`Action needed first: ${(error as Error).message}`);
+    console.error(`Action needed first: ${message}`);
   } else if (error instanceof NetworkError) {
-    console.error(error.message);
+    console.error(message);
   } else {
-    console.error(error);
+    console.error(`${error instanceof Error ? error.name : "Error"}: ${message}`);
   }
   process.exit(1);
 });

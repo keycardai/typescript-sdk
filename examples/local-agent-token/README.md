@@ -59,9 +59,13 @@ its expiry, and the resource's response.
 
 ## Errors
 
-- declined: the developer declined the prompt, or the agent has no session for
-  the org and zone
+- refused: the developer declined the prompt, the prompt expired, or the
+  `keycard agent` daemon has no session for `KEYCARD_ORG` and `KEYCARD_ZONE`;
+  the agent's message says which
 - application not found: `KEYCARD_APP_ID` names no application in the zone
-- action needed: sign in or authorize the resource first; the message names the
-  command
+- action needed: sign in, run under `keycard run`, or repair the device key
+  first; the message names the remedy
 - cannot reach the agent: the message names the socket and how it was chosen
+
+The program prints the agent's messages and the resource's response with
+control and invisible characters replaced, since neither is text it wrote.

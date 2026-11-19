@@ -304,8 +304,16 @@ The local Keycard agent issues the token with the developer's own zone
 session, asking them to approve each new request, so the program holds no
 credential. Nothing times out the call: the first request waits for the
 approval, so pass `signal` to bound it. `isDeclined(error)` and the other
-predicates find an `AgentError` on the `cause` chain. The agent caches tokens;
-every call sends one request to it.
+predicates find an `AgentError` on the `cause` chain; a code can have more
+than one cause, and the error's `message`, which comes from the agent and
+should be neutralized before it reaches a terminal, tells them apart. The
+agent caches tokens; every call sends one request to it.
+
+`resourceTransport` attaches the token to whatever URL it is called with,
+without checking it against `resource`, so never call it with a URL an
+untrusted party chose. Redirects are left to the `fetch` in use: Node's global
+`fetch` drops `Authorization` on a cross-origin redirect, a replacement may
+not.
 
 ## API Overview
 
@@ -409,8 +417,8 @@ every call sends one request to it.
 | `DevicePollError` | `@keycardai/oauth/errors` | `waitForDeviceToken` stopped on a network error, 5xx, or 429; has `interval` and the original failure as `cause` |
 | `PERMANENT_ERROR_CODES`, `isPermanentErrorCode` | `@keycardai/oauth/errors` | OAuth error codes that are not retryable, except on HTTP 429 or 5xx; classifies a bare error code |
 | `NetworkError` | `@keycardai/oauth/errors` | A server could not be reached or the connection failed mid-response; `retryable` is `true`, the transport error is `cause` |
-| `AgentError` | `@keycardai/oauth/errors` | The local Keycard agent refused; `code` is one of `AgentErrorCode`, `retryable` for `resource_exhausted` and `unavailable` |
-| `AgentResponseError` | `@keycardai/oauth/errors` | The local Keycard agent answered 200 with an unusable response |
+| `AgentError` | `@keycardai/oauth/errors` | The local Keycard agent refused; `code` is the Connect code, usually one of `AgentErrorCode`, `retryable` for `resource_exhausted` and `unavailable` |
+| `AgentResponseError` | `@keycardai/oauth/errors` | The local Keycard agent answered 200 with an unusable response, including one over 1 MiB |
 | `isDeclined`, `isRateLimited`, `isPrompterUnavailable`, `isAuthorizationRequired`, `isApplicationNotFound`, `isUnavailable` | `@keycardai/oauth/errors` | Match an `AgentError` code anywhere on an error's `cause` chain |
 
 ### Utilities
