@@ -16,12 +16,12 @@
     "version": "1.0.0-rc.18"
   },
   "langchain:langchain+@langchain/core+@langchain/langgraph+@langchain/langgraph-sdk": {
-    "run": "https://github.com/keycardai/typescript-sdk/actions/runs/44251602986",
+    "run": "https://github.com/keycardai/typescript-sdk/actions/runs/44472503032",
     "versions": {
-      "@langchain/core": "1.4.1",
+      "@langchain/core": "1.4.2",
       "@langchain/langgraph": "1.7.5",
       "@langchain/langgraph-sdk": "1.17.0",
-      "langchain": "1.6.6"
+      "langchain": "1.6.7"
     }
   }
 }
