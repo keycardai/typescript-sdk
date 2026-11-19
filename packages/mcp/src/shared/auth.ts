@@ -7,7 +7,8 @@
  */
 export interface AuthInfo {
   /**
-   * The access token.
+   * The access token. `JWTOAuthTokenVerifier` returns a value that
+   * `util.inspect` and `console.log` print without it.
    */
   token: string;
 
