@@ -1,3 +1,4 @@
+import { setPrinted } from "./printed.js";
 import { requestSignal } from "./requestSignal.js";
 import { fetchAuthorizationServerMetadata } from "./discovery.js";
 import { ConfigurationError, OAuthError } from "./errors.js";
@@ -31,6 +32,10 @@ export interface ClientRegistrationRequest {
 /**
  * RFC 7591 Dynamic Client Registration response.
  * Reference: https://datatracker.ietf.org/doc/html/rfc7591#section-3.2.1
+ *
+ * `registerClient` returns a value that `util.inspect` and `console.log` print
+ * without `clientSecret` and `registrationAccessToken`, and without
+ * `client_secret` and `registration_access_token` in `raw`.
  */
 export interface ClientRegistrationResponse {
   clientId: string;
@@ -213,7 +218,10 @@ function deserializeResponse(body: Record<string, unknown>): ClientRegistrationR
   if (typeof body.registration_client_uri === "string") {
     response.registrationClientUri = body.registration_client_uri;
   }
-  return response;
+  return setPrinted(response, "ClientRegistrationResponse", ({ clientSecret: _s, registrationAccessToken: _t, raw, ...shown }) => {
+    const { client_secret: _rs, registration_access_token: _rt, ...rawShown } = raw;
+    return { ...shown, raw: rawShown };
+  });
 }
 
 function normalizeStringArray(value: unknown): string[] | undefined {

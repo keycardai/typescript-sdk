@@ -14,6 +14,7 @@ import type {
 import { expiresAt, resolveConnectionConfig, type KeycardConnectionOptions } from "./config.js";
 import { AuthorizationFailedError, FailureReason } from "./errors.js";
 import { subjectTokenExpired } from "./expiry.js";
+import { omitWhenPrinted } from "./printed.js";
 import { principalKey, readSubjectToken } from "./subjectTokens.js";
 
 /**
@@ -246,8 +247,9 @@ async function acquire(
 
 function tokenResult(response: TokenResponse): TokenResult {
   const expiry = expiresAt(response.expiresIn);
-  return {
-    token: response.accessToken,
-    ...(expiry !== undefined ? { expiresAt: expiry } : {}),
-  };
+  return omitWhenPrinted(
+    { token: response.accessToken, ...(expiry !== undefined ? { expiresAt: expiry } : {}) },
+    "TokenResult",
+    ["token"],
+  );
 }

@@ -2,6 +2,7 @@ import { OAuthError } from "./errors.js";
 import type { ApplicationCredential } from "./credentials.js";
 import { basicAuthorization } from "./basicAuthorization.js";
 import { buildSubstituteUserToken } from "./jwt/substituteUser.js";
+import { omitWhenPrinted } from "./printed.js";
 import { DEFAULT_FETCH_TIMEOUT_MS, TokenEndpointResolver, type TokenEndpointCacheOptions } from "./tokenEndpoint.js";
 
 // =============================================================================
@@ -18,6 +19,11 @@ export const TokenType = {
 } as const;
 export type TokenType = (typeof TokenType)[keyof typeof TokenType];
 
+/**
+ * A token exchange request. `subjectToken`, `actorToken`, and
+ * `clientAssertion` are bearer credentials. A request a built-in credential
+ * prepares does not print them with `util.inspect` or `console.log`.
+ */
 export interface TokenExchangeRequest {
   grantType?: string;
   resource?: string;
@@ -38,6 +44,11 @@ export interface TokenExchangeRequest {
   clientId?: string;
 }
 
+/**
+ * A token endpoint response. `deserializeTokenResponse` returns a value that
+ * `util.inspect` and `console.log` print without `accessToken`,
+ * `refreshToken`, and `idToken`. `JSON.stringify` writes them.
+ */
 export interface TokenResponse {
   accessToken: string;
   tokenType: string;
@@ -125,7 +136,16 @@ export function deserializeTokenResponse(json: Record<string, unknown>): TokenRe
     response.scope = json.scope.split(" ").filter(Boolean);
   }
 
-  return response;
+  return omitWhenPrinted(response, "TokenResponse", ["accessToken", "refreshToken", "idToken"]);
+}
+
+/**
+ * Returns `request` with a `util.inspect` form that leaves out `subjectToken`,
+ * `actorToken`, and `clientAssertion`. Credentials call it on the request
+ * they prepare.
+ */
+export function omitTokenExchangeSecrets(request: TokenExchangeRequest): TokenExchangeRequest {
+  return omitWhenPrinted(request, "TokenExchangeRequest", ["subjectToken", "actorToken", "clientAssertion"]);
 }
 
 // =============================================================================

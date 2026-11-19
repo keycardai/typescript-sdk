@@ -3,7 +3,12 @@ import { JWTSigner } from "@keycardai/oauth/jwt/signer";
 import type { TokenExchangeRequest } from "@keycardai/oauth/tokenExchange";
 import type { ApplicationCredential } from "@keycardai/oauth/credentials";
 
+import { omitWhenPrinted } from "./printed.js";
+
 export type { ApplicationCredential } from "@keycardai/oauth/credentials";
+
+/** Fields a prepared `TokenExchangeRequest` leaves out of its `util.inspect` form. */
+const TOKEN_EXCHANGE_SECRETS = ["subjectToken", "actorToken", "clientAssertion"] as const;
 
 // =============================================================================
 // WorkersClientSecret — Basic auth credential for Workers
@@ -18,19 +23,20 @@ export class WorkersClientSecret implements ApplicationCredential {
     this.#clientSecret = clientSecret;
   }
 
+  /** Returns a value that `util.inspect` and `console.log` print without `clientSecret`. */
   getAuth(): { clientId: string; clientSecret: string } {
-    return { clientId: this.#clientId, clientSecret: this.#clientSecret };
+    return omitWhenPrinted({ clientId: this.#clientId, clientSecret: this.#clientSecret }, "ClientAuth", ["clientSecret"]);
   }
 
   async prepareTokenExchangeRequest(
     subjectToken: string,
     resource: string,
   ): Promise<TokenExchangeRequest> {
-    return {
+    return omitWhenPrinted<TokenExchangeRequest>({
       subjectToken,
       resource,
       subjectTokenType: "urn:ietf:params:oauth:token-type:access_token",
-    };
+    }, "TokenExchangeRequest", TOKEN_EXCHANGE_SECRETS);
   }
 }
 
@@ -77,13 +83,13 @@ export class WorkersWebIdentity implements ApplicationCredential {
       exp: now + 300,
     });
 
-    return {
+    return omitWhenPrinted<TokenExchangeRequest>({
       subjectToken,
       resource,
       subjectTokenType: "urn:ietf:params:oauth:token-type:access_token",
       clientAssertionType: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
       clientAssertion,
-    };
+    }, "TokenExchangeRequest", TOKEN_EXCHANGE_SECRETS);
   }
 
   /**
