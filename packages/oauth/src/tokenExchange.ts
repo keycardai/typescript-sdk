@@ -32,8 +32,8 @@ export interface TokenExchangeRequest {
   clientAssertionType?: string;
   /**
    * Names the application credential the client authenticates as, sent as
-   * the client_id form parameter. Used with assertion-based credentials that
-   * are resolved by ID rather than by the assertion's subject.
+   * the client_id form parameter beside `clientAssertion`, such as a v2 token
+   * credential's public ID.
    */
   clientId?: string;
 }

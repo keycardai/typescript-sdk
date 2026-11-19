@@ -222,6 +222,21 @@ code at authorize time, so completion sends no `resource` parameter. A callback
 carrying `error` throws `AuthorizationDeniedError` and a missing or non-matching
 `state` throws `StateMismatchError`, both before any token request.
 
+A confidential client can authenticate the code exchange with a `credential` in
+place of `clientId` and `clientSecret`, such as a keyless `WorkloadIdentity`. Pass
+its `clientId` to `beginAuthorization`; the code is bound to that client.
+
+```typescript
+const credential = new WorkloadIdentity(new FileTokenSource(), { clientId: "my-client" });
+const tokens = await completeAuthorization("https://your-zone.keycard.cloud", {
+  callbackParams: new URL(request.url).searchParams,
+  state: session.get("state"),
+  codeVerifier: session.get("codeVerifier"),
+  redirectUri: "https://app.example.com/callback",
+  credential,
+});
+```
+
 ### Device Authorization Grant (RFC 8628)
 
 For a process with no browser and no redirect URI, such as a headless agent
@@ -320,7 +335,7 @@ issuer's `userinfo_endpoint`. Pass `{ metadata }` to skip discovery.
 | `generateCodeVerifier` | `@keycardai/oauth/pkce` | Generates a 43-char random code verifier (RFC 7636 §4.1) |
 | `generateCodeChallenge` | `@keycardai/oauth/pkce` | Computes S256 or plain code challenge from a verifier (RFC 7636 §4.2) |
 | `generatePkcePair` | `@keycardai/oauth/pkce` | Convenience: generates verifier + challenge in one call |
-| `exchangeAuthorizationCode` | `@keycardai/oauth/pkce` | Exchanges an authorization code with code_verifier at the token endpoint |
+| `exchangeAuthorizationCode` | `@keycardai/oauth/pkce` | Exchanges an authorization code with code_verifier at the token endpoint, as a public client, with a client secret, or with a `credential` |
 | `authenticate` | `@keycardai/oauth/pkce` | Full browser-launch and loopback-callback flow. **Node.js only** |
 | `Pkce` (type) | `@keycardai/oauth/pkce` | `{ codeVerifier, codeChallenge, codeChallengeMethod }` |
 | `beginAuthorization` | `@keycardai/oauth/webApp` | Web-app flow: builds the authorize URL and returns `{ url, state, codeVerifier, resources }` |

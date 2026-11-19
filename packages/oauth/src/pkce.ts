@@ -3,6 +3,7 @@ import base64url from "./base64url.js";
 import { basicAuthorization } from "./basicAuthorization.js";
 import { fetchAuthorizationServerMetadata, type OAuthAuthorizationServerMetadata } from "./discovery.js";
 import { ConfigurationError, OAuthError } from "./errors.js";
+import { requireClientAuthentication, type ApplicationCredential, type ClientAuthenticator } from "./credentials.js";
 import { deserializeTokenResponse, type TokenResponse } from "./tokenExchange.js";
 
 // =============================================================================
@@ -75,6 +76,12 @@ export interface ExchangeAuthorizationCodeOptions {
   redirectUri: string;
   clientId?: string;
   clientSecret?: string;
+  /**
+   * Authenticates the exchange with the credential's `clientAuthentication`,
+   * in place of `clientId` and `clientSecret`. It must authenticate as the
+   * client the code was issued to.
+   */
+  credential?: ApplicationCredential;
   /** RFC 8707 resource indicator. When set, restricts the issued token's audience to this resource. */
   resource?: string;
   /** Pre-discovered metadata. When set, no discovery request is made. */
@@ -88,13 +95,30 @@ export interface ExchangeAuthorizationCodeOptions {
  * Exchange an authorization code for tokens (RFC 6749 §4.1.3 + RFC 7636).
  *
  * Discovers `token_endpoint` from the AS metadata, then POSTs
- * `grant_type=authorization_code` with the code verifier.
+ * `grant_type=authorization_code` with the code verifier. A public client
+ * sends `client_id` in the body, a confidential client authenticates with
+ * HTTP Basic, and a client with a `credential` sends the headers and form
+ * fields from `credential.clientAuthentication`.
+ *
+ * Throws `ConfigurationError` before any request when `credential` is set
+ * together with `clientId` or `clientSecret`, or does not provide
+ * `clientAuthentication`. Errors from the credential are thrown as is.
  */
 export async function exchangeAuthorizationCode(
   issuer: string,
   code: string,
   options: ExchangeAuthorizationCodeOptions,
 ): Promise<TokenResponse> {
+  let credential: ClientAuthenticator | undefined;
+  if (options.credential !== undefined) {
+    if (options.clientId !== undefined || options.clientSecret !== undefined) {
+      throw new ConfigurationError(
+        "exchangeAuthorizationCode: set either credential or clientId and clientSecret, not both",
+      );
+    }
+    credential = requireClientAuthentication(options.credential, "exchangeAuthorizationCode");
+  }
+
   const metadata = options.metadata ?? await fetchAuthorizationServerMetadata(issuer, {
     signal: options.signal,
     timeoutMs: options.timeoutMs,
@@ -116,7 +140,11 @@ export async function exchangeAuthorizationCode(
   const headers: Record<string, string> = {
     "Content-Type": "application/x-www-form-urlencoded",
   };
-  if (options.clientId && options.clientSecret) {
+  if (credential) {
+    const auth = await credential.clientAuthentication(issuer, metadata.token_endpoint);
+    Object.assign(headers, auth.headers);
+    for (const [name, value] of Object.entries(auth.form)) params.set(name, value);
+  } else if (options.clientId && options.clientSecret) {
     headers["Authorization"] = basicAuthorization(options.clientId, options.clientSecret);
     params.delete("client_id");
   }
@@ -207,6 +235,7 @@ export function buildAuthorizeUrl(
 // =============================================================================
 
 export interface AuthenticateOptions {
+  /** Sent on the authorization URL, and in the token request body for a public client. */
   clientId: string;
   /** Default: "http://localhost:{port}/callback" */
   redirectUri?: string;
@@ -214,6 +243,13 @@ export interface AuthenticateOptions {
   port?: number;
   scopes?: readonly string[];
   clientSecret?: string;
+  /**
+   * Authenticates the code exchange with the credential's
+   * `clientAuthentication`, in place of `clientSecret`. `clientId` then goes
+   * on the authorization URL only, and must be the client the credential
+   * authenticates as.
+   */
+  credential?: ApplicationCredential;
   /** Default: 300_000 ms */
   timeoutMs?: number;
   /** RFC 8707 resource indicator. Scopes the issued token's audience to this resource URL, enabling token exchange against it. */
@@ -237,6 +273,13 @@ export async function authenticate(
   issuer: string,
   options: AuthenticateOptions,
 ): Promise<TokenResponse> {
+  if (options.credential !== undefined) {
+    if (options.clientSecret !== undefined) {
+      throw new ConfigurationError("authenticate: set either credential or clientSecret, not both");
+    }
+    requireClientAuthentication(options.credential, "authenticate");
+  }
+
   const port = options.port ?? 8765;
   const redirectUri = options.redirectUri ?? `http://localhost:${port}/callback`;
   const timeoutMs = options.timeoutMs ?? 300_000;
@@ -272,8 +315,9 @@ export async function authenticate(
   return exchangeAuthorizationCode(issuer, code, {
     codeVerifier,
     redirectUri,
-    clientId: options.clientId,
-    clientSecret: options.clientSecret,
+    ...(options.credential
+      ? { credential: options.credential }
+      : { clientId: options.clientId, clientSecret: options.clientSecret }),
     resource: options.resource,
   });
 }

@@ -14,10 +14,9 @@ export interface ClientCredentialsRequest {
   clientAssertion?: string;
   clientAssertionType?: string;
   /**
-   * The client identifier. Accompanies a jwt-bearer `clientAssertion` when the
-   * zone resolves the application credential by application ID rather than by
-   * the assertion subject. Not needed when the client authenticates at the HTTP
-   * layer, such as Basic auth.
+   * Names the application credential the client authenticates as, sent beside
+   * a jwt-bearer `clientAssertion`, such as a v2 token credential's public ID.
+   * Never sent with HTTP Basic.
    */
   clientId?: string;
 }

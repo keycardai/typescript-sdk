@@ -13,6 +13,7 @@ import {
 import type { ApplicationCredential, ClientAuthentication } from './credentials.js';
 import { ConfigurationError, DeviceGrantError, DevicePollError, HTTPError, OAuthError, PERMANENT_ERROR_CODES } from './errors.js';
 import { WebIdentity } from './server/webIdentity.js';
+import { WorkloadIdentity } from './server/workloadIdentity.js';
 
 const ISSUER = 'https://zone.example.com';
 const DEVICE_ENDPOINT = `${ISSUER}/oauth/2/device_authorization`;
@@ -399,6 +400,10 @@ describe('device authorization grant', () => {
       {
         name: 'a WebIdentity without clientId',
         options: { credential: new WebIdentity({ storageDir: join(tmpdir(), 'device-unused-keys') }) },
+      },
+      {
+        name: 'a WorkloadIdentity without clientId',
+        options: { credential: new WorkloadIdentity(async () => 'platform-jwt') },
       },
     ];
     const cases = operations.flatMap((op) => clientOptions.map((c) => ({ ...c, op })));

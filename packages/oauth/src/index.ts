@@ -80,6 +80,8 @@ export { beginAuthorization, completeAuthorization, refreshAuthorization } from 
 export type {
   BeginAuthorizationOptions,
   CompleteAuthorizationOptions,
+  CompleteOptionsBase,
+  CompleteWithCredentialOptions,
   RefreshAuthorizationOptions,
   RefreshOptionsBase,
   RefreshWithCredentialOptions,

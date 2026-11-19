@@ -45,23 +45,40 @@ export interface AuthorizationRedirect {
   resources: string[];
 }
 
-export interface CompleteAuthorizationOptions {
+/** Options both forms of `completeAuthorization` share. */
+export interface CompleteOptionsBase {
   /** Query parameters the callback route received. */
   callbackParams: URLSearchParams | Record<string, string>;
   /** The `state` stored at the begin step. */
   state: string;
   /** The `codeVerifier` stored at the begin step. */
   codeVerifier: string;
-  clientId: string;
   /** The same registered redirect URI used at the begin step. */
   redirectUri: string;
-  /** Client secret for confidential clients. Public clients omit it. */
-  clientSecret?: string;
   /** Pre-discovered metadata. When set, no discovery request is made. */
   metadata?: OAuthAuthorizationServerMetadata;
   signal?: AbortSignal;
   /** Timeout in milliseconds for each request to the authorization server (default 10 seconds; 0 disables). */
   timeoutMs?: number;
+}
+
+/** Complete as a client with `clientId`, and `clientSecret` for a confidential client. */
+export interface CompleteAuthorizationOptions extends CompleteOptionsBase {
+  clientId: string;
+  /** Client secret for confidential clients. Public clients omit it. */
+  clientSecret?: string;
+  credential?: never;
+}
+
+/**
+ * Complete as a client that authenticates with a credential. The credential
+ * must authenticate as the `clientId` passed to the begin step.
+ */
+export interface CompleteWithCredentialOptions extends CompleteOptionsBase {
+  /** Authenticates the code exchange with the credential's `clientAuthentication`. */
+  credential: ApplicationCredential;
+  clientId?: never;
+  clientSecret?: never;
 }
 
 /** Options both forms of `refreshAuthorization` share. */
@@ -159,11 +176,24 @@ export async function beginAuthorization(
  * authorization server derives the issued token's audience from the
  * authorization code, which already records the resources authorized at the
  * begin step.
+ *
+ * The code exchange authenticates the client the way
+ * `exchangeAuthorizationCode` does, and throws `ConfigurationError` first
+ * when the client options are not valid.
  */
 export async function completeAuthorization(
   issuer: string,
-  options: CompleteAuthorizationOptions,
+  options: CompleteAuthorizationOptions | CompleteWithCredentialOptions,
 ): Promise<TokenResponse> {
+  if (options.credential !== undefined) {
+    if (options.clientId !== undefined || options.clientSecret !== undefined) {
+      throw new ConfigurationError(
+        "completeAuthorization: set either credential or clientId and clientSecret, not both",
+      );
+    }
+    requireClientAuthentication(options.credential, "completeAuthorization");
+  }
+
   const params = options.callbackParams instanceof URLSearchParams
     ? options.callbackParams
     : new URLSearchParams(options.callbackParams);
@@ -193,8 +223,9 @@ export async function completeAuthorization(
   return exchangeAuthorizationCode(issuer, code, {
     codeVerifier: options.codeVerifier,
     redirectUri: options.redirectUri,
-    clientId: options.clientId,
-    clientSecret: options.clientSecret,
+    ...(options.credential !== undefined
+      ? { credential: options.credential }
+      : { clientId: options.clientId, clientSecret: options.clientSecret }),
     metadata: options.metadata,
     signal: options.signal,
     timeoutMs: options.timeoutMs,
