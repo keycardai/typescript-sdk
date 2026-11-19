@@ -307,68 +307,51 @@ interface AgentResponse {
   body: string;
 }
 
-function post(
+async function post(
   socket: ResolvedSocket,
   headers: Record<string, string>,
   payload: string,
   signal: AbortSignal | undefined,
 ): Promise<AgentResponse> {
-  return new Promise<AgentResponse>((resolve, reject) => {
-    if (signal?.aborted) {
-      reject(signal.reason);
-      return;
+  signal?.throwIfAborted();
+  let status = 0;
+  let limit = 0;
+  const chunks: Buffer[] = [];
+  let size = 0;
+  try {
+    const response = await new Promise<http.IncomingMessage>((resolve, reject) => {
+      http
+        .request(
+          {
+            socketPath: socket.path,
+            // The host is a placeholder the agent does not interpret.
+            host: "localhost",
+            path: ISSUE_TOKEN_PATH,
+            method: "POST",
+            headers,
+            signal,
+          },
+          resolve,
+        )
+        .on("error", reject)
+        .end(payload);
+    });
+    status = response.statusCode ?? 0;
+    limit = status === 200 ? MAX_RESPONSE_BYTES : MAX_ERROR_BODY_BYTES;
+    for await (const chunk of response as AsyncIterable<Buffer>) {
+      chunks.push(chunk);
+      size += chunk.length;
+      if (size > limit) break;
     }
-    let settled = false;
-    const settle = (fn: () => void) => {
-      if (settled) return;
-      settled = true;
-      signal?.removeEventListener("abort", onAbort);
-      fn();
-    };
-    const onAbort = () => {
-      settle(() => reject(signal?.reason));
-      request.destroy();
-    };
-
-    const request = http.request(
-      {
-        socketPath: socket.path,
-        // The host is a placeholder the agent does not interpret.
-        host: "localhost",
-        path: ISSUE_TOKEN_PATH,
-        method: "POST",
-        headers: { ...headers, "Content-Length": Buffer.byteLength(payload) },
-      },
-      (response) => {
-        const status = response.statusCode ?? 0;
-        const limit = status === 200 ? MAX_RESPONSE_BYTES : MAX_ERROR_BODY_BYTES;
-        const chunks: Buffer[] = [];
-        let size = 0;
-        const finish = () =>
-          settle(() => resolve({ status, body: Buffer.concat(chunks).subarray(0, limit).toString("utf-8") }));
-        response.on("data", (chunk: Buffer) => {
-          chunks.push(chunk);
-          size += chunk.length;
-          if (size > limit) {
-            if (status === 200) {
-              settle(() => reject(new AgentResponseError("Keycard agent response exceeds 1 MiB")));
-            } else {
-              finish();
-            }
-            response.destroy();
-          }
-        });
-        response.on("end", finish);
-        response.on("error", (error) => settle(() => reject(networkError(socket, error))));
-        response.on("aborted", () =>
-          settle(() => reject(networkError(socket, new Error("connection closed mid-response")))),
-        );
-      },
-    );
-    request.on("error", (error) => settle(() => reject(networkError(socket, error))));
-    signal?.addEventListener("abort", onAbort, { once: true });
-    request.end(payload);
-  });
+  } catch (error) {
+    // node:http rejects with its own AbortError; callers expect the signal's reason, as fetch gives.
+    if (signal?.aborted) throw signal.reason;
+    throw networkError(socket, error);
+  }
+  if (size > limit && status === 200) {
+    throw new AgentResponseError("Keycard agent response exceeds 1 MiB");
+  }
+  return { status, body: Buffer.concat(chunks).subarray(0, limit).toString("utf-8") };
 }
 
 function errorFromResponse(response: AgentResponse): Error {

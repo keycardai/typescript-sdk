@@ -91,6 +91,7 @@ async function rejection(promise: Promise<unknown>): Promise<unknown> {
 }
 
 let agents: FakeAgent[] = [];
+let servers: http.Server[] = [];
 
 async function fakeAgent(socketPath?: string): Promise<FakeAgent> {
   const agent = await startFakeAgent(socketPath);
@@ -98,9 +99,23 @@ async function fakeAgent(socketPath?: string): Promise<FakeAgent> {
   return agent;
 }
 
+// An agent socket served by `handler` alone, closed after the test even when
+// an assertion fails first.
+async function rawAgent(handler: http.RequestListener): Promise<string> {
+  const socketPath = path.join(tempDir("kca-"), "agent.sock");
+  const server = http.createServer(handler);
+  servers.push(server);
+  await new Promise<void>((resolve) => server.listen(socketPath, resolve));
+  return socketPath;
+}
+
 afterEach(async () => {
   await Promise.all(agents.map((a) => a.close()));
   agents = [];
+  for (const server of servers.splice(0)) {
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
   for (const dir of tempDirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
 });
 
@@ -202,37 +217,79 @@ describe("AgentTokenSource request", () => {
     expect(agent.requests).toHaveLength(2);
   });
 
+  it("sends a non-ASCII body whole", async () => {
+    const agent = await fakeAgent();
+
+    await new AgentTokenSource({ socket: agent.socketPath, workload: "résumé-builder ✓" }).resourceToken(RESOURCE);
+
+    expect(JSON.parse(agent.requests[0].body).workload).toBe("résumé-builder ✓");
+  });
+
   it("a connection that fails mid-response is a network error", async () => {
-    const socketPath = path.join(tempDir("kca-"), "agent.sock");
-    const server = http.createServer((_req, res) => {
+    const socketPath = await rawAgent((_req, res) => {
       res.writeHead(200, { "Content-Type": "application/json", "Content-Length": "100" });
       res.write('{"token":');
       setTimeout(() => res.socket?.destroy(), 10);
     });
-    await new Promise<void>((resolve) => server.listen(socketPath, resolve));
 
     const error = await rejection(new AgentTokenSource({ socket: socketPath }).resourceToken(RESOURCE));
 
     expect(error).toBeInstanceOf(NetworkError);
     expect((error as Error).message).toContain(socketPath);
-    await new Promise<void>((resolve) => server.close(() => resolve()));
   });
 
-  it("rejects with the signal's reason when aborted while the agent waits on a human", async () => {
-    const socketPath = path.join(tempDir("kca-"), "agent.sock");
-    const server = http.createServer(() => {
-      // Never answers, like an agent waiting on an approval prompt.
+  // Never answers, like an agent waiting on an approval prompt. `received`
+  // resolves once the request is in, and `closed` once its connection is.
+  async function waitingAgent() {
+    let received!: () => void;
+    let closed!: () => void;
+    const state = {
+      received: new Promise<void>((resolve) => (received = resolve)),
+      closed: new Promise<void>((resolve) => (closed = resolve)),
+      socketPath: "",
+    };
+    state.socketPath = await rawAgent((req) => {
+      req.socket.on("close", closed);
+      received();
     });
-    await new Promise<void>((resolve) => server.listen(socketPath, resolve));
+    return state;
+  }
+
+  it("rejects with the signal's reason when aborted while the agent waits on a human, and drops the connection", async () => {
+    const agent = await waitingAgent();
     const controller = new AbortController();
     const reason = new Error("caller gave up");
 
-    const pending = new AgentTokenSource({ socket: socketPath }).resourceToken(RESOURCE, { signal: controller.signal });
-    setTimeout(() => controller.abort(reason), 20);
+    const pending = new AgentTokenSource({ socket: agent.socketPath }).resourceToken(RESOURCE, { signal: controller.signal });
+    await agent.received;
+    controller.abort(reason);
 
     await expect(pending).rejects.toBe(reason);
-    server.closeAllConnections();
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await agent.closed;
+  });
+
+  it("rejects with the default AbortError when aborted without a reason", async () => {
+    const agent = await waitingAgent();
+    const controller = new AbortController();
+
+    const pending = new AgentTokenSource({ socket: agent.socketPath }).resourceToken(RESOURCE, { signal: controller.signal });
+    await agent.received;
+    controller.abort();
+
+    await expect(pending).rejects.toBe(controller.signal.reason);
+    expect((controller.signal.reason as Error).name).toBe("AbortError");
+  });
+
+  it("rejects with the signal's reason and sends nothing when the signal is already aborted", async () => {
+    const agent = await fakeAgent();
+    const reason = new Error("already gone");
+
+    const error = await rejection(
+      new AgentTokenSource({ socket: agent.socketPath }).resourceToken(RESOURCE, { signal: AbortSignal.abort(reason) }),
+    );
+
+    expect(error).toBe(reason);
+    expect(agent.requests).toHaveLength(0);
   });
 });
 
