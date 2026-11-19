@@ -1,0 +1,19 @@
+{
+  "name": "local-agent-token",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Get a resource token from the local Keycard agent, with no application credential",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/main.js",
+    "dev": "tsc --watch"
+  },
+  "dependencies": {
+    "@keycardai/oauth": "file:../../packages/oauth"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.8.3"
+  }
+}

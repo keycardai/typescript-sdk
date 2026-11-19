@@ -306,6 +306,163 @@ export class TokenEndpointDiscoveryError extends Error {
   }
 }
 
+/**
+ * A request could not reach its server, or the connection failed before a
+ * complete response arrived. `cause` is the underlying transport error.
+ * `retryable` is always `true`: a permanent failure surfaces as an HTTP or
+ * protocol error, never as a network error.
+ */
+export class NetworkError extends Error {
+  readonly retryable = true;
+  readonly cause?: unknown;
+
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message);
+    this.name = "NetworkError";
+    this.cause = options?.cause;
+  }
+}
+
+/**
+ * The Connect error codes the Keycard agent answers `IssueToken` with, in the
+ * snake_case spelling they carry on the wire. The list is not closed: any
+ * other Connect code can arrive, and {@link AgentError.code} carries it as
+ * sent. A code can have more than one cause; `message` tells them apart.
+ */
+export const AgentErrorCode = {
+  /**
+   * Issuance was refused: the human declined, the prompt expired or failed,
+   * the authorization server rejected the exchange, the signed-in account
+   * cannot read the zone's applications, or the `keycard agent` daemon has no
+   * session for the requested org and zone. Do not retry automatically: the
+   * agent remembers approvals but not declines, so a retry after a decline
+   * prompts again, and a retry after the other causes fails the same way.
+   */
+  PERMISSION_DENIED: "permission_denied",
+  /** The agent is bounding how often it interrupts the human. Back off. */
+  RESOURCE_EXHAUSTED: "resource_exhausted",
+  /**
+   * The host has no way to ask a human, or the agent found no zone with the
+   * configured id while resolving `appId`. Retrying will not help.
+   */
+  FAILED_PRECONDITION: "failed_precondition",
+  /**
+   * The developer must sign in, run the program under `keycard run`, or
+   * repair the device key first; `message` names the remedy.
+   */
+  UNAUTHENTICATED: "unauthenticated",
+  /** The declared `appId` names no application in the zone. */
+  NOT_FOUND: "not_found",
+  /**
+   * Resolving the declared `appId` failed transiently: the management session
+   * could not be renewed, or the application directory could not be reached.
+   */
+  UNAVAILABLE: "unavailable",
+  /**
+   * The request was malformed (for example a relative or non-ASCII resource),
+   * `appId` was declared without an org or zone, or `appId` was declared to an
+   * agent that cannot carry it.
+   */
+  INVALID_ARGUMENT: "invalid_argument",
+  /** The authorization server returned no token, or the agent's audit log failed. */
+  INTERNAL: "internal",
+  /** The token exchange failed for a reason the agent does not classify. */
+  UNKNOWN: "unknown",
+} as const;
+export type AgentErrorCode = (typeof AgentErrorCode)[keyof typeof AgentErrorCode];
+
+/**
+ * The local Keycard agent refused to issue a token. `code` is the Connect
+ * error code (see {@link AgentErrorCode}); `message` is the agent's
+ * explanation, which names the remedy where there is one. `message` is text
+ * from the socket's peer: neutralize it before printing it to a terminal.
+ * `retryable` is `true` for `resource_exhausted` and `unavailable` only.
+ * Agent codes are not OAuth error codes, so {@link PERMANENT_ERROR_CODES}
+ * does not apply to them.
+ */
+export class AgentError extends OAuthError {
+  readonly retryable: boolean;
+
+  constructor(code: AgentErrorCode | (string & {}), message: string) {
+    super(code, message);
+    this.name = "AgentError";
+    this.retryable = code === AgentErrorCode.RESOURCE_EXHAUSTED || code === AgentErrorCode.UNAVAILABLE;
+  }
+
+  /** The Connect error code; the same value as `errorCode`. */
+  get code(): AgentErrorCode | (string & {}) {
+    return this.errorCode;
+  }
+}
+
+/**
+ * The local Keycard agent answered 200 with a response the SDK cannot use: a
+ * body over 1 MiB or not JSON, a missing or empty token, a token carrying a
+ * control character or a character above U+00FF, or an unparseable expiry. The message never includes the token.
+ * `retryable` is always `false`.
+ */
+export class AgentResponseError extends OAuthError {
+  readonly retryable = false;
+
+  constructor(message: string) {
+    super("invalid_response", message);
+    this.name = "AgentResponseError";
+  }
+}
+
+function findAgentError(error: unknown): AgentError | undefined {
+  const seen = new Set<unknown>();
+  while (error instanceof Error && !seen.has(error)) {
+    if (error instanceof AgentError) return error;
+    seen.add(error);
+    error = (error as { cause?: unknown }).cause;
+  }
+  return undefined;
+}
+
+function hasAgentCode(error: unknown, code: AgentErrorCode): boolean {
+  return findAgentError(error)?.code === code;
+}
+
+/**
+ * Reports whether `error`, or an error on its `cause` chain, is an
+ * {@link AgentError} with code `permission_denied`. That code also covers an
+ * org and zone the `keycard agent` daemon has no session for, so a true
+ * result is not proof that a human declined.
+ */
+export function isDeclined(error: unknown): boolean {
+  return hasAgentCode(error, AgentErrorCode.PERMISSION_DENIED);
+}
+
+/** As {@link isDeclined}, for `resource_exhausted`. */
+export function isRateLimited(error: unknown): boolean {
+  return hasAgentCode(error, AgentErrorCode.RESOURCE_EXHAUSTED);
+}
+
+/**
+ * As {@link isDeclined}, for `failed_precondition`. The agent also sends that
+ * code when it finds no zone with the configured id, so read `message` before
+ * telling the user no prompter is available.
+ */
+export function isPrompterUnavailable(error: unknown): boolean {
+  return hasAgentCode(error, AgentErrorCode.FAILED_PRECONDITION);
+}
+
+/** As {@link isDeclined}, for `unauthenticated`. */
+export function isAuthorizationRequired(error: unknown): boolean {
+  return hasAgentCode(error, AgentErrorCode.UNAUTHENTICATED);
+}
+
+/** As {@link isDeclined}, for `not_found`. */
+export function isApplicationNotFound(error: unknown): boolean {
+  return hasAgentCode(error, AgentErrorCode.NOT_FOUND);
+}
+
+/** As {@link isDeclined}, for `unavailable`. */
+export function isUnavailable(error: unknown): boolean {
+  return hasAgentCode(error, AgentErrorCode.UNAVAILABLE);
+}
+
 /** The requested `kid` was not present in the fetched JWKS. */
 export class JWKSKeyNotFoundError extends JWKSError {
   constructor(message: string) {
