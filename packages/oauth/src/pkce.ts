@@ -1,3 +1,4 @@
+import { omitWhenPrinted } from "./printed.js";
 import { requestSignal } from "./requestSignal.js";
 import base64url from "./base64url.js";
 import { basicAuthorization } from "./basicAuthorization.js";
@@ -9,6 +10,10 @@ import { deserializeTokenResponse, type TokenResponse } from "./tokenExchange.js
 // PKCE primitives (RFC 7636)
 // =============================================================================
 
+/**
+ * A PKCE verifier and challenge. `generatePkcePair` returns a value that
+ * `util.inspect` and `console.log` print without `codeVerifier`.
+ */
 export interface Pkce {
   codeVerifier: string;
   codeChallenge: string;
@@ -63,7 +68,7 @@ export async function generatePkcePair(
 ): Promise<Pkce> {
   const codeVerifier = generateCodeVerifier(verifierLength);
   const codeChallenge = await generateCodeChallenge(codeVerifier, method);
-  return { codeVerifier, codeChallenge, codeChallengeMethod: method };
+  return omitWhenPrinted({ codeVerifier, codeChallenge, codeChallengeMethod: method }, "Pkce", ["codeVerifier"]);
 }
 
 // =============================================================================

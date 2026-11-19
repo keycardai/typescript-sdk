@@ -15,6 +15,9 @@
  *
  * `subProfile` and `keycardAppId` are Keycard claims and are undefined on a
  * token from another issuer.
+ *
+ * `token` is the caller's bearer token. A `TokenVerifier` returns a value that
+ * `util.inspect` and `console.log` print without it.
  */
 export interface AccessToken {
   token: string;

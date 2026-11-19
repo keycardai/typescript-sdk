@@ -1,4 +1,4 @@
-import { setPrinted } from "./printed.js";
+import { omitWhenPrinted } from "./printed.js";
 import { requestSignal } from "./requestSignal.js";
 import { requireClientAuthentication, type ApplicationCredential, type ClientAuthenticator } from "./credentials.js";
 import { fetchAuthorizationServerMetadata, type OAuthAuthorizationServerMetadata } from "./discovery.js";
@@ -589,5 +589,5 @@ function parseDeviceAuthorization(json: Record<string, unknown>, status: number,
   if (typeof json.verification_uri_complete === "string" && json.verification_uri_complete) {
     authorization.verificationUriComplete = json.verification_uri_complete;
   }
-  return setPrinted(authorization, "DeviceAuthorization", ({ deviceCode: _, ...shown }) => shown);
+  return omitWhenPrinted(authorization, "DeviceAuthorization", ["deviceCode"]);
 }

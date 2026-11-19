@@ -1,7 +1,7 @@
 import { createClientAuthentication, type ApplicationCredential, type ClientAuthentication } from "../credentials.js";
 import { basicAuthorization } from "../basicAuthorization.js";
 import { ConfigurationError } from "../errors.js";
-import type { TokenExchangeRequest } from "../tokenExchange.js";
+import { omitTokenExchangeSecrets, type TokenExchangeRequest } from "../tokenExchange.js";
 
 const ACCESS_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:access_token";
 const SINGLE_CREDENTIAL_KEY = "__default__";
@@ -112,10 +112,10 @@ export class ClientSecret implements ApplicationCredential {
     subjectToken: string,
     resource: string,
   ): Promise<TokenExchangeRequest> {
-    return {
+    return omitTokenExchangeSecrets({
       subjectToken,
       resource,
       subjectTokenType: ACCESS_TOKEN_TYPE,
-    };
+    });
   }
 }

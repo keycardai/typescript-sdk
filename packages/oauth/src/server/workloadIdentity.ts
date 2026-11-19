@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import { createClientAuthentication, type ApplicationCredential, type ClientAuthentication } from "../credentials.js";
-import type { TokenExchangeRequest } from "../tokenExchange.js";
+import { omitTokenExchangeSecrets, type TokenExchangeRequest } from "../tokenExchange.js";
 
 /**
  * Source identifiers carried on WorkloadIdentityConfigurationError and
@@ -391,14 +391,14 @@ export class WorkloadIdentity implements ApplicationCredential {
   ): Promise<TokenExchangeRequest> {
     const assertion = await this.#fetchIdentityToken();
 
-    return {
+    return omitTokenExchangeSecrets({
       subjectToken,
       resource,
       subjectTokenType: "urn:ietf:params:oauth:token-type:access_token",
       clientAssertionType: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
       clientAssertion: assertion,
       clientId: this.#clientId,
-    };
+    });
   }
 
   /**

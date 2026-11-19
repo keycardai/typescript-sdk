@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { createClientAuthentication, type ApplicationCredential, type ClientAuthentication } from "../credentials.js";
 import { ConfigurationError } from "../errors.js";
-import type { TokenExchangeRequest } from "../tokenExchange.js";
+import { omitTokenExchangeSecrets, type TokenExchangeRequest } from "../tokenExchange.js";
 import { PrivateKeyManager, FilePrivateKeyStorage } from "./privateKey.js";
 import type { PrivateKeyStorage } from "./privateKey.js";
 
@@ -105,13 +105,13 @@ export class WebIdentity implements ApplicationCredential {
       );
     }
     const clientAssertion = await this.#keyManager.createClientAssertion(issuer, audience);
-    return {
+    return omitTokenExchangeSecrets({
       subjectToken,
       resource,
       subjectTokenType: "urn:ietf:params:oauth:token-type:access_token",
       clientAssertionType: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
       clientAssertion,
-    };
+    });
   }
 
   /**
