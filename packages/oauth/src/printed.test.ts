@@ -146,6 +146,12 @@ describe('printed forms leave out secrets', () => {
         "sub: 'user-1', subProfile: undefined, keycardAppId: undefined }",
     },
     {
+      name: 'ClientSecret getAuth',
+      build: async () => new ClientSecret('client-id', 'client-secret').getAuth(),
+      secrets: () => ['client-secret'],
+      want: () => "ClientAuth { clientId: 'client-id' }",
+    },
+    {
       name: 'ClientSecret token exchange request',
       build: () => new ClientSecret('client-id', 'client-secret').prepareTokenExchangeRequest('subject-token', RESOURCE),
       secrets: () => ['subject-token'],

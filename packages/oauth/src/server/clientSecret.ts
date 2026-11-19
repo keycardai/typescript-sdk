@@ -1,6 +1,7 @@
 import { createClientAuthentication, type ApplicationCredential, type ClientAuthentication } from "../credentials.js";
 import { basicAuthorization } from "../basicAuthorization.js";
 import { ConfigurationError } from "../errors.js";
+import { omitWhenPrinted } from "../printed.js";
 import { omitTokenExchangeSecrets, type TokenExchangeRequest } from "../tokenExchange.js";
 
 const ACCESS_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:access_token";
@@ -86,13 +87,13 @@ export class ClientSecret implements ApplicationCredential {
   getAuth(issuer?: string): { clientId: string; clientSecret: string } | null {
     if (!this.#isMultiZone) {
       const tuple = this.#credentialsByIssuer.get(SINGLE_CREDENTIAL_KEY);
-      return tuple ? { clientId: tuple[0], clientSecret: tuple[1] } : null;
+      return tuple ? printedAuth(tuple) : null;
     }
     if (!issuer) {
       return null;
     }
     const tuple = this.#credentialsByIssuer.get(normalizeIssuer(issuer));
-    return tuple ? { clientId: tuple[0], clientSecret: tuple[1] } : null;
+    return tuple ? printedAuth(tuple) : null;
   }
 
   /**
@@ -118,4 +119,9 @@ export class ClientSecret implements ApplicationCredential {
       subjectTokenType: ACCESS_TOKEN_TYPE,
     });
   }
+}
+
+/** `{ clientId, clientSecret }` that `util.inspect` prints without `clientSecret`. */
+function printedAuth([clientId, clientSecret]: [string, string]): { clientId: string; clientSecret: string } {
+  return omitWhenPrinted({ clientId, clientSecret }, "ClientAuth", ["clientSecret"]);
 }
