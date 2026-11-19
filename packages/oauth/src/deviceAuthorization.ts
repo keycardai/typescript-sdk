@@ -1,3 +1,4 @@
+import { setPrinted } from "./printed.js";
 import { requestSignal } from "./requestSignal.js";
 import { requireClientAuthentication, type ApplicationCredential, type ClientAuthenticator } from "./credentials.js";
 import { assertMetadataIssuer, fetchAuthorizationServerMetadata, type OAuthAuthorizationServerMetadata } from "./discovery.js";
@@ -99,6 +100,12 @@ export type RequestDeviceAuthorizationOptions = DeviceClientOptions & {
  * The device authorization response (RFC 8628 §3.2). A plain value: the
  * caller may persist it and poll from another process that authenticates as
  * the same client.
+ *
+ * `deviceCode` is a credential: a public client redeems it with `client_id`
+ * alone. Node's `util.inspect` and `console.log` print the value
+ * `requestDeviceAuthorization` returns without `deviceCode`. `JSON.stringify`
+ * writes it, so a persisted copy can poll. A copy read back with `JSON.parse`
+ * prints every field.
  */
 export interface DeviceAuthorization {
   /** The code the device polls with. NEVER show it to the person. */
@@ -615,5 +622,5 @@ function parseDeviceAuthorization(json: Record<string, unknown>, status: number,
   if (typeof json.verification_uri_complete === "string" && json.verification_uri_complete) {
     authorization.verificationUriComplete = json.verification_uri_complete;
   }
-  return authorization;
+  return setPrinted(authorization, "DeviceAuthorization", ({ deviceCode: _, ...shown }) => shown);
 }

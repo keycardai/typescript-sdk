@@ -1,5 +1,5 @@
 import * as fs from "node:fs";
-import type { ApplicationCredential, ClientAuthentication } from "../credentials.js";
+import { createClientAuthentication, type ApplicationCredential, type ClientAuthentication } from "../credentials.js";
 import { ConfigurationError } from "../errors.js";
 import {
   fetchIdentityToken,
@@ -370,7 +370,7 @@ export class WorkloadIdentity implements ApplicationCredential {
       client_assertion_type: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
     };
     if (this.#clientId) form.client_id = this.#clientId;
-    return { headers: {}, form };
+    return createClientAuthentication({}, form);
   }
 
   /**

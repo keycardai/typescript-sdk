@@ -398,6 +398,7 @@ issuer's `userinfo_endpoint`. Pass `{ metadata }` to skip discovery.
 | `ApplicationCredential` (type) | `@keycardai/oauth/credentials` | Interface for credential providers. The optional `clientAuthentication(issuer, endpoint)` returns the headers and form fields that authenticate one request. The optional `checkClientAuthentication()` throws `ConfigurationError` before any request when the credential cannot do so |
 | `providesClientAuthentication` | `@keycardai/oauth/credentials` | Reports whether a credential provides `clientAuthentication` |
 | `basicAuthorization` | `@keycardai/oauth/credentials` | Builds the HTTP Basic `Authorization` header value from a client ID and secret; also exported from `@keycardai/oauth` |
+| `createClientAuthentication` | `@keycardai/oauth/credentials` | Builds a `ClientAuthentication` from headers and form fields. `console.log` and `util.inspect` print the field names, not the values |
 
 ### Errors
 
