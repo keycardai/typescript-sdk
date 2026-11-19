@@ -15,6 +15,7 @@ import {
 import { resolveConnectionConfig, type KeycardConnectionOptions, type ResolvedConnectionConfig } from "./config.js";
 import { ConnectionAuthError, FailureReason } from "./errors.js";
 import { subjectTokenExpiresAt, subjectTokenExpired } from "./expiry.js";
+import { setPrinted } from "./printed.js";
 import { KEYCARD_AUTHENTICATOR } from "./keycardAuth.js";
 import { principalKey, readSubjectToken } from "./subjectTokens.js";
 
@@ -256,8 +257,11 @@ async function withCache(
   return headers(config, response.accessToken);
 }
 
+/** The result prints the header names only through `util.inspect` and `console.log`. */
 function headers(config: ResolvedConnectionConfig, token: string): ConnectionAuthResult {
-  return { headers: { [config.headerName]: `Bearer ${token}` } };
+  return setPrinted({ headers: { [config.headerName]: `Bearer ${token}` } }, "ConnectionAuthResult", (result) => ({
+    headers: Object.keys(result.headers),
+  }));
 }
 
 /** Wraps a zone failure as `acquisition_failed`; the message names the reason and resource, never a token. */
