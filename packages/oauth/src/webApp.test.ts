@@ -3,6 +3,8 @@ import { beginAuthorization, completeAuthorization, refreshAuthorization } from 
 import { AuthorizationDeniedError, ConfigurationError, OAuthError, PERMANENT_ERROR_CODES, RefreshGrantError, StateMismatchError } from './errors.js';
 import type { ApplicationCredential } from './credentials.js';
 import { WebIdentity } from './server/webIdentity.js';
+import { WorkloadIdentity } from './server/workloadIdentity.js';
+import { ClientSecret } from './server/clientSecret.js';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -311,6 +313,101 @@ describe('web-app flow', () => {
       expect(calls[0].url).toContain('/.well-known/oauth-authorization-server');
       expect(calls[1].url).toBe(TOKEN_ENDPOINT);
     });
+
+    describe('with a WorkloadIdentity credential', () => {
+      const { clientId: _clientId, ...credentialFlowState } = flowState;
+      const workload = () => new WorkloadIdentity(async () => 'platform-jwt', { clientId: 'client-123' });
+
+      it('sends the assertion and the credential client_id with no Basic header', async () => {
+        const calls = mockFetch(() => jsonResponse(200, { access_token: 'at', token_type: 'Bearer' }));
+
+        await completeAuthorization(ISSUER, {
+          ...credentialFlowState,
+          credential: workload(),
+          callbackParams: { code: 'auth-code', state: 'stored-state' },
+        });
+
+        expect(calls).toHaveLength(1);
+        const headers = calls[0].init?.headers as Record<string, string>;
+        expect(headers['Authorization']).toBeUndefined();
+        const body = new URLSearchParams(String(calls[0].init?.body));
+        expect(body.get('client_assertion')).toBe('platform-jwt');
+        expect(body.get('client_assertion_type')).toBe('urn:ietf:params:oauth:client-assertion-type:jwt-bearer');
+        expect(body.getAll('client_id')).toEqual(['client-123']);
+        expect(body.has('subject_token_type')).toBe(false);
+      });
+
+      it('uses the begin client_id on the authorize URL and the credential on the token request', async () => {
+        const calls = mockFetch(() => jsonResponse(200, { access_token: 'at', token_type: 'Bearer' }));
+
+        const flow = await beginAuthorization(ISSUER, {
+          clientId: 'client-123',
+          redirectUri: REDIRECT_URI,
+          metadata: METADATA,
+        });
+        const url = new URL(flow.url);
+        expect(url.searchParams.get('client_id')).toBe('client-123');
+        expect(url.searchParams.has('client_assertion')).toBe(false);
+
+        await completeAuthorization(ISSUER, {
+          state: flow.state,
+          codeVerifier: flow.codeVerifier,
+          redirectUri: REDIRECT_URI,
+          metadata: METADATA,
+          credential: workload(),
+          callbackParams: { code: 'auth-code', state: flow.state },
+        });
+
+        const body = new URLSearchParams(String(calls[0].init?.body));
+        expect(body.get('client_id')).toBe('client-123');
+        expect(body.get('client_assertion')).toBe('platform-jwt');
+      });
+
+      it.each([
+        { name: 'clientId', extra: { clientId: 'client-123' } },
+        { name: 'clientSecret', extra: { clientSecret: 'shh' } },
+      ])('throws ConfigurationError before any request with credential and $name', async ({ extra }) => {
+        const calls = mockFetch(() => jsonResponse(200, {}));
+
+        await expect(
+          completeAuthorization(ISSUER, {
+            ...credentialFlowState,
+            credential: workload(),
+            ...extra,
+            callbackParams: { code: 'auth-code', state: 'stored-state' },
+          } as Parameters<typeof completeAuthorization>[1]),
+        ).rejects.toThrow(ConfigurationError);
+        expect(calls).toHaveLength(0);
+      });
+
+      it('throws ConfigurationError before any request when the credential has no clientId', async () => {
+        const calls = mockFetch(() => jsonResponse(200, {}));
+
+        await expect(
+          completeAuthorization(ISSUER, {
+            ...credentialFlowState,
+            credential: new WorkloadIdentity(async () => 'platform-jwt'),
+            callbackParams: { code: 'auth-code', state: 'stored-state' },
+          }),
+        ).rejects.toThrow(ConfigurationError);
+        expect(calls).toHaveLength(0);
+      });
+    });
+
+    it('authenticates with a ClientSecret credential by HTTP Basic and no client_id in the body', async () => {
+      const { clientId: _clientId, ...credentialFlowState } = flowState;
+      const calls = mockFetch(() => jsonResponse(200, { access_token: 'at', token_type: 'Bearer' }));
+
+      await completeAuthorization(ISSUER, {
+        ...credentialFlowState,
+        credential: new ClientSecret('client-123', 'shh'),
+        callbackParams: { code: 'auth-code', state: 'stored-state' },
+      });
+
+      const headers = calls[0].init?.headers as Record<string, string>;
+      expect(headers['Authorization']).toBe(`Basic ${btoa('client-123:shh')}`);
+      expect(new URLSearchParams(String(calls[0].init?.body)).has('client_id')).toBe(false);
+    });
   });
 
   describe('refreshAuthorization', () => {
@@ -535,6 +632,10 @@ describe('web-app flow', () => {
         {
           name: 'a WebIdentity without clientId',
           options: { credential: new WebIdentity({ storageDir: join(tmpdir(), 'refresh-unused-keys') }) },
+        },
+        {
+          name: 'a WorkloadIdentity without clientId',
+          options: { credential: new WorkloadIdentity(async () => 'platform-jwt') },
         },
       ])('$name throws ConfigurationError before any request', async ({ options }) => {
         const calls = mockFetch(() => jsonResponse(200, METADATA));

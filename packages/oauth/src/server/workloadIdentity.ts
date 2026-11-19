@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import type { ApplicationCredential, ClientAuthentication } from "../credentials.js";
+import { ConfigurationError } from "../errors.js";
 import type { TokenExchangeRequest } from "../tokenExchange.js";
 
 /**
@@ -330,20 +331,21 @@ export class FlyTokenSource implements IdentityTokenSource {
 
 export interface WorkloadIdentityOptions {
   /**
-   * ID of the Keycard application credential this workload authenticates as,
-   * sent as the `client_id` form parameter alongside the client assertion.
-   * Token-federation application credentials are resolved by this ID, so
-   * they require it; legacy token credentials are resolved by the
-   * assertion's subject and do not use it.
+   * Public ID of the Keycard application credential this workload
+   * authenticates as, sent as the `client_id` form parameter alongside the
+   * client assertion on every grant. A v2 token credential is resolved by
+   * this ID and requires it, as do the interactive grants. A v1 token
+   * credential (deprecated) is resolved by the assertion's issuer and
+   * subject and rejects it.
    */
   clientId?: string;
 }
 
 /**
  * Workload identity credential using a platform-signed OIDC token obtained
- * from a {@link IdentityTokenSource}. On every token exchange it fetches the
- * current token from the source and attaches it as a jwt-bearer client
- * assertion. It holds no shared secret and never caches the token across
+ * from a {@link IdentityTokenSource}. On every token request, whatever the
+ * grant, it fetches the current token from the source and attaches it as a
+ * jwt-bearer client assertion. It holds no shared secret and never caches the token across
  * requests.
  *
  * @example
@@ -414,6 +416,19 @@ export class WorkloadIdentity implements ApplicationCredential {
     };
     if (this.#clientId) form.client_id = this.#clientId;
     return { headers: {}, form };
+  }
+
+  /**
+   * Throws `ConfigurationError` when `clientId` is not set. The interactive
+   * grants (authorization code, refresh, device) need a v2 token credential,
+   * which the zone resolves by `client_id`.
+   */
+  checkClientAuthentication(): void {
+    if (!this.#clientId) {
+      throw new ConfigurationError(
+        "WorkloadIdentity: clientId is required for interactive grants (the public ID of a v2 token credential)",
+      );
+    }
   }
 
   async #fetchIdentityToken(): Promise<string> {

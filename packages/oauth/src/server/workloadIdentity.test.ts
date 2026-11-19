@@ -12,6 +12,7 @@ import {
   WorkloadIdentityRuntimeError,
 } from "./workloadIdentity.js";
 import { EKSWorkloadIdentity } from "./eksWorkloadIdentity.js";
+import { ConfigurationError } from "../errors.js";
 
 function makeTokenFile(contents: string): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "wif-"));
@@ -192,6 +193,15 @@ describe("WorkloadIdentity clientAuthentication", () => {
     const second = await credential.clientAuthentication(ISSUER, ENDPOINT);
 
     expect([first.form.client_assertion, second.form.client_assertion]).toEqual(["token-1", "token-2"]);
+  });
+
+  it("checkClientAuthentication requires clientId for the interactive grants", () => {
+    expect(() => new WorkloadIdentity(async () => "platform-token").checkClientAuthentication()).toThrow(
+      ConfigurationError,
+    );
+    expect(() =>
+      new WorkloadIdentity(async () => "platform-token", { clientId: "acr_123" }).checkClientAuthentication(),
+    ).not.toThrow();
   });
 });
 

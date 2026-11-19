@@ -7,6 +7,12 @@ import {
   authenticate,
 } from './pkce.js';
 import { ConfigurationError, OAuthError } from './errors.js';
+import type { ApplicationCredential } from './credentials.js';
+import { WebIdentity } from './server/webIdentity.js';
+import { WorkloadIdentity } from './server/workloadIdentity.js';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const ISSUER = 'https://auth.example.com';
 const TOKEN_ENDPOINT = 'https://auth.example.com/token';
@@ -187,6 +193,121 @@ describe('exchangeAuthorizationCode', () => {
     const headers = ((tokenCall![1] as RequestInit).headers) as Record<string, string>;
     expect(headers['Authorization']).toBe(`Basic ${btoa('id:secret')}`);
   });
+
+  describe('with a credential', () => {
+    const credential = (): ApplicationCredential => ({
+      getAuth: () => null,
+      prepareTokenExchangeRequest: async () => ({ subjectToken: 'unused' }),
+      clientAuthentication: jest.fn(async (_issuer: string, endpoint: string) => ({
+        headers: { 'X-Client-Auth': `header-for:${endpoint}` },
+        form: {
+          client_assertion: `assertion-for:${endpoint}`,
+          client_assertion_type: 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',
+        },
+      })),
+    });
+    const base = { codeVerifier: 'v', redirectUri: 'http://localhost:8080/callback' };
+
+    it('sends the credential headers and form fields', async () => {
+      const cred = credential();
+      fetchMock
+        .mockImplementationOnce(async () => metadataResponse())
+        .mockImplementationOnce(async () => jsonResponse(200, { access_token: 'tok', token_type: 'Bearer' }));
+
+      await exchangeAuthorizationCode(ISSUER, 'code', { ...base, credential: cred });
+
+      const [, tokenCall] = fetchMock.mock.calls;
+      const init = tokenCall![1] as RequestInit;
+      expect(init.headers).toEqual({
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'X-Client-Auth': `header-for:${TOKEN_ENDPOINT}`,
+      });
+      expect([...new URLSearchParams(String(init.body)).entries()]).toEqual([
+        ['grant_type', 'authorization_code'],
+        ['code', 'code'],
+        ['code_verifier', 'v'],
+        ['redirect_uri', 'http://localhost:8080/callback'],
+        ['client_assertion', `assertion-for:${TOKEN_ENDPOINT}`],
+        ['client_assertion_type', 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer'],
+      ]);
+      expect(cred.clientAuthentication).toHaveBeenCalledWith(ISSUER, TOKEN_ENDPOINT);
+    });
+
+    it.each([
+      { name: 'credential together with clientId', options: { credential: credential(), clientId: 'id' } },
+      { name: 'credential together with clientSecret', options: { credential: credential(), clientSecret: 'shh' } },
+      {
+        name: 'a credential without clientAuthentication',
+        options: {
+          credential: {
+            getAuth: () => null,
+            prepareTokenExchangeRequest: async () => ({ subjectToken: 'unused' }),
+          },
+        },
+      },
+      {
+        name: 'a WorkloadIdentity without clientId',
+        options: { credential: new WorkloadIdentity(async () => 'platform-jwt') },
+      },
+    ])('$name throws ConfigurationError before any request', async ({ options }) => {
+      await expect(
+        exchangeAuthorizationCode(ISSUER, 'code', { ...base, ...options }),
+      ).rejects.toThrow(ConfigurationError);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('throws the credential error as is and sends no token request', async () => {
+      const failure = new Error('token source unavailable');
+      fetchMock.mockImplementationOnce(async () => metadataResponse());
+
+      await expect(
+        exchangeAuthorizationCode(ISSUER, 'code', {
+          ...base,
+          credential: {
+            getAuth: () => null,
+            prepareTokenExchangeRequest: async () => ({ subjectToken: 'unused' }),
+            clientAuthentication: async () => {
+              throw failure;
+            },
+          },
+        }),
+      ).rejects.toBe(failure);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    describe('WebIdentity', () => {
+      let storageDir: string;
+
+      beforeEach(() => {
+        storageDir = mkdtempSync(join(tmpdir(), 'pkce-webidentity-'));
+      });
+
+      afterEach(() => {
+        rmSync(storageDir, { recursive: true, force: true });
+      });
+
+      it('sends an assertion whose aud is the token endpoint and no Basic header', async () => {
+        fetchMock
+          .mockImplementationOnce(async () => metadataResponse())
+          .mockImplementationOnce(async () => jsonResponse(200, { access_token: 'tok', token_type: 'Bearer' }));
+
+        await exchangeAuthorizationCode(ISSUER, 'code', {
+          ...base,
+          credential: new WebIdentity({ clientId: 'cred-abc', storageDir }),
+        });
+
+        const [, tokenCall] = fetchMock.mock.calls;
+        const init = tokenCall![1] as RequestInit;
+        expect((init.headers as Record<string, string>)['Authorization']).toBeUndefined();
+        const body = new URLSearchParams(String(init.body));
+        expect(body.get('client_assertion_type')).toBe('urn:ietf:params:oauth:client-assertion-type:jwt-bearer');
+        const payload = JSON.parse(
+          Buffer.from(body.get('client_assertion')!.split('.')[1], 'base64url').toString(),
+        ) as Record<string, unknown>;
+        expect(payload.aud).toBe(TOKEN_ENDPOINT);
+      });
+    });
+  });
 });
 
 // =============================================================================
@@ -322,6 +443,35 @@ describe('authenticate', () => {
     ).rejects.toThrow(ConfigurationError);
     expect(openBrowser).not.toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('throws ConfigurationError before any request when credential is set with clientSecret', async () => {
+    const openBrowser = jest.fn();
+    const credential: ApplicationCredential = {
+      getAuth: () => null,
+      prepareTokenExchangeRequest: async () => ({ subjectToken: 'unused' }),
+      clientAuthentication: async () => ({ headers: {}, form: {} }),
+    };
+
+    await expect(
+      authenticate(ISSUER, { clientId: 'my-client', clientSecret: 'shh', credential, openBrowser }),
+    ).rejects.toThrow(ConfigurationError);
+    expect(openBrowser).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('throws ConfigurationError before any request for a WorkloadIdentity without clientId', async () => {
+    const openBrowser = jest.fn();
+
+    await expect(
+      authenticate(ISSUER, {
+        clientId: 'my-client',
+        credential: new WorkloadIdentity(async () => 'platform-jwt'),
+        openBrowser,
+      }),
+    ).rejects.toThrow(ConfigurationError);
+    expect(openBrowser).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('rejects when the redirect carries a wrong or missing state', async () => {
