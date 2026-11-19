@@ -1,3 +1,13 @@
+## 0.28.0-keycardai-oauth (2026-11-19)
+
+
+- feat(oauth): workload identity client_id on client credentials and code exchange (#352)
+- Authenticate the authorization code exchange, completeAuthorization, and
+authenticate with a credential in place of a client secret.
+- Require clientId on a WorkloadIdentity used for the interactive grants
+(authorization code, refresh, device) through checkClientAuthentication.
+- Co-authored-by: Claude Opus 5.5 <noreply@anthropic.com>
+
 ## 0.27.0-keycardai-oauth (2026-11-13)
 
 
