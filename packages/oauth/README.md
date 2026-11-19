@@ -347,6 +347,7 @@ issuer's `userinfo_endpoint`. Pass `{ metadata }` to skip discovery.
 | `fetchAuthorizationServerMetadata` | `@keycardai/oauth/discovery` | Fetches `.well-known/oauth-authorization-server` metadata |
 | `TokenExchangeClient` | `@keycardai/oauth/tokenExchange` | RFC 8693 token exchange client with auto-discovery, plus `impersonate()` for substitute-user exchange |
 | `TokenType` | `@keycardai/oauth/tokenExchange` | URN constants: `ACCESS_TOKEN`, `SUBSTITUTE_USER` |
+| `omitTokenExchangeSecrets` | `@keycardai/oauth/tokenExchange` | Returns a prepared `TokenExchangeRequest` that `console.log` and `util.inspect` print without `subjectToken`, `actorToken`, and `clientAssertion`. Credentials call it on the request they prepare |
 | `buildSubstituteUserToken` | `@keycardai/oauth/jwt/substituteUser` | Builds the unsigned subject JWT for impersonation calls |
 | `registerClient` | `@keycardai/oauth/registration` | RFC 7591 dynamic client registration with auto-discovery |
 

@@ -9,7 +9,7 @@ import {
   type IdentityTokenFetcher,
   type IdentityTokenSource,
 } from "../identityTokenSource.js";
-import type { TokenExchangeRequest } from "../tokenExchange.js";
+import { omitTokenExchangeSecrets, type TokenExchangeRequest } from "../tokenExchange.js";
 
 export {
   WORKLOAD_IDENTITY_SOURCE_CUSTOM,
@@ -348,14 +348,14 @@ export class WorkloadIdentity implements ApplicationCredential {
   ): Promise<TokenExchangeRequest> {
     const assertion = await fetchIdentityToken(this.#source, this);
 
-    return {
+    return omitTokenExchangeSecrets({
       subjectToken,
       resource,
       subjectTokenType: "urn:ietf:params:oauth:token-type:access_token",
       clientAssertionType: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
       clientAssertion: assertion,
       clientId: this.#clientId,
-    };
+    });
   }
 
   /**

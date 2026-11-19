@@ -1,3 +1,4 @@
+import { omitWhenPrinted } from "./printed.js";
 import { requestSignal } from "./requestSignal.js";
 import base64url from "./base64url.js";
 import { basicAuthorization } from "./basicAuthorization.js";
@@ -37,6 +38,10 @@ export interface BeginAuthorizationOptions {
   timeoutMs?: number;
 }
 
+/**
+ * `beginAuthorization` returns a value that `util.inspect` and `console.log`
+ * print without `codeVerifier`.
+ */
 export interface AuthorizationRedirect {
   /** The authorization URL to redirect the user's browser to. */
   url: string;
@@ -169,7 +174,7 @@ export async function beginAuthorization(
     resources,
   });
 
-  return { url, state, codeVerifier, resources };
+  return omitWhenPrinted({ url, state, codeVerifier, resources }, "AuthorizationRedirect", ["codeVerifier"]);
 }
 
 /**
