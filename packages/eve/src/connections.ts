@@ -52,8 +52,13 @@ export interface KeycardImpersonateOptions extends KeycardConnectionOptions {
   /**
    * The user the agent acts for. A function receives the connection principal,
    * so a session-scoped identifier can be read from the turn's current auth.
+   * It may return a promise, for an identifier that needs a lookup, such as a
+   * chat user id resolved to an email. `getToken` awaits it before any token
+   * is requested, so a rejection fails the turn with no zone call.
    */
-  userIdentifier: string | ((principal: ConnectionPrincipal) => string);
+  userIdentifier:
+    | string
+    | ((principal: ConnectionPrincipal) => string | Promise<string>);
 }
 
 /**
@@ -183,7 +188,7 @@ export function impersonate(
       let userIdentifier: string;
       if (typeof identifier === "function") {
         requireUser(principal, config.connectionName);
-        userIdentifier = identifier(principal);
+        userIdentifier = await identifier(principal);
       } else {
         userIdentifier = identifier;
       }
