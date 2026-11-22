@@ -105,6 +105,7 @@ export { fetchUserInfo } from "./userinfo.js";
 export type { UserInfoResponse, FetchUserInfoOptions } from "./userinfo.js";
 export { resolveIssuerFromChallenge, authenticateFromChallenge } from "./challenge.js";
 export type {
+  AuthenticateFromChallengeOptions,
   ResolveIssuerFromChallengeOptions,
   ResolvedChallenge,
 } from "./challenge.js";

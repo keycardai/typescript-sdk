@@ -1,5 +1,8 @@
 import { jest } from '@jest/globals';
 import { resolveIssuerFromChallenge, authenticateFromChallenge } from './challenge.js';
+import type { ApplicationCredential } from './credentials.js';
+import { ConfigurationError } from './errors.js';
+import { ClientSecret } from './server/clientSecret.js';
 
 const METADATA_URL = 'https://api.example.com/.well-known/oauth-protected-resource';
 const ISSUER = 'https://auth.example.com';
@@ -217,5 +220,163 @@ describe('authenticateFromChallenge', () => {
       authenticateFromChallenge('Bearer realm="api"', { clientId: 'my-client' }),
     ).rejects.toThrow(/resource_metadata/);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  describe('challenge-resolved issuer pinning', () => {
+    const CHALLENGE = `Bearer resource_metadata="${METADATA_URL}"`;
+    const credential = (): ApplicationCredential => ({
+      getAuth: () => null,
+      prepareTokenExchangeRequest: async () => ({ subjectToken: 'unused' }),
+      clientAuthentication: jest.fn(async () => ({
+        headers: {},
+        form: { client_assertion: 'platform-token', client_assertion_type: 'jwt-bearer' },
+      })),
+    });
+
+    it.each([
+      { name: 'clientSecret', auth: { clientSecret: 'shh' } },
+      { name: 'credential', auth: { credential: credential() } },
+      { name: 'clientSecret with an empty allowedIssuers', auth: { clientSecret: 'shh', allowedIssuers: [] } },
+    ])('throws ConfigurationError before any request for $name without allowedIssuers', async ({ auth }) => {
+      const openBrowser = jest.fn();
+      await expect(
+        authenticateFromChallenge(CHALLENGE, { clientId: 'my-client', openBrowser, ...auth }),
+      ).rejects.toThrow(ConfigurationError);
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(openBrowser).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      { name: 'clientSecret', auth: { clientSecret: 'shh' } },
+      { name: 'credential', auth: { credential: credential() } },
+      { name: 'a public client', auth: {} },
+    ])('throws ConfigurationError naming the issuer for $name when it is not in allowedIssuers', async ({ auth }) => {
+      mockFetchRouting();
+      const openBrowser = jest.fn();
+      await expect(
+        authenticateFromChallenge(CHALLENGE, {
+          clientId: 'my-client',
+          openBrowser,
+          allowedIssuers: ['https://zone.keycard.cloud'],
+          ...auth,
+        }),
+      ).rejects.toThrow(new RegExp(`${ISSUER}.*not in allowedIssuers`));
+      // Only the protected resource metadata was fetched; nothing went to the resolved issuer.
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(String(fetchMock.mock.calls[0][0])).toBe(METADATA_URL);
+      expect(openBrowser).not.toHaveBeenCalled();
+    });
+
+    it('sends client authentication to an allowed issuer, compared without a trailing slash', async () => {
+      mockFetchRouting();
+      const testPort = 19882;
+      let authorizeUrl: string | undefined;
+      const authPromise = authenticateFromChallenge(CHALLENGE, {
+        clientId: 'my-client',
+        clientSecret: 'shh',
+        allowedIssuers: [`${ISSUER}/`],
+        port: testPort,
+        timeoutMs: 5000,
+        openBrowser: (url) => {
+          authorizeUrl = url;
+        },
+      });
+
+      await new Promise((r) => setTimeout(r, 250));
+      expect(authorizeUrl).toBeDefined();
+      const state = new URL(authorizeUrl!).searchParams.get('state');
+      await originalFetch(
+        `http://localhost:${testPort}/callback?code=auth-code-xyz&state=${encodeURIComponent(state!)}`,
+      );
+
+      const result = await authPromise;
+      expect(result.accessToken).toBe('challenge-tok');
+      const tokenCall = fetchMock.mock.calls.find(([input]) => String(input) === `${ISSUER}/token`);
+      expect(tokenCall).toBeDefined();
+      const init = tokenCall![1] as RequestInit;
+      const headers = new Headers(init.headers);
+      expect(headers.get('authorization')).toBe(`Basic ${Buffer.from('my-client:shh').toString('base64')}`);
+    }, 8000);
+
+    describe('multi-zone ClientSecret as the allow-list', () => {
+      const multiZone = () =>
+        new ClientSecret({
+          'https://zone.keycard.cloud/': ['zone-client', 'zone-secret'],
+          [ISSUER]: ['auth-client', 'auth-secret'],
+        });
+
+      it('sends client authentication when the resolved issuer is one of its zones', async () => {
+        mockFetchRouting();
+        const testPort = 19883;
+        let authorizeUrl: string | undefined;
+        const authPromise = authenticateFromChallenge(CHALLENGE, {
+          clientId: 'auth-client',
+          credential: multiZone(),
+          port: testPort,
+          timeoutMs: 5000,
+          openBrowser: (url) => {
+            authorizeUrl = url;
+          },
+        });
+
+        await new Promise((r) => setTimeout(r, 250));
+        expect(authorizeUrl).toBeDefined();
+        const state = new URL(authorizeUrl!).searchParams.get('state');
+        await originalFetch(
+          `http://localhost:${testPort}/callback?code=auth-code-xyz&state=${encodeURIComponent(state!)}`,
+        );
+
+        const result = await authPromise;
+        expect(result.accessToken).toBe('challenge-tok');
+        const tokenCall = fetchMock.mock.calls.find(([input]) => String(input) === `${ISSUER}/token`);
+        expect(tokenCall).toBeDefined();
+        const headers = new Headers((tokenCall![1] as RequestInit).headers);
+        expect(headers.get('authorization')).toBe(
+          `Basic ${Buffer.from('auth-client:auth-secret').toString('base64')}`,
+        );
+      }, 8000);
+
+      it('throws ConfigurationError before any request to an issuer outside its zones', async () => {
+        mockFetchRouting();
+        const openBrowser = jest.fn();
+        const credential = new ClientSecret({
+          'https://zone.keycard.cloud': ['zone-client', 'zone-secret'],
+          'https://other.keycard.cloud': ['other-client', 'other-secret'],
+        });
+        await expect(
+          authenticateFromChallenge(CHALLENGE, { clientId: 'zone-client', credential, openBrowser }),
+        ).rejects.toThrow(new RegExp(`${ISSUER}.*zone issuers`));
+        // Only the protected resource metadata was fetched; nothing went to the resolved issuer.
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(String(fetchMock.mock.calls[0][0])).toBe(METADATA_URL);
+        expect(openBrowser).not.toHaveBeenCalled();
+      });
+
+      it('uses an explicit allowedIssuers over its zones', async () => {
+        mockFetchRouting();
+        const openBrowser = jest.fn();
+        await expect(
+          authenticateFromChallenge(CHALLENGE, {
+            clientId: 'auth-client',
+            credential: multiZone(),
+            allowedIssuers: ['https://other.keycard.cloud'],
+            openBrowser,
+          }),
+        ).rejects.toThrow(/not in allowedIssuers/);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(openBrowser).not.toHaveBeenCalled();
+      });
+
+      it('still requires allowedIssuers for a single-zone ClientSecret', async () => {
+        await expect(
+          authenticateFromChallenge(CHALLENGE, {
+            clientId: 'c',
+            credential: new ClientSecret('c', 's'),
+            openBrowser: jest.fn(),
+          }),
+        ).rejects.toThrow(/set allowedIssuers/);
+        expect(fetchMock).not.toHaveBeenCalled();
+      });
+    });
   });
 });
