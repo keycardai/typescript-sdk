@@ -2,6 +2,7 @@ import { describe, expect, it } from "@jest/globals";
 import {
   AuthProviderConfigurationError,
   ClientSecret,
+  OAuthError,
   TokenType,
   type ApplicationCredential,
   type TokenExchangeRequest,
@@ -443,5 +444,101 @@ describe("factory configuration", () => {
     expect(() => asSelf({ resource: CALENDAR, zoneUrl: ZONE, clientId: "id" })).toThrow(
       AuthProviderConfigurationError,
     );
+  });
+});
+
+describe("impersonate refusals", () => {
+  const USER = "ops@example.com";
+
+  function refusedWith(error: Error) {
+    return impersonate({
+      resource: CALENDAR,
+      client: fakeZoneClient({ fail: error }),
+      userIdentifier: USER,
+    });
+  }
+
+  it("reports a missing grant as user_authorization_required", async () => {
+    const auth = refusedWith(
+      new OAuthError(
+        "insufficient_authorization",
+        `User authorization is required for resource ${CALENDAR}.`,
+      ),
+    );
+
+    const failure = await auth
+      .getToken({ principal: appPrincipal(), connection })
+      .catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(AuthorizationFailedError);
+    expect(failure).toMatchObject({
+      reason: FailureReason.USER_AUTHORIZATION_REQUIRED,
+      retryable: false,
+    });
+    const message = (failure as Error).message;
+    expect(message).toContain(CALENDAR);
+    expect(message).toContain("keycard auth resource");
+    expect(message).not.toContain(USER);
+  });
+
+  it("reports missing consent as user_authorization_required", async () => {
+    const auth = refusedWith(
+      new OAuthError("insufficient_authorization", "User consent is required."),
+    );
+
+    await expect(
+      auth.getToken({ principal: appPrincipal(), connection }),
+    ).rejects.toMatchObject({
+      reason: FailureReason.USER_AUTHORIZATION_REQUIRED,
+      retryable: false,
+    });
+  });
+
+  it("reports an identifier the zone has no user for as unknown_user", async () => {
+    const auth = refusedWith(new OAuthError("invalid_grant", "User not found for identifier"));
+
+    const failure = await auth
+      .getToken({ principal: appPrincipal(), connection })
+      .catch((error: unknown) => error);
+
+    expect(failure).toMatchObject({ reason: FailureReason.UNKNOWN_USER, retryable: false });
+    expect((failure as Error).message).not.toContain(USER);
+  });
+
+  it.each([
+    ["invalid_grant", "Invalid token subject"],
+    ["unauthorized_client", "Client is not permitted to impersonate"],
+  ])("keeps acquisition_failed for %s", async (code, description) => {
+    const auth = refusedWith(new OAuthError(code, description));
+
+    await expect(
+      auth.getToken({ principal: appPrincipal(), connection }),
+    ).rejects.toMatchObject({
+      reason: FailureReason.ACQUISITION_FAILED,
+      retryable: false,
+      message: description,
+    });
+  });
+
+  it("keeps acquisition_failed for a failure that is not an OAuth error", async () => {
+    const auth = refusedWith(new Error("fetch failed"));
+
+    await expect(
+      auth.getToken({ principal: appPrincipal(), connection }),
+    ).rejects.toMatchObject({ reason: FailureReason.ACQUISITION_FAILED, message: "fetch failed" });
+  });
+
+  it("leaves onBehalfOf refusals as acquisition_failed", async () => {
+    const auth = onBehalfOf({
+      resource: CALENDAR,
+      client: fakeZoneClient({
+        fail: new OAuthError("insufficient_authorization", "User authorization is required"),
+      }),
+      subjectTokens: storeWith(validJwt(3600)),
+    });
+
+    await expect(
+      auth.getToken({ principal: userPrincipal(), connection }),
+    ).rejects.toMatchObject({ reason: FailureReason.ACQUISITION_FAILED });
   });
 });

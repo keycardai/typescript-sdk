@@ -75,6 +75,19 @@ export const FailureReason = Object.freeze({
   SUBJECT_TOKEN_UNAVAILABLE: "subject_token_unavailable",
   /** The zone refused to issue a token for the connection's resource. */
   ACQUISITION_FAILED: "acquisition_failed",
+  /**
+   * The zone refused an impersonation exchange with
+   * `insufficient_authorization`: the substitute user has not authorized the
+   * resource, or has not consented to the application. The user fixes it by
+   * authorizing the resource once.
+   */
+  USER_AUTHORIZATION_REQUIRED: "user_authorization_required",
+  /**
+   * The zone refused an impersonation exchange because it has no user for the
+   * substitute identifier. No grant fixes it: the user signs in to the zone
+   * once, or `userIdentifier` resolves to an identifier the zone knows.
+   */
+  UNKNOWN_USER: "unknown_user",
   /** The user denied consent, or the provider returned an OAuth error. */
   ACCESS_DENIED: "access_denied",
   /** The callback did not carry the state journaled at the begin step. */

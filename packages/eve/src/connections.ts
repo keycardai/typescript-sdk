@@ -1,5 +1,6 @@
 import {
   AuthProviderConfigurationError,
+  OAuthError,
   TokenType,
   type ClientCredentialsRequest,
   type TokenExchangeRequest,
@@ -201,12 +202,15 @@ export function impersonate(
       }
 
       return tokenResult(
-        await acquire(config.connectionName, () =>
-          config.zoneClient().impersonate({
-            userIdentifier,
-            resource: config.resource,
-            ...(config.scope ? { scope: config.scope } : {}),
-          }),
+        await acquire(
+          config.connectionName,
+          () =>
+            config.zoneClient().impersonate({
+              userIdentifier,
+              resource: config.resource,
+              ...(config.scope ? { scope: config.scope } : {}),
+            }),
+          (cause) => impersonationRefusal(cause, config.connectionName, config.resource),
         ),
       );
     },
@@ -233,14 +237,64 @@ function requireUser(
   });
 }
 
-/** Wraps a zone failure as an eve authorization failure for this connection. */
+/**
+ * The zone's description when a substitute-user exchange names an identifier
+ * it has no user for (svc-sts `exchange/token/su.js`). The zone sends
+ * `invalid_grant` for other refusals too, so the code alone does not decide.
+ */
+const UNKNOWN_USER_DESCRIPTION = /user not found/i;
+
+/**
+ * Classifies the impersonation refusals a user can fix: a missing grant or
+ * consent (`insufficient_authorization`) and an identifier the zone has no
+ * user for. Returns undefined for every other failure. Messages name the
+ * resource and never the substitute user.
+ */
+function impersonationRefusal(
+  cause: unknown,
+  connectionName: string,
+  resource: string,
+): AuthorizationFailedError | undefined {
+  if (!(cause instanceof OAuthError)) return undefined;
+  if (cause.errorCode === "insufficient_authorization") {
+    // svc-sts sends this for a missing delegated grant and for missing consent.
+    return new AuthorizationFailedError(connectionName, {
+      message:
+        `The user this agent acts for has not authorized ${resource}. They need to ` +
+        `authorize it once, for example with \`keycard auth resource ${resource} ` +
+        `--zone <zone-id>\`, then retry. Zone said: ${cause.message}`,
+      reason: FailureReason.USER_AUTHORIZATION_REQUIRED,
+      retryable: false,
+    });
+  }
+  if (cause.errorCode === "invalid_grant" && UNKNOWN_USER_DESCRIPTION.test(cause.message)) {
+    return new AuthorizationFailedError(connectionName, {
+      message:
+        "The zone has no user for the identifier this agent acts for. The user needs " +
+        "to sign in to the zone once, or userIdentifier needs to resolve to the " +
+        `identifier the zone knows. Zone said: ${cause.message}`,
+      reason: FailureReason.UNKNOWN_USER,
+      retryable: false,
+    });
+  }
+  return undefined;
+}
+
+/**
+ * Wraps a zone failure as an eve authorization failure for this connection.
+ * `classify` returns a more specific failure for a cause it recognizes;
+ * everything else is `acquisition_failed`.
+ */
 async function acquire(
   connectionName: string,
   request: () => Promise<TokenResponse>,
+  classify?: (cause: unknown) => AuthorizationFailedError | undefined,
 ): Promise<TokenResponse> {
   try {
     return await request();
   } catch (cause) {
+    const classified = classify?.(cause);
+    if (classified) throw classified;
     throw new AuthorizationFailedError(connectionName, {
       message: cause instanceof Error ? cause.message : "Token acquisition failed",
       reason: FailureReason.ACQUISITION_FAILED,
