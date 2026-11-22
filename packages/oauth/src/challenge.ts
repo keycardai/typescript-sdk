@@ -1,4 +1,5 @@
 import { ConfigurationError } from "./errors.js";
+import { ClientSecret } from "./server/clientSecret.js";
 import { requestSignal } from "./requestSignal.js";
 import { authenticate, type AuthenticateOptions } from "./pkce.js";
 import type { TokenResponse } from "./tokenExchange.js";
@@ -108,7 +109,9 @@ export interface AuthenticateFromChallengeOptions extends AuthenticateOptions {
    * must equal one of them, compared without a trailing slash. Required when
    * `clientSecret` or `credential` is set, so client authentication only
    * goes to an issuer the caller chose. Optional for a public client; when
-   * set, it is enforced the same way.
+   * set, it is enforced the same way. When unset and `credential` is a
+   * multi-zone `ClientSecret`, the credential's zone issuers are the
+   * allow-list.
    */
   allowedIssuers?: readonly string[];
 }
@@ -128,7 +131,9 @@ function withoutTrailingSlash(value: string): string {
  * metadata document, scoping the issued token's audience to that resource.
  *
  * The resource names the issuer, so client authentication (`clientSecret`
- * or `credential`) requires `allowedIssuers`. Throws `ConfigurationError`
+ * or `credential`) requires `allowedIssuers`. A multi-zone `ClientSecret`
+ * credential counts as the pin: with `allowedIssuers` unset, its zone
+ * issuers are the allow-list. Throws `ConfigurationError`
  * before any request when client authentication is set without
  * `allowedIssuers`, and after the metadata fetch, before any request to the
  * resolved issuer, when that issuer is not in `allowedIssuers`.
@@ -142,21 +147,26 @@ export async function authenticateFromChallenge(
   options: AuthenticateFromChallengeOptions,
 ): Promise<TokenResponse> {
   const { allowedIssuers, ...authenticateOptions } = options;
-  const pinned = allowedIssuers !== undefined && allowedIssuers.length > 0;
+  const explicit = allowedIssuers !== undefined && allowedIssuers.length > 0;
+  const zoneIssuers =
+    options.credential instanceof ClientSecret ? options.credential.zoneIssuers : undefined;
+  const allowList = explicit ? allowedIssuers : zoneIssuers;
   const sendsClientAuthentication =
     options.clientSecret !== undefined || options.credential !== undefined;
-  if (sendsClientAuthentication && !pinned) {
+  if (sendsClientAuthentication && allowList === undefined) {
     throw new ConfigurationError(
       "authenticateFromChallenge: set allowedIssuers to send clientSecret or credential to an issuer resolved from a challenge",
     );
   }
 
   const { issuer, resource } = await resolveIssuerFromChallenge(wwwAuthenticateHeader);
-  if (pinned) {
+  if (allowList !== undefined) {
     const resolved = withoutTrailingSlash(issuer);
-    if (!allowedIssuers.some((allowed) => withoutTrailingSlash(allowed) === resolved)) {
+    if (!allowList.some((allowed) => withoutTrailingSlash(allowed) === resolved)) {
       throw new ConfigurationError(
-        `authenticateFromChallenge: the challenge resolved issuer "${issuer}", which is not in allowedIssuers`,
+        explicit
+          ? `authenticateFromChallenge: the challenge resolved issuer "${issuer}", which is not in allowedIssuers`
+          : `authenticateFromChallenge: the challenge resolved issuer "${issuer}", which is not one of the multi-zone ClientSecret's zone issuers`,
       );
     }
   }

@@ -83,6 +83,16 @@ export class ClientSecret implements ApplicationCredential {
     throw new TypeError("ClientSecret: unsupported credentials shape");
   }
 
+  /**
+   * The zone issuers a multi-zone credential is configured with, without a
+   * trailing slash. `undefined` for a single-zone credential.
+   * `authenticateFromChallenge` uses them as its allow-list when
+   * `allowedIssuers` is unset.
+   */
+  get zoneIssuers(): readonly string[] | undefined {
+    return this.#isMultiZone ? [...this.#credentialsByIssuer.keys()] : undefined;
+  }
+
   getAuth(issuer?: string): { clientId: string; clientSecret: string } | null {
     if (!this.#isMultiZone) {
       const tuple = this.#credentialsByIssuer.get(SINGLE_CREDENTIAL_KEY);
