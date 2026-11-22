@@ -1,3 +1,4 @@
+import { ConfigurationError } from "./errors.js";
 import { requestSignal } from "./requestSignal.js";
 import { authenticate, type AuthenticateOptions } from "./pkce.js";
 import type { TokenResponse } from "./tokenExchange.js";
@@ -101,6 +102,21 @@ export async function resolveIssuerFromChallenge(
   };
 }
 
+export interface AuthenticateFromChallengeOptions extends AuthenticateOptions {
+  /**
+   * The issuers the caller trusts. The issuer resolved from the challenge
+   * must equal one of them, compared without a trailing slash. Required when
+   * `clientSecret` or `credential` is set, so client authentication only
+   * goes to an issuer the caller chose. Optional for a public client; when
+   * set, it is enforced the same way.
+   */
+  allowedIssuers?: readonly string[];
+}
+
+function withoutTrailingSlash(value: string): string {
+  return value.replace(/\/$/, "");
+}
+
 /**
  * Full authorization-code-with-PKCE flow driven by a `WWW-Authenticate`
  * challenge from a protected resource.
@@ -111,17 +127,42 @@ export async function resolveIssuerFromChallenge(
  * `options.resource`, it defaults to the `resource` identifier from the
  * metadata document, scoping the issued token's audience to that resource.
  *
+ * The resource names the issuer, so client authentication (`clientSecret`
+ * or `credential`) requires `allowedIssuers`. Throws `ConfigurationError`
+ * before any request when client authentication is set without
+ * `allowedIssuers`, and after the metadata fetch, before any request to the
+ * resolved issuer, when that issuer is not in `allowedIssuers`.
+ *
  * **Requires Node.js.** Uses `node:http` and `node:child_process` via
  * dynamic import. Importing this module is safe in any runtime; only
  * *calling* `authenticateFromChallenge()` requires Node.js.
  */
 export async function authenticateFromChallenge(
   wwwAuthenticateHeader: string,
-  options: AuthenticateOptions,
+  options: AuthenticateFromChallengeOptions,
 ): Promise<TokenResponse> {
+  const { allowedIssuers, ...authenticateOptions } = options;
+  const pinned = allowedIssuers !== undefined && allowedIssuers.length > 0;
+  const sendsClientAuthentication =
+    options.clientSecret !== undefined || options.credential !== undefined;
+  if (sendsClientAuthentication && !pinned) {
+    throw new ConfigurationError(
+      "authenticateFromChallenge: set allowedIssuers to send clientSecret or credential to an issuer resolved from a challenge",
+    );
+  }
+
   const { issuer, resource } = await resolveIssuerFromChallenge(wwwAuthenticateHeader);
+  if (pinned) {
+    const resolved = withoutTrailingSlash(issuer);
+    if (!allowedIssuers.some((allowed) => withoutTrailingSlash(allowed) === resolved)) {
+      throw new ConfigurationError(
+        `authenticateFromChallenge: the challenge resolved issuer "${issuer}", which is not in allowedIssuers`,
+      );
+    }
+  }
+
   return authenticate(issuer, {
-    ...options,
+    ...authenticateOptions,
     resource: options.resource ?? resource,
   });
 }
