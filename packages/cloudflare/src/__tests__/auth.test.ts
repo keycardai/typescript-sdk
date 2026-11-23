@@ -118,6 +118,63 @@ describe("verifyBearerToken", () => {
     expect(result.keycardAppId).toBeUndefined();
   });
 
+  describe("resource check", () => {
+    const URN = "urn:openshell-claude-sandbox";
+
+    function verifiedClaims(aud: string) {
+      mockVerify.mockResolvedValue({
+        sub: "user-123",
+        client_id: "app-456",
+        scope: "read",
+        aud,
+        exp: Math.floor(Date.now() / 1000) + 3600,
+        iss: "https://auth.keycard.ai",
+      });
+    }
+
+    it("rejects an http(s) resource on a different origin", async () => {
+      verifiedClaims("https://other.example.com/mcp");
+      const result = await verifyBearerToken(makeRequest("Bearer valid-token"), {
+        issuers: "https://auth.keycard.ai",
+        audiences: "https://other.example.com/mcp",
+      });
+      expect(isAuthError(result)).toBe(true);
+      expect((result as Response).status).toBe(401);
+      expect((result as Response).headers.get("WWW-Authenticate")).toContain("Token not intended for resource");
+    });
+
+    it("accepts a URN resource that matches a configured audience", async () => {
+      verifiedClaims(URN);
+      const result = await verifyBearerToken(makeRequest("Bearer valid-token"), {
+        issuers: "https://auth.keycard.ai",
+        audiences: [URN],
+      });
+      if (isAuthError(result)) {
+        throw new Error(`Expected AuthInfo, got Response with status ${result.status}`);
+      }
+      expect(result.resource?.href).toBe(URN);
+    });
+
+    it("rejects a URN resource when no audiences are configured", async () => {
+      verifiedClaims(URN);
+      const result = await verifyBearerToken(makeRequest("Bearer valid-token"), {
+        issuers: "https://auth.keycard.ai",
+      });
+      expect(isAuthError(result)).toBe(true);
+      expect((result as Response).status).toBe(401);
+    });
+
+    it("rejects a URN resource that is not a configured audience", async () => {
+      verifiedClaims("urn:some-other-service");
+      const result = await verifyBearerToken(makeRequest("Bearer valid-token"), {
+        issuers: "https://auth.keycard.ai",
+        audiences: URN,
+      });
+      expect(isAuthError(result)).toBe(true);
+      expect((result as Response).status).toBe(401);
+    });
+  });
+
   it("returns 403 when required scopes are missing", async () => {
     mockVerify.mockResolvedValue({
       sub: "user-123",
