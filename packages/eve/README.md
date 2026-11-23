@@ -213,9 +213,9 @@ durable grant store can refresh it with no secret.
 
 ### Signing users in as the agent's Application
 
-With a `clientId` and `clientSecret`, the agent signs users in as its own
-Keycard Application, a confidential client, through one stable callback URL
-this package serves. Three pieces:
+With a `clientId` and `clientSecret` or `applicationCredential`, the agent
+signs users in as its own Keycard Application, a confidential client, through
+one stable callback URL this package serves. Three pieces:
 
 1. Mount the route from a channel file. `defineChannel` is eve runtime code,
    so this package exports the route object, not the channel:
@@ -249,6 +249,25 @@ this package serves. Three pieces:
    }),
    ```
 
+   On Vercel, an Application whose only credential is a v2 token credential
+   for the deployment's OIDC token needs no secret: the credential's public ID
+   is the `clientId`, and a `WorkloadIdentity` built with the same ID
+   authenticates the redemption and every refresh with a fresh assertion.
+
+   ```ts
+   import { getVercelOidcToken } from "@vercel/oidc";
+   import { WorkloadIdentity } from "@keycardai/oauth/server";
+
+   const clientId = process.env.KEYCARD_CLIENT_ID!; // the v2 token credential's public ID
+
+   auth: Keycard.interactive({
+     zoneUrl: process.env.KEYCARD_ZONE_URL!,
+     resource: "https://docs.example.com",
+     clientId,
+     applicationCredential: new WorkloadIdentity(() => getVercelOidcToken(), { clientId }),
+   }),
+   ```
+
 On this path nothing is registered. `redirect_uri` is the attempt callback's
 origin plus `callbackPath`, and `state` carries the attempt's eve callback URL
 after the flow's random value, so the route can forward the zone's redirect
@@ -257,12 +276,14 @@ after the flow's random value, so the route can forward the zone's redirect
 `/eve/v1/connections/<name>/callback/` and answers `400` otherwise; behind a
 proxy that rewrites `Host` without forwarding it, pass `{ origin }` so the
 check runs against the public origin eve's callback URLs carry. The code is
-redeemed and every refresh runs as `clientId` with the secret, and the stored
-grant records `clientId`, so a grant on this path cannot be refreshed by a
-reader of a durable store that lacks the secret. `applicationCredential` on
-`Keycard.interactive()` is not supported yet (code redemption and refresh
-authenticate with a secret only) and is rejected at definition time, as is
-`clientSecret` without `clientId`.
+redeemed and every refresh runs as `clientId` with the secret or the
+credential, and the stored grant records `clientId`, so a grant on this path
+cannot be refreshed by a reader of a durable store that lacks the secret or
+credential. Rejected at definition time: `clientSecret` or
+`applicationCredential` without `clientId`, both together, and an
+`applicationCredential` that cannot authenticate the client (a
+`WorkloadIdentity` without `clientId`, or a credential with no client
+authentication).
 
 [rfc9700]: https://datatracker.ietf.org/doc/html/rfc9700
 
@@ -488,8 +509,8 @@ takes a `verify` seam in place of the JWKS-backed verifier, and
 `begin`, `complete`, `register` for per-attempt clients, `refresh`, and
 `userinfo` for the sign-in identity check. A flow without `register` is rejected
 at construction unless a `clientId` is also given, as is a flow without
-`userinfo` when `expectedSubject` is set, `clientSecret` without `clientId`,
-and `applicationCredential` on `Keycard.interactive()`, so a test cannot accidentally exercise a combination that cannot work in
+`userinfo` when `expectedSubject` is set, and `clientSecret` or
+`applicationCredential` without `clientId`, so a test cannot accidentally exercise a combination that cannot work in
 production. An injected `client` or `flow` supersedes `zoneUrl`, so a test needs
 no zone.
 
