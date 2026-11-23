@@ -24,6 +24,11 @@ export type BearerAuthMiddlewareOptions = {
   /**
    * Audience(s) to enforce when auto-constructing the default verifier. When
    * set, tokens must present an `aud` that contains one of these values.
+   *
+   * Also used by the resource check: a token whose resource is an http(s) URL
+   * must share the request's origin, and a token whose resource is any other
+   * identifier (for example a URN such as `urn:my-service`) is accepted only
+   * when that identifier is one of these audiences.
    */
   audiences?: string | readonly string[];
   requiredScopes?: string[];
@@ -75,7 +80,7 @@ export function requireBearerAuth({
 
       const authInfo = await verifier.verifyAccessToken(token);
 
-      if (!!authInfo.resource && requestUrl.origin !== authInfo.resource.origin) {
+      if (!!authInfo.resource && !isIntendedResource(authInfo.resource, requestUrl, audiences)) {
         throw new InvalidTokenError("Token not intended for resource");
       }
 
@@ -143,6 +148,32 @@ export function requireBearerAuth({
         next(error);
       }
     }
+  }
+}
+
+/**
+ * Whether a token's resource belongs to this server. An http(s) resource must
+ * share the request's origin. Any other resource (a URN such as
+ * `urn:my-service` parses as a URL whose origin is "null") cannot be compared
+ * to the request, so it must exactly match a configured audience.
+ */
+function isIntendedResource(
+  resource: URL,
+  requestUrl: URL,
+  audiences: string | readonly string[] | undefined,
+): boolean {
+  if (resource.protocol === "http:" || resource.protocol === "https:") {
+    return resource.origin === requestUrl.origin;
+  }
+  const configured = typeof audiences === "string" ? [audiences] : audiences ?? [];
+  return configured.some((audience) => normalizeIdentifier(audience) === resource.href);
+}
+
+function normalizeIdentifier(identifier: string): string {
+  try {
+    return new URL(identifier).href;
+  } catch {
+    return identifier;
   }
 }
 
