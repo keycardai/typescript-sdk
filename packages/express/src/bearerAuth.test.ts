@@ -148,6 +148,60 @@ describe('requireBearerAuth', () => {
     expect(res.headers['www-authenticate']).toMatch(/error="invalid_token"/);
   });
 
+  describe('URN resource', () => {
+    const URN = 'urn:openshell-claude-sandbox';
+    const tokenForUrn: AccessToken = { ...VALID_TOKEN, resource: URN };
+
+    // Restore only these spies: other describes in this file hold spies
+    // (globalThis.fetch) created at collection time.
+    const spies: Array<{ mockRestore(): void }> = [];
+    afterEach(() => {
+      spies.splice(0).forEach((spy) => spy.mockRestore());
+    });
+
+    function makeAudienceApp(audience: string, zoneResolver?: () => string | undefined) {
+      spies.push(
+        jest.spyOn(console, 'warn').mockImplementation(() => {}),
+        jest.spyOn(TokenVerifier.prototype, 'verifyToken').mockResolvedValue(tokenForUrn),
+        jest.spyOn(TokenVerifier.prototype, 'verifyTokenForZone').mockResolvedValue(tokenForUrn),
+      );
+      const app = express();
+      app.use(requireBearerAuth({ zoneUrl: 'https://zone.keycard.cloud', audience, zoneResolver }));
+      app.get('/resource', (_req, res) => res.json({ ok: true }));
+      return app;
+    }
+
+    it('accepts a URN resource that matches the configured audience', async () => {
+      const res = await request(makeAudienceApp(URN))
+        .get('/resource')
+        .set('Authorization', 'Bearer valid-jwt');
+      expect(res.status).toBe(200);
+    });
+
+    it('accepts a URN resource that matches the configured audience on a zone-resolved request', async () => {
+      const res = await request(makeAudienceApp(URN, () => 'zone-a'))
+        .get('/resource')
+        .set('Authorization', 'Bearer valid-jwt');
+      expect(res.status).toBe(200);
+    });
+
+    it('rejects a URN resource that is not the configured audience', async () => {
+      const res = await request(makeAudienceApp('urn:some-other-service'))
+        .get('/resource')
+        .set('Authorization', 'Bearer valid-jwt');
+      expect(res.status).toBe(401);
+      expect(res.headers['www-authenticate']).toMatch(/Token not intended for resource/);
+    });
+
+    it('rejects a URN resource when the middleware has no audience (caller-supplied verifier)', async () => {
+      const res = await request(makeApp(makeVerifier(tokenForUrn)))
+        .get('/resource')
+        .set('Authorization', 'Bearer valid-jwt');
+      expect(res.status).toBe(401);
+      expect(res.headers['www-authenticate']).toMatch(/Token not intended for resource/);
+    });
+  });
+
   it('accepts a token with no resource claim (audience not enforced by token)', async () => {
     const tokenNoResource: AccessToken = { ...VALID_TOKEN, resource: undefined };
     const app = makeApp(makeVerifier(tokenNoResource));
