@@ -4,6 +4,9 @@ on:
   pull_request:
     branches: [main, release/mcp-v1]
 
+permissions:
+  contents: read
+
 jobs:
   validate-commits:
     runs-on: ubuntu-latest
