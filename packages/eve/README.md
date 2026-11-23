@@ -258,15 +258,24 @@ one stable callback URL this package serves. Three pieces:
    import { getVercelOidcToken } from "@vercel/oidc";
    import { WorkloadIdentity } from "@keycardai/oauth/server";
 
+   const zoneUrl = process.env.KEYCARD_ZONE_URL!;
    const clientId = process.env.KEYCARD_CLIENT_ID!; // the v2 token credential's public ID
 
    auth: Keycard.interactive({
-     zoneUrl: process.env.KEYCARD_ZONE_URL!,
+     zoneUrl,
      resource: "https://docs.example.com",
      clientId,
-     applicationCredential: new WorkloadIdentity(() => getVercelOidcToken(), { clientId }),
+     applicationCredential: new WorkloadIdentity(
+       () => getVercelOidcToken({ audience: zoneUrl }),
+       { clientId },
+     ),
    }),
    ```
+
+   The zone checks that a v2 credential's token has the credential's allowed
+   audience as its only `aud`, which is the zone's issuer URL by default, so
+   the token is minted with that audience. Use the credential's configured
+   audience in its place if it has one.
 
 On this path nothing is registered. `redirect_uri` is the attempt callback's
 origin plus `callbackPath`, and `state` carries the attempt's eve callback URL
