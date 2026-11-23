@@ -61,13 +61,13 @@
   },
   "devDependencies": {
     "@jest/globals": "^30.5.2",
-    "@langchain/core": "^1.2.9",
-    "@langchain/langgraph": "^1.4.13",
+    "@langchain/core": "^1.5.0",
+    "@langchain/langgraph": "^1.7.5",
     "@langchain/langgraph-api": "^1.4.5",
-    "@langchain/langgraph-sdk": "^1.10.0",
+    "@langchain/langgraph-sdk": "^1.17.0",
     "@types/node": "^25.6.0",
     "jest": "^30.5.2",
-    "langchain": "^1.5.10",
+    "langchain": "^1.6.7",
     "ts-jest": "^29.4.7",
     "typescript": "^5.8.3"
   }
