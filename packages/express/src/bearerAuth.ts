@@ -162,18 +162,16 @@ export function requireBearerAuth(options: BearerAuthOptions): RequestHandler {
       }
 
       // Validate resource audience: a token scoped to a different resource
-      // server must not be accepted here. Compare origins so path and query
-      // string differences are ignored (mirrors Workers auth.ts:88-92).
+      // server must not be accepted here. An http(s) resource is compared by
+      // origin so path and query string differences are ignored. A URN or
+      // other non-http(s) resource has no origin to compare, so it must
+      // exactly match the configured audience.
       if (accessToken.resource) {
-        const requestOrigin = getRequestOrigin(req);
-        try {
-          const tokenOrigin = new URL(accessToken.resource).origin;
-          if (tokenOrigin !== requestOrigin) {
-            throw new InvalidTokenError("Token not intended for resource");
-          }
-        } catch (e) {
-          if (e instanceof InvalidTokenError) throw e;
-          // resource claim is not a URL; opaque audience, skip origin check
+        // A caller-supplied verifier's audience is not visible here, so a
+        // non-http(s) resource is only accepted with `audience` set.
+        const audience = "audience" in options ? options.audience : undefined;
+        if (!isIntendedResource(accessToken.resource, getRequestOrigin(req), audience)) {
+          throw new InvalidTokenError("Token not intended for resource");
         }
       }
 
@@ -242,6 +240,26 @@ export function requireBearerAuth(options: BearerAuthOptions): RequestHandler {
 
 function getResourceMetadataUrl(req: Request): string {
   return `${getRequestOrigin(req)}/.well-known/oauth-protected-resource`;
+}
+
+/**
+ * Whether a token's `resource` claim belongs to this server. A resource that
+ * parses as an http(s) URL must share the request's origin. A resource that
+ * does not parse as a URL is an opaque audience and is not compared. Any other
+ * resource (a URN such as `urn:my-service` parses as a URL whose origin is
+ * "null") must exactly match the configured audience.
+ */
+function isIntendedResource(resource: string, requestOrigin: string, audience: string | undefined): boolean {
+  let resourceUrl: URL;
+  try {
+    resourceUrl = new URL(resource);
+  } catch {
+    return true;
+  }
+  if (resourceUrl.protocol === "http:" || resourceUrl.protocol === "https:") {
+    return resourceUrl.origin === requestOrigin;
+  }
+  return audience !== undefined && audience === resource;
 }
 
 function buildIssuerFromZoneId(zoneId?: string): string | undefined {
