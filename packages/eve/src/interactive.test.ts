@@ -7,11 +7,14 @@ import {
   type AuthorizationRedirect,
   type BeginAuthorizationOptions,
   type CompleteAuthorizationOptions,
+  type CompleteWithCredentialOptions,
   type RefreshAuthorizationOptions,
+  type RefreshWithCredentialOptions,
   type ApplicationCredential,
   type TokenResponse,
   type UserInfoResponse,
 } from "@keycardai/oauth";
+import { WorkloadIdentity } from "@keycardai/oauth/server";
 import type { AuthorizationCallback } from "eve/connections";
 
 import { encodeCallbackState } from "./callbackRoute.js";
@@ -43,9 +46,9 @@ beforeEach(resetInteractiveDefinitions);
 
 interface RecordingFlow extends WebAppFlow {
   readonly begins: BeginAuthorizationOptions[];
-  readonly completes: CompleteAuthorizationOptions[];
+  readonly completes: Array<CompleteAuthorizationOptions | CompleteWithCredentialOptions>;
   readonly registrations: RegisterAttemptClientOptions[];
-  readonly refreshes: RefreshAuthorizationOptions[];
+  readonly refreshes: Array<RefreshAuthorizationOptions | RefreshWithCredentialOptions>;
   /** Access tokens `userinfo` was asked about, in order. */
   readonly userinfos: string[];
 }
@@ -59,9 +62,9 @@ function recordingFlow(
   } = {},
 ): RecordingFlow {
   const begins: BeginAuthorizationOptions[] = [];
-  const completes: CompleteAuthorizationOptions[] = [];
+  const completes: Array<CompleteAuthorizationOptions | CompleteWithCredentialOptions> = [];
   const registrations: RegisterAttemptClientOptions[] = [];
-  const refreshes: RefreshAuthorizationOptions[] = [];
+  const refreshes: Array<RefreshAuthorizationOptions | RefreshWithCredentialOptions> = [];
   const userinfos: string[] = [];
   return {
     begins,
@@ -920,20 +923,36 @@ describe("interactive confidential client through the stable callback route", ()
     });
   });
 
-  it("row 50: applicationCredential is not supported yet, and clientSecret needs clientId", () => {
-    const credential = {
+  it("row 50: applicationCredential excludes clientSecret, and either needs clientId", () => {
+    const credential = new WorkloadIdentity(() => "platform-token", {
       clientId: "app-credential-1",
-      clientSecret: "app-secret",
-    } as unknown as ApplicationCredential;
-    for (const extra of [
-      { applicationCredential: credential, clientSecret: "app-secret", clientId: "c" },
-      { applicationCredential: credential, clientId: "c" },
-      { applicationCredential: credential },
-    ]) {
-      expect(() =>
-        interactive({ resource: CALENDAR, flow: staticOnlyFlow(), ...extra }),
-      ).toThrow(/applicationCredential is not supported yet/);
-    }
+    });
+    expect(() =>
+      interactive({
+        resource: CALENDAR,
+        flow: staticOnlyFlow(),
+        clientId: "app-credential-1",
+        applicationCredential: credential,
+        clientSecret: "app-secret",
+      }),
+    ).toThrow(/applicationCredential or clientSecret, not both/);
+    expect(() =>
+      interactive({
+        resource: CALENDAR,
+        flow: staticOnlyFlow(),
+        applicationCredential: credential,
+      }),
+    ).toThrow(/applicationCredential requires clientId/);
+    expect(() =>
+      interactive({
+        resource: CALENDAR,
+        flow: staticOnlyFlow(),
+        clientId: "app-credential-1",
+        applicationCredential: credential,
+      }),
+    ).not.toThrow();
+    // The accepted definition took the default connection name.
+    resetInteractiveDefinitions();
     expect(() =>
       interactive({
         resource: CALENDAR,
@@ -1816,5 +1835,242 @@ describe("interactive zone flow", () => {
       "/token",
       "/userinfo",
     ]);
+  });
+});
+
+/**
+ * Sign-in as an Application whose credential is a v2 token credential
+ * (Vercel OIDC): the definition's `applicationCredential` authenticates the
+ * redeem and every refresh, and the wire carries the credential's own
+ * `client_id` and a fresh assertion each time.
+ */
+describe("interactive confidential client with an applicationCredential", () => {
+  const ZONE = "https://zone.example.com";
+  const ATTEMPT = "https://agent.example.com/eve/v1/connections/docs/callback/attempt-1/token-1";
+  const ROUTE = "https://agent.example.com/keycard/callback";
+  const CREDENTIAL_ID = "v2-token-credential-1";
+  let originalFetch: typeof fetch;
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+  });
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  /** A zone that records each request and issues a short-lived refreshable grant. */
+  function zone(): Array<{ url: string; init?: RequestInit }> {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    let tokens = 0;
+    globalThis.fetch = jest.fn(async (input: unknown, init?: unknown) => {
+      const url = String(input);
+      calls.push({ url, init: init as RequestInit | undefined });
+      const json = (body: unknown) =>
+        new Response(JSON.stringify(body), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      if (url.includes("/.well-known/")) {
+        return json({
+          issuer: ZONE,
+          authorization_endpoint: `${ZONE}/authorize`,
+          token_endpoint: `${ZONE}/token`,
+          registration_endpoint: `${ZONE}/register`,
+        });
+      }
+      if (url === `${ZONE}/token`) {
+        tokens += 1;
+        // 30 s is inside the refresh skew, so the next getToken refreshes.
+        return json({
+          access_token: `zone-token-${tokens}`,
+          token_type: "Bearer",
+          expires_in: 30,
+          refresh_token: `refresh-${tokens}`,
+        });
+      }
+      throw new Error(`unexpected request ${url}`);
+    }) as unknown as typeof fetch;
+    return calls;
+  }
+
+  function vercelCredential(clientId?: string): {
+    credential: WorkloadIdentity;
+    fetched: () => number;
+  } {
+    let count = 0;
+    const credential = new WorkloadIdentity(
+      () => {
+        count += 1;
+        return `vercel-oidc-${count}`;
+      },
+      clientId !== undefined ? { clientId } : undefined,
+    );
+    return { credential, fetched: () => count };
+  }
+
+  function tokenRequests(
+    calls: Array<{ url: string; init?: RequestInit }>,
+  ): Array<{ headers: Record<string, string>; form: URLSearchParams }> {
+    return calls
+      .filter((call) => call.url === `${ZONE}/token`)
+      .map((call) => ({
+        headers: (call.init?.headers ?? {}) as Record<string, string>,
+        form: new URLSearchParams(String(call.init?.body)),
+      }));
+  }
+
+  it("row 48: registers nothing, and redeems and refreshes with the credential's assertion and client_id", async () => {
+    const calls = zone();
+    const { credential } = vercelCredential(CREDENTIAL_ID);
+    const tokens = memoryAuthorizedTokenStore();
+    const auth = interactive({
+      resource: CALENDAR,
+      zoneUrl: ZONE,
+      clientId: CREDENTIAL_ID,
+      applicationCredential: credential,
+      tokens,
+    });
+
+    const started = await auth.startAuthorization({
+      principal: userPrincipal(),
+      connection,
+      callbackUrl: ATTEMPT,
+    });
+    const authorize = new URL(started.challenge.url);
+    expect(authorize.searchParams.get("client_id")).toBe(CREDENTIAL_ID);
+    expect(authorize.searchParams.get("redirect_uri")).toBe(ROUTE);
+    expect(authorize.searchParams.get("state")).toBe(started.resume.state);
+    expect(started.resume.clientId).toBe(CREDENTIAL_ID);
+    expect(started.resume.callbackUrl).toBe(ROUTE);
+
+    const state = new URL(started.challenge.url).searchParams.get("state")!;
+    await auth.completeAuthorization({
+      principal: userPrincipal(),
+      connection,
+      callbackUrl: ATTEMPT,
+      resume: started.resume,
+      callback: callback({ code: "auth-code", state }),
+    });
+    const result = await auth.getToken({ principal: userPrincipal(), connection });
+    expect(result.token).toBe("zone-token-2");
+
+    expect(calls.some((call) => call.url.endsWith("/register"))).toBe(false);
+    const [redeem, refresh] = tokenRequests(calls);
+    expect(redeem!.form.get("grant_type")).toBe("authorization_code");
+    expect(redeem!.form.get("code")).toBe("auth-code");
+    expect(redeem!.form.get("redirect_uri")).toBe(ROUTE);
+    expect(redeem!.form.get("client_id")).toBe(CREDENTIAL_ID);
+    expect(redeem!.form.get("client_assertion")).toBe("vercel-oidc-1");
+    expect(redeem!.form.get("client_assertion_type")).toBe(
+      "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+    );
+    expect(redeem!.form.has("client_secret")).toBe(false);
+    expect(redeem!.headers["Authorization"]).toBeUndefined();
+
+    expect(refresh!.form.get("grant_type")).toBe("refresh_token");
+    expect(refresh!.form.get("refresh_token")).toBe("refresh-1");
+    expect(refresh!.form.get("client_id")).toBe(CREDENTIAL_ID);
+    // A fresh assertion for every request.
+    expect(refresh!.form.get("client_assertion")).toBe("vercel-oidc-2");
+    expect(refresh!.form.get("client_assertion_type")).toBe(
+      "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+    );
+    expect(refresh!.form.has("client_secret")).toBe(false);
+    expect(refresh!.headers["Authorization"]).toBeUndefined();
+
+    const [grant] = await tokens.list(PRINCIPAL_KEY);
+    expect(grant?.clientId).toBe(CREDENTIAL_ID);
+    expect(grant?.refreshToken).toBe("refresh-2");
+  });
+
+  it("row 51: a credential that cannot authenticate the client is a configuration error at definition time", () => {
+    const calls = zone();
+    const unnamed = vercelCredential();
+    expect(() =>
+      interactive({
+        resource: CALENDAR,
+        zoneUrl: ZONE,
+        clientId: CREDENTIAL_ID,
+        applicationCredential: unnamed.credential,
+      }),
+    ).toThrow(AuthProviderConfigurationError);
+    resetInteractiveDefinitions();
+    expect(() =>
+      interactive({
+        resource: CALENDAR,
+        zoneUrl: ZONE,
+        clientId: CREDENTIAL_ID,
+        applicationCredential: unnamed.credential,
+      }),
+    ).toThrow(/clientId is required for interactive grants/);
+    resetInteractiveDefinitions();
+    const noClientAuthentication = {
+      getAuth: () => null,
+      prepareTokenExchangeRequest: async () => {
+        throw new Error("unused");
+      },
+    } as unknown as ApplicationCredential;
+    expect(() =>
+      interactive({
+        resource: CALENDAR,
+        zoneUrl: ZONE,
+        clientId: CREDENTIAL_ID,
+        applicationCredential: noClientAuthentication,
+      }),
+    ).toThrow(/must provide clientAuthentication/);
+    expect(unnamed.fetched()).toBe(0);
+    expect(calls).toEqual([]);
+  });
+
+  it("row 52: nothing credential-shaped is journaled or stored, and a second definition refreshes with its own credential", async () => {
+    const calls = zone();
+    const first = vercelCredential(CREDENTIAL_ID);
+    const tokens = memoryAuthorizedTokenStore();
+    const auth = interactive({
+      resource: CALENDAR,
+      zoneUrl: ZONE,
+      clientId: CREDENTIAL_ID,
+      applicationCredential: first.credential,
+      connectionName: "Docs",
+      tokens,
+    });
+    const started = await auth.startAuthorization({
+      principal: userPrincipal(),
+      connection,
+      callbackUrl: ATTEMPT,
+    });
+    await auth.completeAuthorization({
+      principal: userPrincipal(),
+      connection,
+      callbackUrl: ATTEMPT,
+      resume: started.resume,
+      callback: callback({ code: "auth-code", state: started.resume.state }),
+    });
+
+    const journaled = JSON.stringify(started.resume);
+    const stored = JSON.stringify(await tokens.list(PRINCIPAL_KEY));
+    for (const text of [journaled, stored]) {
+      expect(text).not.toContain("vercel-oidc");
+      expect(text).not.toContain("assertion");
+      expect(text).not.toContain("credential\"");
+    }
+
+    // A fresh process: another definition over the same store and client.
+    const second = vercelCredential(CREDENTIAL_ID);
+    const later = interactive({
+      resource: CALENDAR,
+      zoneUrl: ZONE,
+      clientId: CREDENTIAL_ID,
+      applicationCredential: second.credential,
+      connectionName: "Docs, later",
+      tokens,
+    });
+    const result = await later.getToken({ principal: userPrincipal(), connection });
+    expect(result.token).toBe("zone-token-2");
+    expect(first.fetched()).toBe(1);
+    expect(second.fetched()).toBe(1);
+    const refresh = tokenRequests(calls)[1]!;
+    expect(refresh.form.get("grant_type")).toBe("refresh_token");
+    expect(refresh.form.get("client_id")).toBe(CREDENTIAL_ID);
+    expect(refresh.form.get("client_assertion")).toBe("vercel-oidc-1");
   });
 });

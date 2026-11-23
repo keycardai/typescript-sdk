@@ -7,14 +7,17 @@ import {
   fetchUserInfo,
   refreshAuthorization,
   RefreshGrantError,
+  providesClientAuthentication,
   registerClient,
   StateMismatchError,
   type ApplicationCredential,
   type AuthorizationRedirect,
   type BeginAuthorizationOptions,
   type CompleteAuthorizationOptions,
+  type CompleteWithCredentialOptions,
   type OAuthAuthorizationServerMetadata,
   type RefreshAuthorizationOptions,
+  type RefreshWithCredentialOptions,
   type TokenResponse,
   type UserInfoResponse,
 } from "@keycardai/oauth";
@@ -44,7 +47,8 @@ const REFRESH_SKEW_MS = 60_000;
  * survives the durable step boundary the park crosses. `clientId` is journaled
  * because each attempt may run as its own registered client, and only that
  * client can redeem the code. Nothing secret is journaled: registered clients
- * are public and PKCE-bound (see {@link interactive}).
+ * are public and PKCE-bound, and a static client's secret or credential stays
+ * in the definition (see {@link interactive}).
  */
 export interface KeycardResumeState {
   readonly state: string;
@@ -116,7 +120,13 @@ export interface RegisteredClient {
 /** The web-flow calls this adapter makes, as one seam for tests. */
 export interface WebAppFlow {
   begin(options: BeginAuthorizationOptions): Promise<AuthorizationRedirect>;
-  complete(options: CompleteAuthorizationOptions): Promise<TokenResponse>;
+  /**
+   * Redeems the code. Carries `credential` instead of `clientId` when the
+   * definition's `applicationCredential` authenticates the static client.
+   */
+  complete(
+    options: CompleteAuthorizationOptions | CompleteWithCredentialOptions,
+  ): Promise<TokenResponse>;
   /**
    * Registers the client for one attempt (RFC 7591). Required when no static
    * `clientId` is configured, and unused when one is.
@@ -124,9 +134,13 @@ export interface WebAppFlow {
   register?(options: RegisterAttemptClientOptions): Promise<RegisteredClient>;
   /**
    * Refreshes a grant at the token endpoint. When absent, a grant near expiry
-   * parks for a fresh sign-in instead.
+   * parks for a fresh sign-in instead. Carries `credential` instead of
+   * `clientId` for a grant issued to the static client when the definition's
+   * `applicationCredential` authenticates it.
    */
-  refresh?(options: RefreshAuthorizationOptions): Promise<TokenResponse>;
+  refresh?(
+    options: RefreshAuthorizationOptions | RefreshWithCredentialOptions,
+  ): Promise<TokenResponse>;
   /**
    * Fetches the signed-in user's claims for an access token (OIDC Core 1.0
    * section 5.3). Required when `expectedSubject` is configured.
@@ -150,13 +164,15 @@ export interface KeycardInteractiveOptions {
   /** Keycard zone URL (issuer). Required unless `flow` is given. */
   zoneUrl?: string;
   /**
-   * The client id of one of the agent's Keycard Application credentials (a
-   * password credential's identifier). Set, the browser flow runs as that
-   * Application, a confidential client, through the stable callback route
-   * (`keycardCallbackRoute`): no client is registered, `redirect_uri` is the
-   * attempt callback's origin plus `callbackPath`, and `clientSecret`
-   * authenticates the code redemption and every refresh. The Application must
-   * register `<origin><callbackPath>` as a redirect URI.
+   * The client id of one of the agent's Keycard Application credentials: a
+   * password credential's identifier, or the public ID of a v2 token
+   * credential (the `clientId` its `WorkloadIdentity` is built with). Set, the
+   * browser flow runs as that Application, a confidential client, through the
+   * stable callback route (`keycardCallbackRoute`): no client is registered,
+   * `redirect_uri` is the attempt callback's origin plus `callbackPath`, and
+   * `clientSecret` or `applicationCredential` authenticates the code
+   * redemption and every refresh. The Application must register
+   * `<origin><callbackPath>` as a redirect URI.
    *
    * Unset, the client is registered per attempt instead: eve mints a fresh
    * callback URL per attempt and RFC 9700 requires `redirect_uri` to match a
@@ -168,13 +184,20 @@ export interface KeycardInteractiveOptions {
    * value like `urn:app:my-agent` at `/authorize`.
    */
   clientId?: string;
-  /** Secret of the `clientId` credential. Requires `clientId`. */
+  /**
+   * Secret of the `clientId` credential. Requires `clientId`; mutually
+   * exclusive with `applicationCredential`.
+   */
   clientSecret?: string;
   /**
-   * Client assertion for the redemption and refresh, as an alternative to
-   * `clientSecret`. Not supported yet: `@keycardai/oauth`'s code redemption
-   * and refresh authenticate with a client secret only, so setting this is a
-   * definition-time configuration error until that lands.
+   * Authenticates the code redemption and every refresh of the `clientId`
+   * client with the credential's `clientAuthentication`, as an alternative to
+   * `clientSecret`. A `WorkloadIdentity` (Vercel OIDC, for one) must be built
+   * with `clientId` set to the same v2 token credential's public ID, which it
+   * sends beside its assertion. Requires `clientId`; mutually exclusive with
+   * `clientSecret`. The credential stays in this definition: it is never
+   * journaled or stored with a grant, so a stored grant refreshes only through
+   * a definition that holds it.
    */
   applicationCredential?: ApplicationCredential;
   /**
@@ -275,12 +298,15 @@ export function resetInteractiveDefinitions(): void {
  * `registration_client_uri` and `registration_access_token` allows RFC 7592
  * deletion once a grant settles.
  *
- * With `clientId` and `clientSecret`, the agent signs users in as its own
- * Keycard Application instead: `redirect_uri` is the stable
- * `keycardCallbackRoute` on the attempt callback's origin, `state` is the
- * flow's random value followed by the base64url attempt callback URL, the
- * route forwards the zone's redirect to that URL, and the redemption and
- * every refresh authenticate with the secret. No client is registered.
+ * With `clientId` and `clientSecret` or `applicationCredential`, the agent
+ * signs users in as its own Keycard Application instead: `redirect_uri` is the
+ * stable `keycardCallbackRoute` on the attempt callback's origin, `state` is
+ * the flow's random value followed by the base64url attempt callback URL, the
+ * route forwards the zone's redirect to that URL, and the redemption and every
+ * refresh authenticate with the secret or the credential's client
+ * authentication. No client is registered. A `WorkloadIdentity` over a
+ * Vercel OIDC token signs users in this way with no secret at all, as long as
+ * its `clientId` and this one name the same v2 token credential.
  *
  * Grants are keyed by principal, never by `connectionName`, so two connections
  * never share a token through a shared name and `evict` on one cannot clear the
@@ -321,10 +347,10 @@ export function interactive(
         : {}),
     });
   const staticClientId = options.clientId ?? "";
-  if (options.applicationCredential !== undefined) {
+  const credential = options.applicationCredential;
+  if (credential !== undefined && options.clientSecret !== undefined) {
     throw new AuthProviderConfigurationError(
-      "interactive applicationCredential is not supported yet: code redemption and " +
-        "refresh authenticate with clientSecret only. Use clientId with clientSecret.",
+      "interactive takes applicationCredential or clientSecret, not both",
     );
   }
   if (options.clientSecret !== undefined && !staticClientId) {
@@ -332,6 +358,29 @@ export function interactive(
       "interactive clientSecret requires clientId: the secret belongs to the " +
         "Application credential whose client id signs the user in",
     );
+  }
+  if (credential !== undefined) {
+    if (!staticClientId) {
+      throw new AuthProviderConfigurationError(
+        "interactive applicationCredential requires clientId: the authorize request " +
+          "names the client the credential authenticates as",
+      );
+    }
+    if (!providesClientAuthentication(credential)) {
+      throw new AuthProviderConfigurationError(
+        "interactive applicationCredential must provide clientAuthentication to " +
+          "authenticate the code redemption and refresh",
+      );
+    }
+    try {
+      credential.checkClientAuthentication?.();
+    } catch (cause) {
+      throw new AuthProviderConfigurationError(
+        `interactive applicationCredential cannot authenticate the sign-in: ${
+          cause instanceof Error ? cause.message : String(cause)
+        }`,
+      );
+    }
   }
   const callbackPath = options.callbackPath ?? DEFAULT_CALLBACK_PATH;
   const clientName = options.clientName ?? connectionName;
@@ -483,13 +532,24 @@ export function interactive(
     return registered.clientId;
   };
 
-  /** A per-attempt client is public; only the static client can hold a secret. */
-  const secretFor = (
+  /**
+   * How a request authenticates as `clientId`. A per-attempt client is public
+   * and sends only its id; the static client sends its secret, or, with
+   * `applicationCredential`, the credential's client authentication in place
+   * of the id (the credential sends its own `client_id`).
+   */
+  const clientAuthFor = (
     clientId: string,
-  ): { clientSecret: string } | Record<never, never> =>
-    staticClientId && clientId === staticClientId && options.clientSecret
-      ? { clientSecret: options.clientSecret }
-      : {};
+  ):
+    | { credential: ApplicationCredential }
+    | { clientId: string; clientSecret?: string } => {
+    const isStatic = Boolean(staticClientId) && clientId === staticClientId;
+    if (isStatic && credential) return { credential };
+    if (isStatic && options.clientSecret) {
+      return { clientId, clientSecret: options.clientSecret };
+    }
+    return { clientId };
+  };
 
   /**
    * Refreshes a near-expiry grant as the client it was issued to. A refused
@@ -503,10 +563,9 @@ export function interactive(
     try {
       response = await flow.refresh!({
         refreshToken: grant.refreshToken,
-        clientId: grant.clientId,
         resources: grant.resources,
         ...(grant.scopes.length > 0 ? { scopes: grant.scopes } : {}),
-        ...secretFor(grant.clientId),
+        ...clientAuthFor(grant.clientId),
       });
     } catch (cause) {
       if (
@@ -665,9 +724,8 @@ export function interactive(
           callbackParams: { ...callback.params },
           state: resume.state,
           codeVerifier: resume.codeVerifier,
-          clientId,
           redirectUri: resume.callbackUrl || callbackUrl,
-          ...secretFor(clientId),
+          ...clientAuthFor(clientId),
         });
       } catch (cause) {
         throw new AuthorizationFailedError(connectionName, {
