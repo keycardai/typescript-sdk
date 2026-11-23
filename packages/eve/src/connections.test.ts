@@ -246,6 +246,51 @@ describe("impersonate", () => {
     });
   });
 
+  it("awaits an async identifier before the substitute-user exchange", async () => {
+    const client = fakeZoneClient();
+    const auth = impersonate({
+      resource: CALENDAR,
+      client,
+      userIdentifier: async (principal: ConnectionPrincipal) => {
+        await Promise.resolve();
+        return principal.type === "user" ? `${principal.id}@example.com` : "";
+      },
+    });
+
+    expect(auth.principalType).toBe("user");
+    await auth.getToken({ principal: userPrincipal("user-7"), connection });
+    expect(client.calls.impersonations).toEqual([
+      { userIdentifier: "user-7@example.com", resource: CALENDAR },
+    ]);
+  });
+
+  it("refuses an async identifier that resolves empty, with no zone call", async () => {
+    const client = fakeZoneClient();
+    const auth = impersonate({ resource: CALENDAR, client, userIdentifier: async () => "  " });
+
+    await expect(
+      auth.getToken({ principal: userPrincipal("user-7"), connection }),
+    ).rejects.toMatchObject({ reason: FailureReason.PRINCIPAL_REQUIRED });
+    expect(client.calls.impersonations).toEqual([]);
+  });
+
+  it("propagates a rejected async identifier, with no zone call", async () => {
+    const client = fakeZoneClient();
+    const lookupFailed = new Error("slack lookup failed");
+    const auth = impersonate({
+      resource: CALENDAR,
+      client,
+      userIdentifier: async () => {
+        throw lookupFailed;
+      },
+    });
+
+    await expect(auth.getToken({ principal: userPrincipal("user-7"), connection })).rejects.toBe(
+      lookupFailed,
+    );
+    expect(client.calls.impersonations).toEqual([]);
+  });
+
   it("puts an assertion credential's client assertion on the wire", async () => {
     const calls: { url: string; init?: RequestInit }[] = [];
     const originalFetch = globalThis.fetch;

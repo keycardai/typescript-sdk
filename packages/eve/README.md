@@ -143,7 +143,8 @@ export default defineMcpClientConnection({
 - `Keycard.impersonate({ userIdentifier })` uses the zone's substitute-user
   exchange for a user the agent holds no token for. A fixed identifier makes
   the connection app-scoped; a function receives the connection principal and
-  makes it user-scoped.
+  makes it user-scoped. The function may be async, for an identifier that
+  needs a lookup, such as a Slack user id resolved to an email.
 
 Each factory declares eve 0.71's `credentialOwner` (`"app"` or `"user"`) for
 the pattern it implements, which is how eve decides whether to cache the token
