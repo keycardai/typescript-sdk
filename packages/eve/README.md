@@ -158,6 +158,19 @@ subject token all fail, each with its own reason: `principal_required`,
 sign-in signal, decided by a decode-only expiry check, so an already dead token
 never costs an exchange round trip.
 
+When the zone refuses an impersonation exchange, the reason says what can be
+done about it. `user_authorization_required` means the user has not authorized
+the resource, so they run `keycard auth resource '<resource>' --zone <zone-id>`
+once. It also covers a zone that requires consent for the Application:
+impersonation needs the Application's consent set to `implicit`, and the
+message tells an operator to change it. `unknown_user` means the zone has no
+user for the identifier, so the user signs in to the zone once or
+`userIdentifier` has to resolve to an identifier the zone knows. With a fixed
+`userIdentifier` string, the person in the chat can't fix either refusal, so
+the messages address the operator and the configured account. Everything else
+is `acquisition_failed`, carrying the zone's message. None of them is retryable,
+and none of the messages names the user.
+
 Credentials go in as either `clientId` plus `clientSecret` (shorthand for a
 client-secret credential) or `applicationCredential` (any
 `ApplicationCredential`, including assertion-based workload credentials, whose
