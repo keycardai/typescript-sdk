@@ -210,7 +210,12 @@ export function impersonate(
               resource: config.resource,
               ...(config.scope ? { scope: config.scope } : {}),
             }),
-          (cause) => impersonationRefusal(cause, config.connectionName, config.resource),
+          (cause) =>
+            impersonationRefusal(cause, {
+              connectionName: config.connectionName,
+              resource: config.resource,
+              fixedIdentifier: typeof identifier === "string",
+            }),
         ),
       );
     },
@@ -245,39 +250,81 @@ function requireUser(
 const UNKNOWN_USER_DESCRIPTION = /user not found/i;
 
 /**
- * Classifies the impersonation refusals a user can fix: a missing grant or
+ * The zone's description when the Application's consent setting blocks the
+ * exchange (svc-sts `a3-oauth2` interactionError). Impersonation needs the
+ * Application's consent set to `implicit`, which only an operator can change.
+ */
+const CONSENT_REQUIRED_DESCRIPTION = /consent/i;
+
+interface RefusalContext {
+  connectionName: string;
+  resource: string;
+  /**
+   * The connection impersonates one configured account, so the person in the
+   * chat cannot fix a refusal and the message addresses the operator.
+   */
+  fixedIdentifier: boolean;
+}
+
+/**
+ * Classifies the impersonation refusals someone can fix: a missing grant or
  * consent (`insufficient_authorization`) and an identifier the zone has no
  * user for. Returns undefined for every other failure. Messages name the
  * resource and never the substitute user.
  */
 function impersonationRefusal(
   cause: unknown,
-  connectionName: string,
-  resource: string,
+  { connectionName, resource, fixedIdentifier }: RefusalContext,
 ): AuthorizationFailedError | undefined {
   if (!(cause instanceof OAuthError)) return undefined;
   if (cause.errorCode === "insufficient_authorization") {
-    // svc-sts sends this for a missing delegated grant and for missing consent.
     return new AuthorizationFailedError(connectionName, {
-      message:
-        `The user this agent acts for has not authorized ${resource}. They need to ` +
-        `authorize it once, for example with \`keycard auth resource ${resource} ` +
-        `--zone <zone-id>\`, then retry. Zone said: ${cause.message}`,
+      message: `${insufficientAuthorizationMessage(cause.message, resource, fixedIdentifier)} Zone said: ${cause.message}`,
       reason: FailureReason.USER_AUTHORIZATION_REQUIRED,
       retryable: false,
     });
   }
   if (cause.errorCode === "invalid_grant" && UNKNOWN_USER_DESCRIPTION.test(cause.message)) {
-    return new AuthorizationFailedError(connectionName, {
-      message:
-        "The zone has no user for the identifier this agent acts for. The user needs " +
+    const remedy = fixedIdentifier
+      ? "The zone has no user for the identifier this connection is configured to act " +
+        "for. An operator needs to sign that account in to the zone once, or set " +
+        "userIdentifier to an identifier the zone knows."
+      : "The zone has no user for the identifier this agent acts for. The user needs " +
         "to sign in to the zone once, or userIdentifier needs to resolve to the " +
-        `identifier the zone knows. Zone said: ${cause.message}`,
+        "identifier the zone knows.";
+    return new AuthorizationFailedError(connectionName, {
+      message: `${remedy} Zone said: ${cause.message}`,
       reason: FailureReason.UNKNOWN_USER,
       retryable: false,
     });
   }
   return undefined;
+}
+
+/**
+ * svc-sts sends `insufficient_authorization` for a missing delegated grant and
+ * for missing consent. Consent is the Application's setting, so its remedy is
+ * the operator's whatever the identifier.
+ */
+function insufficientAuthorizationMessage(
+  description: string,
+  resource: string,
+  fixedIdentifier: boolean,
+): string {
+  if (CONSENT_REQUIRED_DESCRIPTION.test(description)) {
+    return (
+      "The zone requires consent for this agent's Application. Impersonation needs " +
+      "the Application's consent set to implicit, so an operator needs to change it " +
+      "in the zone, then retry."
+    );
+  }
+  const command = `\`keycard auth resource '${resource}' --zone <zone-id>\``;
+  return fixedIdentifier
+    ? `The account this connection is configured to act for has not authorized ` +
+        `${resource}. An operator needs to authorize it once while signed in as that ` +
+        `account, for example with ${command}, then retry.`
+    : `The user this agent acts for has not authorized ${resource}. They need to ` +
+        `authorize it once, for example with ${command}, then retry.`;
 }
 
 /**

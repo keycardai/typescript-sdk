@@ -477,21 +477,55 @@ describe("impersonate refusals", () => {
     });
     const message = (failure as Error).message;
     expect(message).toContain(CALENDAR);
-    expect(message).toContain("keycard auth resource");
+    expect(message).toContain(`keycard auth resource '${CALENDAR}' --zone`);
+    expect(message).toContain("operator");
     expect(message).not.toContain(USER);
   });
 
-  it("reports missing consent as user_authorization_required", async () => {
+  it("tells the user to authorize the resource when the identifier follows the turn", async () => {
+    const auth = impersonate({
+      resource: CALENDAR,
+      client: fakeZoneClient({
+        fail: new OAuthError(
+          "insufficient_authorization",
+          `User authorization is required for resource ${CALENDAR}.`,
+        ),
+      }),
+      userIdentifier: () => USER,
+    });
+
+    const failure = await auth
+      .getToken({ principal: userPrincipal(), connection })
+      .catch((error: unknown) => error);
+
+    expect(failure).toMatchObject({
+      reason: FailureReason.USER_AUTHORIZATION_REQUIRED,
+      retryable: false,
+    });
+    const message = (failure as Error).message;
+    expect(message).toContain("The user this agent acts for");
+    expect(message).toContain(`keycard auth resource '${CALENDAR}' --zone`);
+    expect(message).not.toContain("operator");
+    expect(message).not.toContain(USER);
+  });
+
+  it("reports missing consent as user_authorization_required with the operator's remedy", async () => {
     const auth = refusedWith(
       new OAuthError("insufficient_authorization", "User consent is required."),
     );
 
-    await expect(
-      auth.getToken({ principal: appPrincipal(), connection }),
-    ).rejects.toMatchObject({
+    const failure = await auth
+      .getToken({ principal: appPrincipal(), connection })
+      .catch((error: unknown) => error);
+
+    expect(failure).toMatchObject({
       reason: FailureReason.USER_AUTHORIZATION_REQUIRED,
       retryable: false,
     });
+    const message = (failure as Error).message;
+    expect(message).toContain("implicit");
+    expect(message).toContain("operator");
+    expect(message).not.toContain("keycard auth resource");
   });
 
   it("reports an identifier the zone has no user for as unknown_user", async () => {
@@ -502,7 +536,28 @@ describe("impersonate refusals", () => {
       .catch((error: unknown) => error);
 
     expect(failure).toMatchObject({ reason: FailureReason.UNKNOWN_USER, retryable: false });
+    expect((failure as Error).message).toContain("operator");
     expect((failure as Error).message).not.toContain(USER);
+  });
+
+  it("tells the user to sign in when an identifier that follows the turn is unknown", async () => {
+    const auth = impersonate({
+      resource: CALENDAR,
+      client: fakeZoneClient({
+        fail: new OAuthError("invalid_grant", "User not found for identifier"),
+      }),
+      userIdentifier: () => USER,
+    });
+
+    const failure = await auth
+      .getToken({ principal: userPrincipal(), connection })
+      .catch((error: unknown) => error);
+
+    expect(failure).toMatchObject({ reason: FailureReason.UNKNOWN_USER, retryable: false });
+    const message = (failure as Error).message;
+    expect(message).toContain("The user needs to sign in");
+    expect(message).not.toContain("operator");
+    expect(message).not.toContain(USER);
   });
 
   it.each([
