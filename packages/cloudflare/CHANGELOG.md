@@ -1,3 +1,11 @@
+## 0.4.5-keycardai-cloudflare (2026-11-24)
+
+
+- fix(cloudflare): accept a URN resource that matches a configured audience in verifyBearerToken (#378)
+- A URN aud parses as a URL with origin "null", so the origin comparison rejected every token for it. An http(s) resource is still compared by origin; any other resource must exactly match one of the configured audiences.
+- Refs SDK-36
+- Co-authored-by: Larry Osakwe <23560354+Larry-Osakwe@users.noreply.github.com>
+
 ## 0.4.4-keycardai-cloudflare (2026-11-06)
 
 
