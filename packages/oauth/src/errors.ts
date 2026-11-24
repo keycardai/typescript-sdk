@@ -309,8 +309,12 @@ export class TokenEndpointDiscoveryError extends Error {
 /**
  * A request could not reach its server, or the connection failed before a
  * complete response arrived. `cause` is the underlying transport error.
- * `retryable` is always `true`: a permanent failure surfaces as an HTTP or
- * protocol error, never as a network error.
+ * Only `AgentTokenSource` throws it today; other requests in this package do
+ * not wrap their transport failures in it.
+ *
+ * `retryable` is always `true`, including when the cause is permanent, such
+ * as `ENOENT` for a mistyped socket path: inspect `cause` or the message to
+ * tell a stopped agent from a wrong path.
  */
 export class NetworkError extends Error {
   readonly retryable = true;
