@@ -71,7 +71,8 @@ async function startFakeAgent(socketPath?: string): Promise<FakeAgent> {
       const seen = { method: req.method, url: req.url, headers: req.headers, body };
       agent.requests.push(seen);
       const reply = agent.reply(seen);
-      const payload = typeof reply.body === "string" ? reply.body : JSON.stringify(reply.body);
+      const payload =
+        typeof reply.body === "string" || Buffer.isBuffer(reply.body) ? reply.body : JSON.stringify(reply.body);
       res.writeHead(reply.status ?? 200, { "Content-Type": "application/json" });
       res.end(payload);
     });
@@ -193,6 +194,18 @@ describe("AgentTokenSource request", () => {
     await new AgentTokenSource({ socket: agent.socketPath }).resourceToken(RESOURCE, { scopes: ["b", "a", "b"] });
 
     expect(JSON.parse(agent.requests[0].body).scopes).toStrictEqual(["b", "a", "b"]);
+  });
+
+  it.each([
+    ["org", { org: "\r\n" }],
+    ["zone", { zone: "\r\n" }],
+  ])("42: rejects a %s holding CRLF with a configuration error and sends nothing", async (_name, options) => {
+    const agent = await fakeAgent();
+
+    const error = await rejection(new AgentTokenSource({ socket: agent.socketPath, ...options }).resourceToken(RESOURCE));
+
+    expect(error).toBeInstanceOf(ConfigurationError);
+    expect(agent.requests).toHaveLength(0);
   });
 
   it.each([
@@ -622,7 +635,7 @@ describe("AgentTokenSource response", () => {
     expect((await mint({ body: { token } })).accessToken).toBe(token);
   });
 
-  it("rejects a 200 body over 1 MiB without reading the rest", async () => {
+  it("43: rejects a 200 body over 1 MiB without reading the rest", async () => {
     const error = await rejection(mint({ body: { token: "t".repeat(2 * 1024 * 1024) } }));
 
     expect(error).toBeInstanceOf(AgentResponseError);
@@ -655,6 +668,20 @@ describe("AgentTokenSource response", () => {
 
     expect(error).toBeInstanceOf(AgentResponseError);
     expect((error as Error).message).not.toContain(token);
+  });
+
+  // Node decodes each invalid sequence to U+FFFD, which the U+00FF check rejects.
+  it.each([
+    ["a lone 0xff", [0xff]],
+    ["a stray continuation byte", [0x80]],
+    ["a truncated two-byte sequence", [0xc3]],
+    ["an encoded surrogate", [0xed, 0xa0, 0x80]],
+  ])("44: a token holding %s, not valid UTF-8, is an AgentResponseError", async (_name, bytes) => {
+    const body = Buffer.concat([Buffer.from('{"token":"tok'), Buffer.from(bytes), Buffer.from('en"}')]);
+
+    const error = await rejection(mint({ body }));
+
+    expect(error).toBeInstanceOf(AgentResponseError);
   });
 
   it("accepts a token with Latin-1 bytes a header can carry", async () => {
