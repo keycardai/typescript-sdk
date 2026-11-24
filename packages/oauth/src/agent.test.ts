@@ -339,6 +339,14 @@ describe("AgentTokenSource socket resolution", () => {
     expect(other.requests).toHaveLength(0);
   });
 
+  it("41: an empty socket falls through to KEYCARD_SOCKET", async () => {
+    const agent = await fakeAgent();
+
+    await new AgentTokenSource({ socket: "", env: { KEYCARD_SOCKET: agent.socketPath } }).resourceToken(RESOURCE);
+
+    expect(agent.requests).toHaveLength(1);
+  });
+
   it("7: dials KEYCARD_SOCKET from env, not from the process environment", async () => {
     const fromEnv = await fakeAgent();
     const fromProcess = await fakeAgent();
@@ -469,6 +477,12 @@ describe("AgentTokenSource response", () => {
 
   it("24: no expiresAt leaves expiresIn undefined", async () => {
     const token = await mint({ body: { token: "t" } });
+
+    expect(token.expiresIn).toBeUndefined();
+  });
+
+  it("40: a null expiresAt leaves expiresIn undefined", async () => {
+    const token = await mint({ body: { token: "t", expiresAt: null } });
 
     expect(token.expiresIn).toBeUndefined();
   });
