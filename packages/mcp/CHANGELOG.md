@@ -1,3 +1,11 @@
+## 2.0.9-keycardai-mcp (2026-11-24)
+
+
+- fix(mcp): accept a URN resource that matches a configured audience in requireBearerAuth (#376)
+- A URN such as urn:my-service parses as a URL with origin "null", so the origin comparison rejected every token for it. An http(s) resource is still compared by origin; any other resource must exactly match one of the configured audiences.
+- Refs SDK-36
+- Co-authored-by: Larry Osakwe <23560354+Larry-Osakwe@users.noreply.github.com>
+
 ## 2.0.8-keycardai-mcp (2026-11-06)
 
 
