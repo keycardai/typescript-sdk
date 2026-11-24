@@ -524,11 +524,21 @@ describe("AgentTokenSource response", () => {
 
   it.each([
     ["absent", {}],
+    ["null", { scopes: null }],
     ["empty", { scopes: [] }],
   ])("28: %s scopes leave scope absent, not the request's", async (_name, extra) => {
     const token = await mint({ body: { token: "t", ...extra } }, { scopes: ["a"] });
 
     expect(token).not.toHaveProperty("scope");
+  });
+
+  it.each([
+    ["a string", "a b"],
+    ["an array holding a non-string", ["a", 1]],
+  ])("39: scopes that is %s is an AgentResponseError", async (_name, scopes) => {
+    const error = await rejection(mint({ body: { token: "t", scopes } }));
+
+    expect(error).toBeInstanceOf(AgentResponseError);
   });
 
   const predicates = {

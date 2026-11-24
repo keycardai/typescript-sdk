@@ -188,10 +188,15 @@ export class AgentTokenSource implements ResourceTokenSource {
       }
       result.expiresIn = Math.max(0, Math.floor((expiresAtMs - this.#clock.now()) / 1000));
     }
-    // The spec reads `scopes` from the response, but IssueTokenResponse does
-    // not define it yet, so a current agent leaves `scope` absent.
-    if (Array.isArray(scopes) && scopes.length > 0 && scopes.every((s) => typeof s === "string")) {
-      result.scope = scopes as string[];
+    // An absent, null or empty `scopes` means the grant is unknown, which is
+    // all a current agent sends: IssueTokenResponse does not define it yet.
+    // Anything else that is not an array of strings is an error: a grant the
+    // SDK cannot read must not pass for one the agent did not report.
+    if (scopes !== undefined && scopes !== null) {
+      if (!Array.isArray(scopes) || !scopes.every((s) => typeof s === "string")) {
+        throw new AgentResponseError("Keycard agent response has a scopes that is not an array of strings");
+      }
+      if (scopes.length > 0) result.scope = scopes;
     }
     return result;
   }
