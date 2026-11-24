@@ -318,6 +318,56 @@ describe("requireBearerAuth middleware", () => {
     expect(mockResponse.end).not.toHaveBeenCalled();
   });
 
+  describe("resource check", () => {
+    const URN = "urn:openshell-claude-sandbox";
+
+    async function run(resource: URL, options: { audiences?: string | string[] } = {}) {
+      mockVerifyAccessToken.mockResolvedValue({
+        token: "valid-token",
+        clientId: "client-123",
+        scopes: [],
+        resource,
+      } as AuthInfo);
+      mockRequest.headers = { authorization: "Bearer valid-token" };
+      const middleware = requireBearerAuth({ verifier: mockVerifier, ...options });
+      await middleware(mockRequest as Request, mockResponse as Response, nextFunction);
+    }
+
+    it("rejects an http(s) resource on a different origin", async () => {
+      await run(new URL("https://other.example.com/mcp"));
+      expect(mockResponse.status).toHaveBeenCalledWith(401);
+      expect(mockResponse.set).toHaveBeenCalledWith(
+        "WWW-Authenticate",
+        expect.stringContaining('error_description="Token not intended for resource"'),
+      );
+      expect(nextFunction).not.toHaveBeenCalled();
+    });
+
+    it("accepts a URN resource that matches a configured audience", async () => {
+      await run(new URL(URN), { audiences: ["https://api.example.com", URN] });
+      expect(nextFunction).toHaveBeenCalledWith();
+      expect(mockResponse.status).not.toHaveBeenCalled();
+    });
+
+    it("accepts a URN resource that matches a single configured audience string", async () => {
+      await run(new URL(URN), { audiences: URN });
+      expect(nextFunction).toHaveBeenCalledWith();
+      expect(mockResponse.status).not.toHaveBeenCalled();
+    });
+
+    it("rejects a URN resource when no audiences are configured", async () => {
+      await run(new URL(URN));
+      expect(mockResponse.status).toHaveBeenCalledWith(401);
+      expect(nextFunction).not.toHaveBeenCalled();
+    });
+
+    it("rejects a URN resource that is not a configured audience", async () => {
+      await run(new URL("urn:some-other-service"), { audiences: URN });
+      expect(mockResponse.status).toHaveBeenCalledWith(401);
+      expect(nextFunction).not.toHaveBeenCalled();
+    });
+  });
+
   describe("missing-audience warning at construction", () => {
     let warn: ReturnType<typeof jest.spyOn>;
     beforeEach(() => {
