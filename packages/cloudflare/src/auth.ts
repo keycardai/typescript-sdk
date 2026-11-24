@@ -43,6 +43,32 @@ function getResourceMetadataUrl(requestUrl: URL): string {
 }
 
 /**
+ * Whether a token's resource belongs to this Worker. An http(s) resource must
+ * share the request's origin. Any other resource (a URN such as
+ * `urn:my-service` parses as a URL whose origin is "null") cannot be compared
+ * to the request, so it must exactly match a configured audience.
+ */
+function isIntendedResource(
+  resource: URL,
+  requestUrl: URL,
+  audiences: BearerAuthOptions["audiences"],
+): boolean {
+  if (resource.protocol === "http:" || resource.protocol === "https:") {
+    return resource.origin === requestUrl.origin;
+  }
+  const configured = typeof audiences === "string" ? [audiences] : audiences ?? [];
+  return configured.some((audience) => normalizeIdentifier(audience) === resource.href);
+}
+
+function normalizeIdentifier(identifier: string): string {
+  try {
+    return new URL(identifier).href;
+  } catch {
+    return identifier;
+  }
+}
+
+/**
  * Verifies a Bearer token from a Workers request.
  *
  * Returns `AuthInfo` on success, or a `Response` (400/401/403) on failure.
@@ -113,9 +139,11 @@ export async function verifyBearerToken(
       authInfo.expiresAt = claims.exp;
     }
 
-    // Check resource audience — compare against origin only, since tokens
-    // are scoped to a resource server, not a specific path or query string.
-    if (authInfo.resource && authInfo.resource.origin !== url.origin) {
+    // Check resource audience. An http(s) resource is compared by origin
+    // only, since tokens are scoped to a resource server, not a specific path
+    // or query string. A URN or other non-http(s) resource has no origin to
+    // compare, so it must exactly match a configured audience.
+    if (authInfo.resource && !isIntendedResource(authInfo.resource, url, options.audiences)) {
       throw new InvalidTokenError("Token not intended for resource");
     }
 
