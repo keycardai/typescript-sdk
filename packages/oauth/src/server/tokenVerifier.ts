@@ -180,6 +180,10 @@ function toAccessToken(token: string, claims: JWTClaims): AccessToken {
     sub,
     subProfile,
     keycardAppId,
+    aud: typeof claims.aud === "string" ? [claims.aud] : claims.aud ?? [],
+    ...(claims.act !== null && typeof claims.act === "object" && !Array.isArray(claims.act)
+      ? { act: claims.act as Record<string, unknown> }
+      : {}),
   };
 }
 

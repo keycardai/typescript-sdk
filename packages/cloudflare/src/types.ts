@@ -57,6 +57,10 @@ export interface AuthInfo {
   subProfile?: string;
   /** The keycard_app_id claim: the stable Keycard application identifier. */
   keycardAppId?: string;
+  /** Verified JWT audiences. */
+  aud?: string[];
+  /** The issued actor claim, including any nested actors. */
+  act?: Record<string, unknown>;
 }
 
 // =============================================================================

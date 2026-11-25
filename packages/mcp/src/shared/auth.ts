@@ -26,6 +26,10 @@ export interface AuthInfo {
    */
   expiresAt?: number;
 
+  /** Verified audiences and the issued actor chain. */
+  aud?: string[];
+  act?: Record<string, unknown>;
+
   /**
    * The RFC 8707 resource server identifier for which this token is valid.
    * If set, this MUST match the MCP server's resource identifier (minus hash fragment).

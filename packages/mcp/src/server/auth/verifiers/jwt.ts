@@ -27,6 +27,10 @@ export class JWTOAuthTokenVerifier implements OAuthTokenVerifier {
       resource: toResourceUrl(claims.aud),
       scopes: claims.scope ? claims.scope.split(" ") : [],
       expiresAt: claims.exp,
+      aud: typeof claims.aud === "string" ? [claims.aud] : claims.aud ?? [],
+      ...(claims.act !== null && typeof claims.act === "object" && !Array.isArray(claims.act)
+        ? { act: claims.act as Record<string, unknown> }
+        : {}),
     };
   }
 }

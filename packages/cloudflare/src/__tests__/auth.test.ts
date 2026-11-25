@@ -74,6 +74,22 @@ describe("verifyBearerToken", () => {
     expect(result.token).toBe("valid-token");
   });
 
+  it.each([
+    { row: "4a", aud: ["resource-a", "resource-b"], act: { sub: "actor", act: { sub: "previous" } }, expected: ["resource-a", "resource-b"] },
+    { row: "4b", aud: "resource-a", act: undefined, expected: ["resource-a"] },
+  ])("row $row: exposes the verified audiences and actor chain", async ({ aud, act, expected }) => {
+    mockVerify.mockResolvedValue({ client_id: "client", aud, act });
+
+    const caller = await verifyBearerToken(makeRequest("Bearer valid-token"), {
+      issuers: "https://auth.keycard.ai",
+      audiences: "resource-a",
+    });
+
+    if (isAuthError(caller)) throw new Error(`Expected AuthInfo, got status ${caller.status}`);
+    expect(caller.aud).toEqual(expected);
+    expect(caller.act).toEqual(act);
+  });
+
   it("exposes the caller identity claims from a Keycard token", async () => {
     mockVerify.mockResolvedValue({
       sub: "alice@example.com",

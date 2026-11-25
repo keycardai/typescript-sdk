@@ -125,6 +125,10 @@ export async function verifyBearerToken(
       subject: typeof claims.sub === "string" ? claims.sub : undefined,
       subProfile: typeof claims.sub_profile === "string" ? claims.sub_profile : undefined,
       keycardAppId: typeof claims.keycard_app_id === "string" ? claims.keycard_app_id : undefined,
+      aud: typeof claims.aud === "string" ? [claims.aud] : claims.aud ?? [],
+      ...(claims.act !== null && typeof claims.act === "object" && !Array.isArray(claims.act)
+        ? { act: claims.act as Record<string, unknown> }
+        : {}),
     };
 
     if (typeof claims.aud === "string") {
