@@ -20,9 +20,9 @@ export interface KeycardMiddlewareOptions {
    */
   applicationCredential?: ApplicationCredential;
   /**
-   * Audience to validate tokens against in `requireBearerAuth()`.
+   * Accepted audience or nonempty list of audiences for `requireBearerAuth()`.
    */
-  audience?: string;
+  audience?: string | readonly string[];
   /**
    * Enables per-request zone verification in `requireBearerAuth()`.
    * Pair with `zoneResolver` for multi-zone deployments.

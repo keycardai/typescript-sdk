@@ -73,7 +73,7 @@ export type BearerAuthOptions =
        * Either `zoneUrl` or `zoneId` is required (consistent with `grant()`).
        */
       zoneId?: string;
-      audience?: string;
+      audience?: string | readonly string[];
       enableMultiZone?: boolean;
       keyring?: TokenVerifierOptions["keyring"];
       requiredScopes?: readonly string[];
@@ -165,9 +165,9 @@ export function requireBearerAuth(options: BearerAuthOptions): RequestHandler {
       // server must not be accepted here. An http(s) resource is compared by
       // origin so path and query string differences are ignored. A URN or
       // other non-http(s) resource has no origin to compare, so it must
-      // exactly match the configured audience.
+      // match one of the configured audiences.
       if (accessToken.resource) {
-        // A caller-supplied verifier's audience is not visible here, so a
+        // A caller-supplied verifier's audiences are not visible here, so a
         // non-http(s) resource is only accepted with `audience` set.
         const audience = "audience" in options ? options.audience : undefined;
         if (!isIntendedResource(accessToken.resource, getRequestOrigin(req), audience)) {
@@ -247,9 +247,13 @@ function getResourceMetadataUrl(req: Request): string {
  * parses as an http(s) URL must share the request's origin. A resource that
  * does not parse as a URL is an opaque audience and is not compared. Any other
  * resource (a URN such as `urn:my-service` parses as a URL whose origin is
- * "null") must exactly match the configured audience.
+ * "null") must match one of the configured audiences.
  */
-function isIntendedResource(resource: string, requestOrigin: string, audience: string | undefined): boolean {
+function isIntendedResource(
+  resource: string,
+  requestOrigin: string,
+  audience: string | readonly string[] | undefined,
+): boolean {
   let resourceUrl: URL;
   try {
     resourceUrl = new URL(resource);
@@ -259,7 +263,7 @@ function isIntendedResource(resource: string, requestOrigin: string, audience: s
   if (resourceUrl.protocol === "http:" || resourceUrl.protocol === "https:") {
     return resourceUrl.origin === requestOrigin;
   }
-  return audience !== undefined && audience === resource;
+  return typeof audience === "string" ? audience === resource : audience?.includes(resource) ?? false;
 }
 
 function buildIssuerFromZoneId(zoneId?: string): string | undefined {
