@@ -159,6 +159,39 @@ describe("acquisition", () => {
       description: expect.stringContaining("consent required"),
     });
   });
+
+  it("records the authorization server reason from the zone", async () => {
+    const client = recordingZoneClient({
+      [CALENDAR]: new OAuthError("access_denied", "Denied", undefined, {
+        errorDescription: "Denied",
+        reason: "policy_denied",
+      }),
+    });
+    let error: unknown;
+    const readCalendar = tool(
+      async () => {
+        error = getAccessContext().getResourceError(CALENDAR);
+        return "ok";
+      },
+      { name: "read_calendar", description: "read", schema: z.object({}) },
+    );
+    const agent = createAgent({
+      model: new FakeToolCallingModel("read_calendar"),
+      tools: [readCalendar],
+      middleware: [keycardGrantMiddleware({ resources: [CALENDAR], client })],
+    });
+    await agent.invoke(
+      { messages: [{ role: "user", content: "go" }] },
+      { context: Access.onBehalfOf("caller-token") },
+    );
+
+    expect(error).toEqual({
+      message: `Token exchange failed for ${CALENDAR}`,
+      code: "access_denied",
+      description: "Denied",
+      reason: "policy_denied",
+    });
+  });
 });
 
 describe("identity resolution", () => {

@@ -616,6 +616,9 @@ function describeFailure(
   if (error instanceof OAuthError) {
     detail.code = error.errorCode;
     detail.description = error.message;
+    if (error.reason !== undefined) {
+      detail.reason = error.reason;
+    }
   } else {
     detail.rawError = String(error);
   }
