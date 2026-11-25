@@ -389,12 +389,8 @@ export function interactive(
       );
     }
     if (credential instanceof WorkloadIdentity) {
-      const credentialClientId = credential.clientId;
-      if (!credentialClientId) {
-        throw new AuthProviderConfigurationError(
-          "interactive WorkloadIdentity applicationCredential requires clientId",
-        );
-      }
+      // checkClientAuthentication() above guarantees a non-empty clientId.
+      const credentialClientId = credential.clientId!;
       if (options.clientId === undefined) {
         staticClientId = credentialClientId;
       } else if (options.clientId !== credentialClientId) {

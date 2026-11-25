@@ -251,7 +251,7 @@ this package serves. Three pieces:
 2. On the Application in your zone, add `<origin>/keycard/callback` to its
    redirect URIs (`protocols.oauth2.redirect_uris`). Redirect URIs match
    exactly, so a preview deployment whose URL is not registered keeps the
-   per-attempt path: leave `clientId` unset there.
+   per-attempt path: leave `clientId` and `applicationCredential` unset there.
 
 3. Use a password credential of that Application: its identifier is the
    `clientId` and its secret the `clientSecret`. The Application's own
