@@ -167,9 +167,11 @@ message tells an operator to change it. `unknown_user` means the zone has no
 user for the identifier, so the user signs in to the zone once or
 `userIdentifier` has to resolve to an identifier the zone knows. With a fixed
 `userIdentifier` string, the person in the chat can't fix either refusal, so
-the messages address the operator and the configured account. Everything else
-is `acquisition_failed`, carrying the zone's message. None of them is retryable,
-and none of the messages names the user.
+the messages address the operator and the configured account. These refusals
+are not retryable and their messages do not name the user. A network error or
+HTTP `429` or `5xx` is retryable `acquisition_failed` regardless of the OAuth error
+code. Other refusals, including policy denials, are non-retryable
+`acquisition_failed`. Both carry the failure message.
 
 Credentials go in as either `clientId` plus `clientSecret` (shorthand for a
 client-secret credential) or `applicationCredential` (any
