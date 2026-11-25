@@ -1,3 +1,4 @@
+import { jest } from "@jest/globals";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { gzipSync } from "node:zlib";
 import {
@@ -188,15 +189,50 @@ describe("Response body size limit (specs/base.md rows 1, 1a, 1b, 1c; device row
           );
           expect(calls).toBe(1);
         } else {
-          const ep = await client.getTokenEndpoint();
-          expect(ep).toBe(`${server.url}/token`);
-          expect(calls).toBe(2);
+          // Wait out any retry delay the failure started (a 503 backs off).
+          const clock = jest.spyOn(performance, "now").mockReturnValue(performance.now() + 31_000);
+          try {
+            const ep = await client.getTokenEndpoint();
+            expect(ep).toBe(`${server.url}/token`);
+            expect(calls).toBe(2);
+          } finally {
+            clock.mockRestore();
+          }
         }
       } finally {
         await server.close();
       }
     },
   );
+
+  it("an oversized 429 without Retry-After starts no retry delay", async () => {
+    let calls = 0;
+    const server = await startServer((_req, res) => {
+      calls += 1;
+      if (calls === 1) {
+        res.writeHead(429, { "Content-Type": "application/json", Connection: "close" });
+        res.end(makeOversizedJson(2048));
+        return;
+      }
+      res.writeHead(200, { "Content-Type": "application/json", Connection: "close" });
+      res.end(JSON.stringify({ issuer: server.url, token_endpoint: `${server.url}/token` }));
+    });
+
+    try {
+      const client = new TokenExchangeClient(server.url, { clientId: "cid", clientSecret: "csec" });
+
+      const err = await catchError(() => client.getTokenEndpoint());
+      expect(err).toBeInstanceOf(TokenEndpointDiscoveryError);
+      expect((err as TokenEndpointDiscoveryError).cause).toMatchObject({ status: 429 });
+      expect((err as TokenEndpointDiscoveryError).retryable).toBe(true);
+
+      // No clock advance: the next lookup fetches again at once.
+      await expect(client.getTokenEndpoint()).resolves.toBe(`${server.url}/token`);
+      expect(calls).toBe(2);
+    } finally {
+      await server.close();
+    }
+  });
 
   it("base row 1a: JWKS discovery overflow maps to JWKSDiscoveryError and JWKS fetch overflow maps to JWKSFetchError", async () => {
     let mode: "oversized_discovery" | "oversized_jwks" = "oversized_discovery";

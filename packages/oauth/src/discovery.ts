@@ -43,6 +43,8 @@ export async function fetchAuthorizationServerMetadata(
     throw new HTTPError(
       `Failed to fetch OAuth authorization server metadata for "${issuer}" (HTTP ${response.status})`,
       response.status,
+      undefined,
+      response.headers?.get("Retry-After") ?? undefined,
     );
   }
 

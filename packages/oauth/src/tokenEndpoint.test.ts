@@ -3,6 +3,7 @@ import { TokenExchangeClient } from './tokenExchange.js';
 import { ClientCredentialsClient } from './clientCredentials.js';
 import { TokenEndpointResolver, DEFAULT_DISCOVERY_TTL_MS, DEFAULT_NEGATIVE_TTL_MS } from './tokenEndpoint.js';
 import { TokenEndpointDiscoveryError } from './errors.js';
+import { fetchAuthorizationServerMetadata } from './discovery.js';
 
 const ISSUER = 'https://auth.example.com';
 const TOKEN_ENDPOINT = 'https://auth.example.com/token';
@@ -56,12 +57,14 @@ const status = (code: number) => () => jsonResponse({ error: 'nope' }, code);
 
 interface Path {
   name: string;
+  row: number;
   make(options?: { discoveryTtlMs?: number; negativeTtlMs?: number }): { call(): Promise<unknown> };
 }
 
 const paths: Path[] = [
   {
     name: 'TokenExchangeClient.exchangeToken',
+    row: 8,
     make(options) {
       const client = new TokenExchangeClient(ISSUER, { clientId: 'app', clientSecret: 'shh', ...options });
       return { call: () => client.exchangeToken({ subjectToken: 'subject', resource: 'https://api.example.com' }) };
@@ -69,6 +72,7 @@ const paths: Path[] = [
   },
   {
     name: 'ClientCredentialsClient.requestToken',
+    row: 7,
     make(options) {
       const client = new ClientCredentialsClient(ISSUER, { clientId: 'app', clientSecret: 'shh', ...options });
       return { call: () => client.requestToken({ resource: 'https://api.example.com' }) };
@@ -86,7 +90,7 @@ async function rejection(promise: Promise<unknown>): Promise<TokenEndpointDiscov
   throw new Error('expected the call to reject');
 }
 
-describe.each(paths)('token endpoint discovery via $name', ({ make }) => {
+describe.each(paths)('token endpoint discovery via $name', ({ make, row }) => {
   let originalFetch: typeof fetch;
 
   beforeEach(() => {
@@ -100,7 +104,7 @@ describe.each(paths)('token endpoint discovery via $name', ({ make }) => {
     jest.useRealTimers();
   });
 
-  it('a network error caches nothing: the next call discovers again and succeeds', async () => {
+  it(`row ${row}: a network error paces the next discovery request`, async () => {
     const fetch = installFetch([networkError, ok]);
     const { call } = make();
 
@@ -108,16 +112,24 @@ describe.each(paths)('token endpoint discovery via $name', ({ make }) => {
     expect(error.retryable).toBe(true);
     expect(error.cause).toBeInstanceOf(TypeError);
 
+    expect(await rejection(call())).toBe(error);
+    expect(fetch.metadataCalls()).toBe(1);
+    jest.advanceTimersByTime(1200);
     await expect(call()).resolves.toBeDefined();
     expect(fetch.metadataCalls()).toBe(2);
   });
 
-  it.each([500, 503, 429])('HTTP %i is transient: not cached, retryable', async (code) => {
+  it.each([500, 503, 429])('base row 3: HTTP %i is transient; headerless 429 is not paced', async (code) => {
     const fetch = installFetch([status(code), ok]);
     const { call } = make();
 
     const error = await rejection(call());
     expect(error.retryable).toBe(true);
+    if (code !== 429) {
+      expect(await rejection(call())).toBe(error);
+      expect(fetch.metadataCalls()).toBe(1);
+      jest.advanceTimersByTime(1200);
+    }
 
     await expect(call()).resolves.toBeDefined();
     expect(fetch.metadataCalls()).toBe(2);
@@ -149,7 +161,7 @@ describe.each(paths)('token endpoint discovery via $name', ({ make }) => {
     expect(fetch.metadataCalls()).toBe(1);
   });
 
-  it('metadata without token_endpoint is a typed deterministic failure, remembered for at most negativeTtl', async () => {
+  it('base row 5: metadata without token_endpoint is deterministic and expires by negativeTtl', async () => {
     const fetch = installFetch([() => metadataResponse({ token_endpoint: undefined }), ok]);
     const { call } = make();
 
@@ -195,7 +207,7 @@ describe.each(paths)('token endpoint discovery via $name', ({ make }) => {
     expect(fetch.metadataCalls()).toBe(1);
   });
 
-  it('concurrent cold-cache calls all see the shared failure, and nothing is cached from it', async () => {
+  it('concurrent cold-cache calls see the shared failure and later calls can fetch after pacing', async () => {
     const fetch = installFetch([networkError, ok]);
     const { call } = make();
 
@@ -203,6 +215,7 @@ describe.each(paths)('token endpoint discovery via $name', ({ make }) => {
     expect(results.map((r) => r.status)).toEqual(['rejected', 'rejected']);
     expect(fetch.metadataCalls()).toBe(1);
 
+    jest.advanceTimersByTime(1200);
     await expect(call()).resolves.toBeDefined();
     expect(fetch.metadataCalls()).toBe(2);
   });
@@ -230,6 +243,63 @@ describe.each(paths)('token endpoint discovery via $name', ({ make }) => {
     await call();
     expect(fetch.metadataCalls()).toBe(2);
   });
+
+  it.each([429, 503])('base row 2: honors and caps Retry-After on HTTP %i', async (code) => {
+    for (const seconds of [5, 120]) {
+      for (const format of ['seconds', 'imf', 'rfc850', 'asctime', 'asctimeZeroPadded'] as const) {
+        const date = new Date(Date.now() + seconds * 1000);
+        const imf = date.toUTCString();
+        const [weekday, day, month, year, time] = imf.replace(',', '').split(' ');
+        const header = {
+          seconds: String(seconds),
+          imf,
+          rfc850: `${date.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' })}, ${day}-${month}-${year.slice(2)} ${time} GMT`,
+          asctime: `${weekday} ${month} ${day.trimStart().replace(/^0/, ' ')} ${time} ${year}`,
+          asctimeZeroPadded: `${weekday} ${month} ${day} ${time} ${year}`,
+        }[format];
+        const fetch = installFetch([() => new Response('', { status: code, headers: { 'Retry-After': header } }), ok]);
+        const { call } = make();
+        const error = await rejection(call());
+        jest.advanceTimersByTime(Math.min(60, seconds) * 1000 - 1);
+        expect(await rejection(call())).toBe(error);
+        expect(fetch.metadataCalls()).toBe(1);
+        jest.advanceTimersByTime(1);
+        await expect(call()).resolves.toBeDefined();
+      }
+    }
+  });
+
+  it('base rows 3 and 4: caps exponential delays and resets on success', async () => {
+    const fetch = installFetch([...Array<() => Promise<Response>>(7).fill(networkError), ok, networkError, ok]);
+    const { call } = make({ discoveryTtlMs: 5000 });
+    for (const [index, nominal] of [1000, 2000, 4000, 8000, 16000, 32000, 64000].entries()) {
+      const error = await rejection(call());
+      const lower = Math.min(30000, nominal * 0.8) - 1;
+      jest.advanceTimersByTime(lower);
+      expect(await rejection(call())).toBe(error);
+      expect(fetch.metadataCalls()).toBe(index + 1);
+      jest.advanceTimersByTime(Math.min(30000, nominal * 1.2) - lower);
+    }
+    await expect(call()).resolves.toBeDefined();
+    jest.advanceTimersByTime(5000);
+    await rejection(call());
+    jest.advanceTimersByTime(1200);
+    await expect(call()).resolves.toBeDefined();
+  });
+
+  it('authorization server discovery row 11: standalone discovery does not reuse cached failures', async () => {
+    const fetch = installFetch([() => new Response('', { status: 503, headers: { 'Retry-After': '5' } }), ok]);
+    const { call } = make();
+    const error = await rejection(call());
+    jest.advanceTimersByTime(4999);
+    expect(await rejection(call())).toBe(error);
+    expect(fetch.metadataCalls()).toBe(1);
+    await expect(fetchAuthorizationServerMetadata(ISSUER)).resolves.toBeDefined();
+    expect(fetch.metadataCalls()).toBe(2);
+    jest.advanceTimersByTime(1);
+    await expect(call()).resolves.toBeDefined();
+    expect(fetch.metadataCalls()).toBe(3);
+  });
 });
 
 describe('TokenEndpointResolver internal fetch bound', () => {
@@ -243,7 +313,7 @@ describe('TokenEndpointResolver internal fetch bound', () => {
     globalThis.fetch = originalFetch;
   });
 
-  it('a hung discovery is aborted by the internal timeout, surfaces as transient, and is not cached', async () => {
+  it('a hung discovery is aborted by the internal timeout and paces the next fetch', async () => {
     let calls = 0;
     globalThis.fetch = jest.fn(async (_input: FetchInput, init?: FetchInit) => {
       calls += 1;
@@ -260,7 +330,13 @@ describe('TokenEndpointResolver internal fetch bound', () => {
     const error = await rejection(resolver.resolve());
     expect(error.retryable).toBe(true);
 
-    await expect(resolver.resolve()).resolves.toBe(TOKEN_ENDPOINT);
+    expect(await rejection(resolver.resolve())).toBe(error);
+    const clock = jest.spyOn(performance, 'now').mockReturnValue(performance.now() + 1200);
+    try {
+      await expect(resolver.resolve()).resolves.toBe(TOKEN_ENDPOINT);
+    } finally {
+      clock.mockRestore();
+    }
     expect(calls).toBe(2);
   });
 });

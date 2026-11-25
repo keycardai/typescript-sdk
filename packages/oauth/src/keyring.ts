@@ -1,12 +1,15 @@
 import { z } from "zod";
 import { fetchAuthorizationServerMetadata } from "./discovery.js";
 import {
+  HTTPError,
   JWKSDiscoveryError,
   JWKSFetchError,
   JWKSKeyNotFoundError,
   JWKSUriValidationError,
+  OAuthError,
   ResponseBodyTooLargeError,
 } from "./errors.js";
+import { isTransientMetadataFailure, MetadataRetryCache } from "./metadataRetry.js";
 import { discardResponseBody, readResponseText } from "./responseBody.js";
 
 export interface OAuthKeyring {
@@ -107,6 +110,7 @@ export class JWKSOAuthKeyring implements OAuthKeyring {
   #keyCacheMaxEntries: number;
 
   #discoveryInflight = new Map<string, Promise<string>>();
+  #discoveryRetry = new MetadataRetryCache();
   #keyInflight = new Map<string, Promise<CryptoKey>>();
 
   // The last key set fetched from each jwks_uri, with when it was fetched, so
@@ -114,6 +118,8 @@ export class JWKSOAuthKeyring implements OAuthKeyring {
   // per cooldown.
   #jwksCache = new Map<string, CacheEntry<JWKSet> & { fetchedAt: number }>();
   #jwksInflight = new Map<string, Promise<JWKSet>>();
+  #jwksRetry = new MetadataRetryCache();
+  #generation = 0;
   #jwksRefetchCooldownMs: number;
 
   constructor(options?: JWKSOAuthKeyringOptions) {
@@ -127,27 +133,29 @@ export class JWKSOAuthKeyring implements OAuthKeyring {
   }
 
   async key(issuer: string, kid: string): Promise<CryptoKey> {
+    const started = this.#generation;
     const cacheKey = keyCacheKey(issuer, kid);
     const cached = this.#getCached(this.#keyCache, cacheKey);
     if (cached) {
       return cached;
     }
 
-    const jwksUri = await this.#resolveJwksUri(issuer);
-    return this.#resolveKey(issuer, kid, jwksUri, cacheKey);
+    const jwksUri = await this.#resolveJwksUri(issuer, started);
+    return this.#resolveKey(issuer, kid, jwksUri, cacheKey, started);
   }
 
   invalidate(issuer: string, kid: string): void {
+    this.#generation++;
+    this.#clearInflight();
     const cacheKey = keyCacheKey(issuer, kid);
     this.#keyCache.delete(cacheKey);
-    this.#keyInflight.delete(cacheKey);
     const jwksUri = this.#discoveryCache.get(issuer)?.value;
     if (jwksUri) {
       this.#jwksCache.delete(jwksUri);
-      this.#jwksInflight.delete(jwksUri);
+      this.#jwksRetry.delete(jwksUri);
     }
     this.#discoveryCache.delete(issuer);
-    this.#discoveryInflight.delete(issuer);
+    this.#discoveryRetry.delete(issuer);
   }
 
   /**
@@ -156,11 +164,18 @@ export class JWKSOAuthKeyring implements OAuthKeyring {
    * is impractical. Subsequent `key()` calls re-discover and re-fetch.
    */
   clear(): void {
+    this.#generation++;
+    this.#clearInflight();
     this.#keyCache.clear();
-    this.#keyInflight.clear();
     this.#jwksCache.clear();
-    this.#jwksInflight.clear();
     this.#discoveryCache.clear();
+    this.#discoveryRetry.clear();
+    this.#jwksRetry.clear();
+  }
+
+  #clearInflight(): void {
+    this.#keyInflight.clear();
+    this.#jwksInflight.clear();
     this.#discoveryInflight.clear();
   }
 
@@ -168,7 +183,7 @@ export class JWKSOAuthKeyring implements OAuthKeyring {
   // Discovery resolution with cache + dedup
   // -------------------------------------------------------
 
-  async #resolveJwksUri(issuer: string): Promise<string> {
+  async #resolveJwksUri(issuer: string, started: number): Promise<string> {
     const cached = this.#getCached(this.#discoveryCache, issuer);
     if (cached) {
       return cached;
@@ -179,35 +194,39 @@ export class JWKSOAuthKeyring implements OAuthKeyring {
       return inflight;
     }
 
+    this.#discoveryRetry.check(issuer, performance.now());
     const promise = (async () => {
       try {
-        let metadata;
-        try {
-          metadata = await fetchAuthorizationServerMetadata(issuer, {
-            signal: AbortSignal.timeout(this.#fetchTimeoutMs),
-          });
-        } catch (cause) {
-          if (cause instanceof ResponseBodyTooLargeError) {
-            throw new JWKSDiscoveryError(
-              `Failed to discover JWKS URI for "${issuer}": ${cause.message}`,
-            );
+        const metadata = await fetchAuthorizationServerMetadata(issuer, {
+          signal: AbortSignal.timeout(this.#fetchTimeoutMs),
+        }).catch((cause: unknown) => {
+          const retryable = cause instanceof ResponseBodyTooLargeError
+            ? cause.retryable
+            : !(cause instanceof OAuthError) && isTransientMetadataFailure(cause);
+          const detail = cause instanceof Error ? cause.message : String(cause);
+          const error = new JWKSDiscoveryError(`Discovery failed for "${issuer}": ${detail}`, { retryable, cause });
+          if (retryable && started === this.#generation) {
+            this.#discoveryRetry.record(issuer, error, cause, performance.now());
           }
-          throw cause;
-        }
+          throw error;
+        });
         if (!metadata.jwks_uri) {
           throw new JWKSDiscoveryError(`No JSON Web Key Set available for "${issuer}"`);
         }
 
         assertSameOrigin(issuer, metadata.jwks_uri);
 
-        this.#discoveryCache.set(issuer, {
-          value: metadata.jwks_uri,
-          expiresAt: Date.now() + this.#discoveryTtlMs,
-        });
+        if (started === this.#generation) {
+          this.#discoveryCache.set(issuer, {
+            value: metadata.jwks_uri,
+            expiresAt: Date.now() + this.#discoveryTtlMs,
+          });
+          this.#discoveryRetry.delete(issuer);
+        }
 
         return metadata.jwks_uri;
       } finally {
-        this.#discoveryInflight.delete(issuer);
+        if (started === this.#generation) this.#discoveryInflight.delete(issuer);
       }
     })();
 
@@ -224,6 +243,7 @@ export class JWKSOAuthKeyring implements OAuthKeyring {
     kid: string,
     jwksUri: string,
     cacheKey: string,
+    started: number,
   ): Promise<CryptoKey> {
     const inflight = this.#keyInflight.get(cacheKey);
     if (inflight) {
@@ -239,7 +259,7 @@ export class JWKSOAuthKeyring implements OAuthKeyring {
         }
         let jwk = entry?.value.keys.find((jwk) => jwk.kid === kid);
         if (!jwk && (!entry || Date.now() - entry.fetchedAt >= this.#jwksRefetchCooldownMs)) {
-          const jwkSet = await this.#fetchJwks(issuer, jwksUri);
+          const jwkSet = await this.#fetchJwks(issuer, jwksUri, started);
           jwk = jwkSet.keys.find((jwk) => jwk.kid === kid);
         }
         if (!jwk) {
@@ -258,19 +278,21 @@ export class JWKSOAuthKeyring implements OAuthKeyring {
           ['verify'],
         );
 
-        this.#keyCache.set(cacheKey, {
-          value: key,
-          expiresAt: Date.now() + this.#keyTtlMs,
-        });
-        this.#evictKeysIfNeeded();
+        if (started === this.#generation) {
+          this.#keyCache.set(cacheKey, {
+            value: key,
+            expiresAt: Date.now() + this.#keyTtlMs,
+          });
+          this.#evictKeysIfNeeded();
+        }
 
         return key;
       } finally {
-        this.#keyInflight.delete(cacheKey);
+        if (started === this.#generation) this.#keyInflight.delete(cacheKey);
       }
     })();
 
-    this.#keyInflight.set(cacheKey, promise);
+    if (started === this.#generation) this.#keyInflight.set(cacheKey, promise);
     return promise;
   }
 
@@ -278,49 +300,60 @@ export class JWKSOAuthKeyring implements OAuthKeyring {
   // JWKS fetch with dedup: concurrent misses for any kid share one fetch
   // -------------------------------------------------------
 
-  async #fetchJwks(issuer: string, jwksUri: string): Promise<JWKSet> {
+  async #fetchJwks(issuer: string, jwksUri: string, started: number): Promise<JWKSet> {
     const inflight = this.#jwksInflight.get(jwksUri);
     if (inflight) {
       return inflight;
     }
 
+    this.#jwksRetry.check(jwksUri, performance.now());
     const promise = (async () => {
       try {
-        const response = await fetch(jwksUri, {
-          signal: AbortSignal.timeout(this.#fetchTimeoutMs),
-        });
-        if (!response.ok) {
-          discardResponseBody(response);
-          throw new JWKSFetchError(
-            `Failed to fetch JWKS from "${jwksUri}" for "${issuer}" (HTTP ${response.status})`,
-          );
-        }
-
+        const message = `Failed to fetch JWKS from "${jwksUri}" for "${issuer}"`;
         let text: string;
         try {
+          const response = await fetch(jwksUri, { signal: AbortSignal.timeout(this.#fetchTimeoutMs) });
+          if (!response.ok) {
+            discardResponseBody(response);
+            throw new HTTPError(`${message} (HTTP ${response.status})`, response.status, undefined,
+              response.headers?.get("Retry-After") ?? undefined);
+          }
           text = await readResponseText(response);
         } catch (cause) {
-          if (cause instanceof ResponseBodyTooLargeError) {
-            throw new JWKSFetchError(
-              `Failed to fetch JWKS from "${jwksUri}" for "${issuer}": ${cause.message}`,
-            );
+          const retryable = isTransientMetadataFailure(cause);
+          const detail = cause instanceof ResponseBodyTooLargeError ? `${message}: ${cause.message}` : message;
+          const error = new JWKSFetchError(cause instanceof HTTPError ? cause.message : detail, { retryable, cause });
+          if (retryable && started === this.#generation) {
+            this.#jwksRetry.record(jwksUri, error, cause, performance.now());
           }
-          throw cause;
+          throw error;
         }
-        const jwkSet = JWKSetSchema.parse(JSON.parse(text));
+
+        let document: unknown;
+        try {
+          document = JSON.parse(text);
+        } catch (cause) {
+          throw new JWKSFetchError(message, { retryable: false, cause });
+        }
+        const parsed = JWKSetSchema.safeParse(document);
+        if (!parsed.success) throw new JWKSFetchError(message, { retryable: false, cause: parsed.error });
+        const jwkSet = parsed.data;
         const now = Date.now();
-        this.#jwksCache.set(jwksUri, {
-          value: jwkSet,
-          fetchedAt: now,
-          expiresAt: now + this.#keyTtlMs,
-        });
+        if (started === this.#generation) {
+          this.#jwksCache.set(jwksUri, {
+            value: jwkSet,
+            fetchedAt: now,
+            expiresAt: now + this.#keyTtlMs,
+          });
+          this.#jwksRetry.delete(jwksUri);
+        }
         return jwkSet;
       } finally {
-        this.#jwksInflight.delete(jwksUri);
+        if (started === this.#generation) this.#jwksInflight.delete(jwksUri);
       }
     })();
 
-    this.#jwksInflight.set(jwksUri, promise);
+    if (started === this.#generation) this.#jwksInflight.set(jwksUri, promise);
     return promise;
   }
 

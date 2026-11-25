@@ -242,21 +242,104 @@ describe('JWKSOAuthKeyring', () => {
       );
     });
 
-    it('retries after a failed fetch (does not cache errors)', async () => {
+    it('row 10: defers a later key-set fetch after a network failure', async () => {
       mockFetchMetadata.mockResolvedValue({
         issuer: TEST_ISSUER,
         jwks_uri: TEST_JWKS_URI,
       });
-      mockFetch.mockResolvedValueOnce(new Response('Error', { status: 500 }));
+      mockFetch.mockRejectedValueOnce(new TypeError('connection reset'));
 
       const keyring = new JWKSOAuthKeyring();
-      await expect(keyring.key(TEST_ISSUER, TEST_KID)).rejects.toThrow();
+      const now = performance.now();
+      const clock = jest.spyOn(performance, 'now').mockReturnValue(now);
+      try {
+        await expect(keyring.key(TEST_ISSUER, TEST_KID)).rejects.toBeInstanceOf(JWKSFetchError);
+        await expect(keyring.key(TEST_ISSUER, TEST_KID)).rejects.toBeInstanceOf(JWKSFetchError);
+        expect(mockFetch).toHaveBeenCalledTimes(1);
+        clock.mockReturnValue(now + 1200);
+        mockFetch.mockResolvedValueOnce(makeJwksResponse());
+        const key = await keyring.key(TEST_ISSUER, TEST_KID);
+        expect(key).toBeDefined();
+        expect(mockFetch).toHaveBeenCalledTimes(2);
+      } finally {
+        clock.mockRestore();
+      }
+    });
 
-      // Second attempt should retry (inflight was cleaned up)
-      mockFetch.mockResolvedValueOnce(makeJwksResponse());
-      const key = await keyring.key(TEST_ISSUER, TEST_KID);
-      expect(key).toBeDefined();
-      expect(mockFetch).toHaveBeenCalledTimes(2);
+    it('row 11: defers discovery after a network failure', async () => {
+      const now = performance.now();
+      const clock = jest.spyOn(performance, 'now').mockReturnValue(now);
+      try {
+        mockFetchMetadata.mockRejectedValueOnce(new TypeError('connection reset'));
+        const keyring = new JWKSOAuthKeyring();
+        await expect(keyring.key(TEST_ISSUER, TEST_KID)).rejects.toThrow('connection reset');
+        await expect(keyring.key(TEST_ISSUER, TEST_KID)).rejects.toBeInstanceOf(JWKSDiscoveryError);
+        expect(mockFetchMetadata).toHaveBeenCalledTimes(1);
+        clock.mockReturnValue(now + 1200);
+        setupMocks();
+        await expect(keyring.key(TEST_ISSUER, TEST_KID)).resolves.toBeDefined();
+      } finally {
+        clock.mockRestore();
+      }
+    });
+
+    it('row 20: caps Retry-After at 60 seconds and shares the failure across kids', async () => {
+      setupMocks();
+      const now = performance.now();
+      const clock = jest.spyOn(performance, 'now').mockReturnValue(now);
+      try {
+        mockFetch.mockResolvedValueOnce(new Response('', { status: 429, headers: { 'Retry-After': '120' } }));
+        const keyring = new JWKSOAuthKeyring();
+        await expect(keyring.key(TEST_ISSUER, 'another-kid')).rejects.toMatchObject({ retryable: true });
+        clock.mockReturnValue(now + 59999);
+        await expect(keyring.key(TEST_ISSUER, TEST_KID)).rejects.toBeInstanceOf(JWKSFetchError);
+        expect(mockFetch).toHaveBeenCalledTimes(1);
+        clock.mockReturnValue(now + 60000);
+        await expect(keyring.key(TEST_ISSUER, TEST_KID)).resolves.toBeDefined();
+        expect(mockFetch).toHaveBeenCalledTimes(2);
+      } finally {
+        clock.mockRestore();
+      }
+    });
+
+    it('row 10: a malformed JWKS is a non-retryable typed error', async () => {
+      setupMocks();
+      mockFetch.mockResolvedValueOnce(new Response('{"keys":42}'));
+      const keyring = new JWKSOAuthKeyring();
+      await expect(keyring.key(TEST_ISSUER, TEST_KID))
+        .rejects.toMatchObject({ name: 'JWKSFetchError', retryable: false, cause: expect.any(Error) });
+      await expect(keyring.key(TEST_ISSUER, TEST_KID)).resolves.toBeDefined();
+    });
+
+    it.each(['invalidate', 'clear'])('row 11: %s ignores a pending discovery failure', async (operation) => {
+      setupMocks();
+      let reject!: (error: Error) => void;
+      mockFetchMetadata.mockImplementationOnce(() => new Promise((_, fail) => { reject = fail; }));
+      const keyring = new JWKSOAuthKeyring();
+      const pending = keyring.key(TEST_ISSUER, TEST_KID);
+      if (operation === 'clear') keyring.clear();
+      else keyring.invalidate(TEST_ISSUER, TEST_KID);
+      reject(new TypeError('connection reset'));
+      await expect(pending).rejects.toThrow('connection reset');
+      await expect(keyring.key(TEST_ISSUER, TEST_KID)).resolves.toBeDefined();
+      expect(mockFetchMetadata).toHaveBeenCalledTimes(2);
+    });
+
+    it('row 11: caps discovery cooldowns and evicts the oldest issuer', async () => {
+      jest.useFakeTimers();
+      try {
+        const keyring = new JWKSOAuthKeyring();
+        mockFetchMetadata.mockRejectedValue(new TypeError('connection reset'));
+        for (let i = 0; i <= 128; i++) {
+          await expect(keyring.key(`https://issuer${i}.example.com`, TEST_KID)).rejects.toThrow('connection reset');
+        }
+        await expect(keyring.key('https://issuer128.example.com', TEST_KID)).rejects.toThrow('connection reset');
+        expect(mockFetchMetadata).toHaveBeenCalledTimes(129);
+        await expect(keyring.key('https://issuer0.example.com', TEST_KID)).rejects.toThrow('connection reset');
+        expect(mockFetchMetadata).toHaveBeenCalledTimes(130);
+      } finally {
+        jest.useRealTimers();
+      }
     });
   });
 

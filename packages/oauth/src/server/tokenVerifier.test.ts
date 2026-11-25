@@ -2,7 +2,7 @@ import { jest } from '@jest/globals';
 import { TokenVerifier } from './tokenVerifier.js';
 import { JWTSigner, type JWTClaims } from '../jwt/signer.js';
 import { JWKSOAuthKeyring, type OAuthKeyring, type PrivateKeyring } from '../keyring.js';
-import { ConfigurationError, HTTPError, JWKSFetchError } from '../errors.js';
+import { ConfigurationError, HTTPError, JWKSDiscoveryError, JWKSFetchError } from '../errors.js';
 
 const RS256_PRIVATE_JWK = {
   kty: 'RSA',
@@ -425,14 +425,19 @@ describe('TokenVerifier', () => {
       await expect(verifier.verifyToken(await validToken())).rejects.toBeInstanceOf(JWKSFetchError);
     });
 
-    it('throws the discovery HTTPError when authorization-server metadata cannot be fetched', async () => {
+    it('throws JWKSDiscoveryError with the HTTPError when metadata cannot be fetched', async () => {
       stubZone(() => json({ error: 'down' }, 500));
       const verifier = new TokenVerifier({
         issuer: ISSUER,
         audience: 'https://api.example.com',
         keyring: new JWKSOAuthKeyring(),
       });
-      await expect(verifier.verifyToken(await validToken())).rejects.toBeInstanceOf(HTTPError);
+      const verification = verifier.verifyToken(await validToken());
+      await expect(verification).rejects.toBeInstanceOf(JWKSDiscoveryError);
+      await expect(verification).rejects.toMatchObject({
+        cause: expect.any(HTTPError),
+        retryable: true,
+      });
     });
 
     it('returns null for a kid absent from a JWKS that loaded', async () => {
