@@ -1,5 +1,6 @@
 import { fetchAuthorizationServerMetadata } from "./discovery.js";
 import { HTTPError, OAuthError, ResponseBodyTooLargeError, TokenEndpointDiscoveryError } from "./errors.js";
+import { isTransientMetadataFailure, MetadataRetry } from "./metadataRetry.js";
 
 export const DEFAULT_DISCOVERY_TTL_MS = 60 * 60 * 1000;
 export const DEFAULT_NEGATIVE_TTL_MS = 60 * 1000;
@@ -23,7 +24,7 @@ type CacheEntry =
 /**
  * Resolves and caches an issuer's token endpoint per the base rule that
  * metadata failures are not sticky: success is cached for `discoveryTtlMs`,
- * a transient failure caches nothing, a deterministic failure is remembered
+ * a transient failure may pace the next fetch, a deterministic failure is remembered
  * for at most `negativeTtlMs`. Concurrent cold-cache callers share one
  * in-flight discovery, which is bounded by an internal timeout rather than
  * any caller's signal so no single caller can poison it for the others.
@@ -34,6 +35,7 @@ export class TokenEndpointResolver {
   #negativeTtlMs: number;
   #fetchTimeoutMs: number;
   #cached?: CacheEntry;
+  #retry = new MetadataRetry();
   #inflight?: Promise<string>;
 
   constructor(issuer: string, options?: TokenEndpointCacheOptions & { fetchTimeoutMs?: number }) {
@@ -53,6 +55,7 @@ export class TokenEndpointResolver {
     if (this.#inflight) {
       return this.#inflight;
     }
+    this.#retry.check(performance.now());
 
     const promise = (async () => {
       try {
@@ -91,11 +94,14 @@ export class TokenEndpointResolver {
     }
 
     this.#cached = { endpoint: tokenEndpoint, expiresAt: Date.now() + this.#discoveryTtlMs };
+    this.#retry.reset();
     return tokenEndpoint;
   }
 
   #store(error: TokenEndpointDiscoveryError): TokenEndpointDiscoveryError {
-    if (!error.retryable && this.#negativeTtlMs > 0) {
+    if (error.retryable) {
+      this.#retry.record(error, error.cause, performance.now());
+    } else if (this.#negativeTtlMs > 0) {
       const ttl = Math.min(this.#negativeTtlMs, this.#discoveryTtlMs);
       this.#cached = { error, expiresAt: Date.now() + ttl };
     }
@@ -111,7 +117,7 @@ function isDeterministicDiscoveryFailure(cause: unknown): boolean {
   if (cause instanceof HTTPError) {
     return cause.status !== undefined && cause.status >= 400 && cause.status < 500 && cause.status !== 429;
   }
-  return cause instanceof OAuthError;
+  return cause instanceof OAuthError || !isTransientMetadataFailure(cause);
 }
 
 function describe(cause: unknown): string {

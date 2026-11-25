@@ -4,6 +4,7 @@ export class HTTPError extends Error {
     /** HTTP status of the failed response, when one was received. */
     public readonly status?: number,
     public readonly cause?: unknown,
+    public readonly retryAfter?: string,
   ) {
     super(message);
   }
@@ -297,10 +298,14 @@ export class JWKSError extends Error {
 
 /** Discovery failed, or the metadata advertised no `jwks_uri`. */
 export class JWKSDiscoveryError extends JWKSError {
-  constructor(message: string) {
+  constructor(message: string, options?: { retryable: boolean; cause?: unknown }) {
     super(message);
     this.name = "JWKSDiscoveryError";
+    this.retryable = options?.retryable ?? false;
+    this.cause = options?.cause;
   }
+  readonly retryable: boolean;
+  readonly cause?: unknown;
 }
 
 /** The discovered `jwks_uri` is cross-origin with the issuer (rejected before fetch). */
@@ -313,10 +318,14 @@ export class JWKSUriValidationError extends JWKSError {
 
 /** The JWKS endpoint returned a non-2xx response. */
 export class JWKSFetchError extends JWKSError {
-  constructor(message: string) {
+  constructor(message: string, options?: { retryable: boolean; cause?: unknown }) {
     super(message);
     this.name = "JWKSFetchError";
+    this.retryable = options?.retryable ?? false;
+    this.cause = options?.cause;
   }
+  readonly retryable: boolean;
+  readonly cause?: unknown;
 }
 
 /**

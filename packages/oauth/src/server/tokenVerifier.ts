@@ -90,8 +90,7 @@ export class TokenVerifier {
    *
    * Throws when verification could not complete because the zone's signing
    * keys or authorization-server metadata could not be fetched
-   * ({@link JWKSError} other than key-not-found, {@link HTTPError},
-   * {@link OAuthError} from discovery). Middleware maps that to a 503 so the
+   * ({@link JWKSError} other than key-not-found). Middleware maps that to a 503 so the
    * client keeps its token and retries instead of signing in again.
    */
   async verifyToken(token: string): Promise<AccessToken | null> {
