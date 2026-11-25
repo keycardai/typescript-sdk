@@ -571,7 +571,10 @@ export function interactive(
       if (
         cause instanceof RefreshGrantError &&
         (cause.errorCode === "invalid_grant" ||
-          cause.errorCode === "insufficient_authorization")
+          cause.errorCode === "insufficient_authorization" ||
+          (cause.errorCode === "invalid_client" &&
+            !cause.retryable &&
+            grant.clientId !== staticClientId))
       ) {
         // A concurrent step may have rotated this grant first, in which case
         // the refresh token we sent is the stale one and the stored grant is

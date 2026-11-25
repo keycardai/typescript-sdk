@@ -1108,6 +1108,123 @@ describe("interactive grant lifecycle", () => {
     expect(result.token).toBe("granted-token");
   });
 
+  it("row 27a: deletes a grant held by a different client and parks on invalid_client", async () => {
+    const flow = recordingFlow({
+      refresh: new RefreshGrantError("invalid_client", "client not found", {
+        retryable: false,
+        status: 401,
+      }),
+    });
+    const tokens = memoryAuthorizedTokenStore();
+    await tokens.put(PRINCIPAL_KEY, {
+      id: "grant-1",
+      clientId: "old-client",
+      accessToken: "granted-token",
+      expiresAt: Date.now() + 30_000,
+      refreshToken: "refresh-1",
+      resources: [CALENDAR],
+      scopes: [],
+    });
+    const auth = interactive({
+      resource: CALENDAR,
+      clientId: "current-client",
+      clientSecret: "app-secret",
+      tokens,
+      flow,
+    });
+
+    await expect(
+      auth.getToken({ principal: userPrincipal(), connection }),
+    ).rejects.toMatchObject({
+      name: "ConnectionAuthorizationRequiredError",
+      connectionName: CALENDAR,
+    });
+    expect(flow.refreshes).toEqual([
+      { clientId: "old-client", refreshToken: "refresh-1", resources: [CALENDAR] },
+    ]);
+    expect(await tokens.list(PRINCIPAL_KEY)).toEqual([]);
+  });
+
+  it.each([429, 503])(
+    "keeps a grant held by a different client on HTTP %i with invalid_client",
+    async (status) => {
+      const flow = recordingFlow({
+        refresh: new RefreshGrantError("invalid_client", "refresh unavailable", {
+          retryable: true,
+          status,
+        }),
+      });
+      const tokens = memoryAuthorizedTokenStore();
+      const grant = {
+        id: "grant-1",
+        clientId: "old-client",
+        accessToken: "granted-token",
+        expiresAt: Date.now() + 30_000,
+        refreshToken: "refresh-1",
+        resources: [CALENDAR],
+        scopes: [],
+      };
+      await tokens.put(PRINCIPAL_KEY, grant);
+      const auth = interactive({
+        resource: CALENDAR,
+        clientId: "current-client",
+        tokens,
+        flow,
+      });
+
+      await expect(
+        auth.getToken({ principal: userPrincipal(), connection }),
+      ).rejects.toMatchObject({
+        name: "ConnectionAuthorizationFailedError",
+        reason: FailureReason.ACQUISITION_FAILED,
+        retryable: true,
+      });
+      expect(await tokens.list(PRINCIPAL_KEY)).toEqual([grant]);
+    },
+  );
+
+  it("row 27b: keeps the configured client's grant and fails on invalid_client", async () => {
+    const flow = recordingFlow({
+      completion: {
+        accessToken: "granted-token",
+        tokenType: "Bearer",
+        expiresIn: 30,
+        refreshToken: "refresh-1",
+      },
+      refresh: new RefreshGrantError("invalid_client", "invalid client secret", {
+        retryable: false,
+        status: 401,
+      }),
+    });
+    const tokens = memoryAuthorizedTokenStore();
+    const auth = interactive({
+      resource: CALENDAR,
+      clientId: "current-client",
+      clientSecret: "app-secret",
+      tokens,
+      flow,
+    });
+    await authorize(auth);
+    const held = await tokens.list(PRINCIPAL_KEY);
+
+    await expect(
+      auth.getToken({ principal: userPrincipal(), connection }),
+    ).rejects.toMatchObject({
+      name: "ConnectionAuthorizationFailedError",
+      reason: FailureReason.ACQUISITION_FAILED,
+      retryable: false,
+    });
+    expect(flow.refreshes).toEqual([
+      {
+        clientId: "current-client",
+        clientSecret: "app-secret",
+        refreshToken: "refresh-1",
+        resources: [CALENDAR],
+      },
+    ]);
+    expect(await tokens.list(PRINCIPAL_KEY)).toEqual(held);
+  });
+
   it("surfaces a failed refresh with the zone's retryability", async () => {
     const flow = recordingFlow({
       completion: {
