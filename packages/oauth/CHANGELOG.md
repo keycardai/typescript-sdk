@@ -1,3 +1,19 @@
+## 0.33.0-keycardai-oauth (2026-11-25)
+
+
+- feat(oauth): accept multiple bearer token audiences (#390)
+- * feat(oauth): accept multiple bearer token audiences
+- Co-Authored-By: Larry Osakwe <larry@keycard.ai>
+- * fix(mcp): reject explicitly empty bearer audiences
+- Co-Authored-By: Larry Osakwe <larry@keycard.ai>
+- * fix(cloudflare): reject explicitly empty bearer audiences
+- Co-Authored-By: Larry Osakwe <larry@keycard.ai>
+- * fix(cloudflare): reject empty audiences when creating a worker
+- Co-Authored-By: Larry Osakwe <larry@keycard.ai>
+- ---------
+- Co-authored-by: devin-ai-keycard <devin-ai@keycard.ai>
+Co-authored-by: Larry Osakwe <larry@keycard.ai>
+
 ## 0.32.0-keycardai-oauth (2026-11-25)
 
 
