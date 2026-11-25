@@ -1,3 +1,10 @@
+## 0.33.1-keycardai-oauth (2026-11-25)
+
+
+- fix(oauth): exchangeToken sends an assertion credential's prepared client authentication (#391)
+- When a credential has no shared secret for the issuer and the request carries no client assertion, exchangeToken takes clientAssertion, clientAssertionType and clientId from the credential's prepareTokenExchangeRequest, resolving one issuer (options.issuer or the client's issuer) for both Basic and assertion authentication (keycard-sdk-spec#137).
+- Co-authored-by: Larry Osakwe <23560354+Larry-Osakwe@users.noreply.github.com>
+
 ## 0.33.0-keycardai-oauth (2026-11-25)
 
 
