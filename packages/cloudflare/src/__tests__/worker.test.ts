@@ -1,5 +1,5 @@
 import { describe, it, expect, jest, beforeEach } from "@jest/globals";
-import { ConfigurationError } from "@keycardai/oauth/errors";
+import { ConfigurationError, CredentialDiscoveryError } from "@keycardai/oauth/errors";
 import type { AuthInfo, KeycardEnv } from "../types.js";
 
 // Mock auth and metadata modules
@@ -174,5 +174,40 @@ describe("resolveCredential", () => {
     expect(() =>
       resolveCredential({ KEYCARD_ISSUER: "https://auth.keycard.ai" }),
     ).toThrow("Missing Keycard credentials");
+  });
+
+  it("preserves the private key precedence even with a selector", () => {
+    const credential = resolveCredential({
+      ...mockEnv,
+      KEYCARD_PRIVATE_KEY: "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----",
+      KEYCARD_APPLICATION_CREDENTIAL_TYPE: "client_secret",
+    });
+
+    expect(credential.getAuth()).toBeNull();
+  });
+
+  it("honors the client secret selector", () => {
+    const credential = resolveCredential({
+      ...mockEnv,
+      KEYCARD_APPLICATION_CREDENTIAL_TYPE: "client_secret",
+    });
+
+    expect(credential.getAuth()).toEqual({ clientId: "app-123", clientSecret: "secret-456" });
+  });
+
+  it.each([
+    [{}, "absent", [], "Missing Keycard credentials"],
+    [{ KEYCARD_CLIENT_SECRET: "secret-456" }, "incomplete", [], "KEYCARD_CLIENT_ID"],
+    [{ ...mockEnv, KEYCARD_APPLICATION_CREDENTIAL_TYPE: "unknown" }, "unknown_type", ["client_secret"], "KEYCARD_APPLICATION_CREDENTIAL_TYPE"],
+    [{ ...mockEnv, KEYCARD_APPLICATION_CREDENTIAL_TYPE: "workload_identity" }, "not_satisfiable", ["client_secret"], "token file"],
+    [{ ...mockEnv, KEYCARD_APPLICATION_CREDENTIAL_TYPE: "web_identity" }, "not_satisfiable", ["client_secret"], "KEYCARD_PRIVATE_KEY"],
+  ] as const)("throws a typed discovery error for %j", (bindings, reason, resolvable, hint) => {
+    expect(() => resolveCredential({ KEYCARD_ISSUER: "https://auth.keycard.ai", ...bindings }))
+      .toThrow(expect.objectContaining({
+        constructor: CredentialDiscoveryError,
+        reason,
+        resolvable,
+        message: expect.stringContaining(hint),
+      }));
   });
 });

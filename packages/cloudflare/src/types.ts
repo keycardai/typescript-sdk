@@ -9,6 +9,7 @@ export interface KeycardEnv {
   // Option A: Client credentials (client_id + client_secret)
   KEYCARD_CLIENT_ID?: string;
   KEYCARD_CLIENT_SECRET?: string;
+  KEYCARD_APPLICATION_CREDENTIAL_TYPE?: string;
 
   // Option B: Web identity (private_key_jwt — no client secret needed)
   KEYCARD_PRIVATE_KEY?: string;
