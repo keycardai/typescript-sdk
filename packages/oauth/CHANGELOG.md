@@ -1,3 +1,20 @@
+## 0.36.0-keycardai-oauth (2026-11-25)
+
+
+- feat(oauth): token revocation (ID-881) (#422)
+- * feat(oauth): token revocation (ID-881)
+- Implement specs/oauth-client/token-revocation.md (unit rows 1-15) and specs/oauth-client/authorization-server-discovery.md (unit rows 12-13).
+- Co-Authored-By: Larry Osakwe <larry@keycard.ai>
+- * fix(oauth): require HTTPS for token revocation
+- Co-Authored-By: Larry Osakwe <larry@keycard.ai>
+- * fix(oauth): classify token revocation timeouts as retryable
+- Co-Authored-By: Larry Osakwe <larry@keycard.ai>
+- * fix(oauth): tolerate malformed revocation metadata in discovery
+- Co-Authored-By: Larry Osakwe <larry@keycard.ai>
+- ---------
+- Co-authored-by: devin-ai-keycard <devin-ai@keycard.ai>
+Co-authored-by: Larry Osakwe <larry@keycard.ai>
+
 ## 0.35.3-keycardai-oauth (2026-11-25)
 
 
