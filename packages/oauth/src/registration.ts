@@ -1,6 +1,7 @@
 import { requestSignal } from "./requestSignal.js";
 import { fetchAuthorizationServerMetadata } from "./discovery.js";
 import { ConfigurationError, OAuthError } from "./errors.js";
+import { oauthErrorFields } from "./oauthErrorFields.js";
 
 /**
  * RFC 7591 Dynamic Client Registration request metadata.
@@ -128,7 +129,7 @@ export async function registerClient(
         ? errorBody.error_description
         : errorBody.error;
       const errorUri = typeof errorBody.error_uri === "string" ? errorBody.error_uri : undefined;
-      throw new OAuthError(errorBody.error, description, errorUri);
+      throw new OAuthError(errorBody.error, description, errorUri, oauthErrorFields(errorBody));
     }
     throw new OAuthError("invalid_response", `Client registration failed (HTTP ${response.status})`);
   }

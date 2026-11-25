@@ -1,4 +1,5 @@
 import { OAuthError } from "./errors.js";
+import { oauthErrorFields } from "./oauthErrorFields.js";
 import type { ApplicationCredential } from "./credentials.js";
 import { basicAuthorization } from "./basicAuthorization.js";
 import { DEFAULT_FETCH_TIMEOUT_MS, TokenEndpointResolver, type TokenEndpointCacheOptions } from "./tokenEndpoint.js";
@@ -115,7 +116,7 @@ export class ClientCredentialsClient {
           const errorUri = typeof errorBody.error_uri === "string"
             ? errorBody.error_uri
             : undefined;
-          throw new OAuthError(errorCode, description, errorUri);
+          throw new OAuthError(errorCode, description, errorUri, oauthErrorFields(errorBody));
         }
       } catch (e) {
         if (e instanceof OAuthError) throw e;

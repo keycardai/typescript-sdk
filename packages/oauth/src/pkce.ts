@@ -3,6 +3,7 @@ import base64url from "./base64url.js";
 import { basicAuthorization } from "./basicAuthorization.js";
 import { fetchAuthorizationServerMetadata, type OAuthAuthorizationServerMetadata } from "./discovery.js";
 import { ConfigurationError, OAuthError } from "./errors.js";
+import { oauthErrorFields } from "./oauthErrorFields.js";
 import { requireClientAuthentication, type ApplicationCredential, type ClientAuthenticator } from "./credentials.js";
 import { deserializeTokenResponse, type TokenResponse } from "./tokenExchange.js";
 
@@ -171,7 +172,7 @@ export async function exchangeAuthorizationCode(
         ? errorBody.error_description
         : errorBody.error;
       const errorUri = typeof errorBody.error_uri === "string" ? errorBody.error_uri : undefined;
-      throw new OAuthError(errorBody.error, description, errorUri);
+      throw new OAuthError(errorBody.error, description, errorUri, oauthErrorFields(errorBody));
     }
     throw new OAuthError(
       "invalid_response",

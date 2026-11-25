@@ -14,15 +14,39 @@ export class BadRequestError extends HTTPError {
 export class UnauthorizedError extends HTTPError {
 }
 
+/**
+ * Optional members of an authorization-server error response: the RFC 6749
+ * §5.2 `error_description` and Keycard's `reason`.
+ */
+export interface OAuthErrorFields {
+  /** The `error_description` from the response, when one was sent. */
+  errorDescription?: string;
+  /** The `reason` from the response, unchanged, when one was sent. */
+  reason?: string;
+}
+
 export class OAuthError extends Error {
+  /** The `error_description` from the response, when one was sent. */
+  readonly errorDescription?: string;
+  /**
+   * The authorization server's `reason`, unchanged, when the response carried
+   * one. Branch on this rather than on the description text. It is not
+   * checked against a fixed list and does not affect retryability.
+   */
+  readonly reason?: string;
+
   constructor(
     public readonly errorCode: string,
     message: string,
-    public readonly errorUri?: string
+    public readonly errorUri?: string,
+    fields?: OAuthErrorFields,
   ) {
     super(message);
+    this.errorDescription = fields?.errorDescription;
+    this.reason = fields?.reason;
   }
 }
+
 
 export class InvalidTokenError extends OAuthError {
   constructor(message: string, errorUri?: string) {
@@ -42,8 +66,8 @@ export class InsufficientScopeError extends OAuthError {
  * (RFC 6749 §4.1.2.1). No token request is made.
  */
 export class AuthorizationDeniedError extends OAuthError {
-  constructor(errorCode: string, public readonly errorDescription?: string, errorUri?: string) {
-    super(errorCode, errorDescription ?? `Authorization denied: ${errorCode}`, errorUri);
+  constructor(errorCode: string, errorDescription?: string, errorUri?: string) {
+    super(errorCode, errorDescription ?? `Authorization denied: ${errorCode}`, errorUri, { errorDescription });
     this.name = "AuthorizationDeniedError";
   }
 }
@@ -84,9 +108,19 @@ export class RefreshGrantError extends OAuthError {
   constructor(
     errorCode: string,
     message: string,
-    options: { retryable: boolean; status?: number; errorUri?: string; cause?: unknown },
+    options: {
+      retryable: boolean;
+      status?: number;
+      errorUri?: string;
+      cause?: unknown;
+      errorDescription?: string;
+      reason?: string;
+    },
   ) {
-    super(errorCode, message, options.errorUri);
+    super(errorCode, message, options.errorUri, {
+      errorDescription: options.errorDescription,
+      reason: options.reason,
+    });
     this.name = "RefreshGrantError";
     this.retryable = options.retryable;
     this.status = options.status;
@@ -116,21 +150,29 @@ export class RefreshGrantError extends OAuthError {
  */
 export class DeviceGrantError extends OAuthError {
   readonly retryable: boolean;
-  readonly errorDescription?: string;
   readonly status?: number;
   readonly cause?: unknown;
 
   constructor(
     errorCode: string,
-    options?: { errorDescription?: string; errorUri?: string; status?: number; retryable?: boolean; cause?: unknown },
+    options?: {
+      errorDescription?: string;
+      reason?: string;
+      errorUri?: string;
+      status?: number;
+      retryable?: boolean;
+      cause?: unknown;
+    },
   ) {
-    super(errorCode, options?.errorDescription ?? `Device authorization grant failed: ${errorCode}`, options?.errorUri);
+    super(errorCode, options?.errorDescription ?? `Device authorization grant failed: ${errorCode}`, options?.errorUri, {
+      errorDescription: options?.errorDescription,
+      reason: options?.reason,
+    });
     this.name = "DeviceGrantError";
     const status = options?.status;
     const transientStatus = status !== undefined && (status >= 500 || status === 429);
     this.retryable =
       options?.retryable ?? (transientStatus || (!isPermanentErrorCode(errorCode) && errorCode !== "invalid_grant"));
-    this.errorDescription = options?.errorDescription;
     this.status = status;
     this.cause = options?.cause;
   }
@@ -174,6 +216,8 @@ export type ErrorDetail = {
   message: string;
   code?: string;
   description?: string;
+  /** The authorization server's `reason` from the underlying `OAuthError`, when it had one. */
+  reason?: string;
   rawError?: string;
 };
 

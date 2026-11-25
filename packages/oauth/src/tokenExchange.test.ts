@@ -318,3 +318,71 @@ describe('deserializeTokenResponse', () => {
     expect(response.idToken).toBeUndefined();
   });
 });
+
+describe('TokenExchangeClient.exchangeToken OAuth error fields', () => {
+  let originalFetch: typeof fetch;
+
+  function serveError(body: Record<string, unknown>, status = 400): void {
+    globalThis.fetch = jest.fn(async (input: FetchInput) => {
+      const url = typeof input === 'string' ? input : (input as URL | Request).toString();
+      if (url.includes('/.well-known/oauth-authorization-server')) {
+        return mockMetadataResponse();
+      }
+      return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+    }) as unknown as typeof fetch;
+  }
+
+  async function exchangeError(): Promise<OAuthError> {
+    const client = new TokenExchangeClient(ISSUER, { clientId: 'app', clientSecret: 'shh' });
+    try {
+      await client.exchangeToken({ subjectToken: 'subject' });
+    } catch (e) {
+      expect(e).toBeInstanceOf(OAuthError);
+      return e as OAuthError;
+    }
+    throw new Error('expected exchangeToken to throw');
+  }
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it('exposes reason and error_description unchanged', async () => {
+    serveError({ error: 'access_denied', error_description: 'Denied', reason: 'custom_denial' });
+
+    const err = await exchangeError();
+    expect(err.errorCode).toBe('access_denied');
+    expect(err.reason).toBe('custom_denial');
+    expect(err.errorDescription).toBe('Denied');
+    expect(err.message).toBe('Denied');
+  });
+
+  it('leaves reason undefined when the response omits it', async () => {
+    serveError({ error: 'access_denied', error_description: 'Denied' });
+
+    const err = await exchangeError();
+    expect(err.reason).toBeUndefined();
+    expect(err.errorDescription).toBe('Denied');
+    expect(err.message).toBe('Denied');
+  });
+
+  it('leaves errorDescription undefined when the response omits it', async () => {
+    serveError({ error: 'invalid_grant', reason: 'policy_denied' });
+
+    const err = await exchangeError();
+    expect(err.reason).toBe('policy_denied');
+    expect(err.errorDescription).toBeUndefined();
+    expect(err.message).toBe('invalid_grant');
+  });
+
+  it('ignores a non-string reason', async () => {
+    serveError({ error: 'access_denied', reason: 42 });
+
+    const err = await exchangeError();
+    expect(err.reason).toBeUndefined();
+  });
+});

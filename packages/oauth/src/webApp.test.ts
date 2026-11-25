@@ -507,8 +507,30 @@ describe('web-app flow', () => {
       const error = failure as RefreshGrantError;
       expect(error.errorCode).toBe('invalid_grant');
       expect(error.message).toBe('refresh token revoked');
+      expect(error.errorDescription).toBe('refresh token revoked');
+      expect(error.reason).toBeUndefined();
       expect(error.retryable).toBe(false);
       expect(error.status).toBe(400);
+    });
+
+    it('exposes the reason on a RefreshGrantError without changing retryable', async () => {
+      mockFetch(() =>
+        jsonResponse(400, { error: 'invalid_grant', error_description: 'Denied', reason: 'custom_denial' }),
+      );
+
+      const failure = await refreshAuthorization(ISSUER, {
+        metadata: METADATA,
+        refreshToken: 'rt-1',
+        clientId: 'client-123',
+      }).catch((e: unknown) => e);
+
+      expect(failure).toBeInstanceOf(RefreshGrantError);
+      expect(failure).toMatchObject({
+        errorCode: 'invalid_grant',
+        reason: 'custom_denial',
+        errorDescription: 'Denied',
+        retryable: false,
+      });
     });
 
     it('maps a 5xx to a retryable RefreshGrantError', async () => {

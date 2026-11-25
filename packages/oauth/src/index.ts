@@ -27,6 +27,7 @@ export {
   DeviceGrantError,
   DevicePollError,
 } from "./errors.js";
+export type { OAuthErrorFields } from "./errors.js";
 export type { TokenEndpointCacheOptions } from "./tokenEndpoint.js";
 export { JWTSigner } from "./jwt/signer.js";
 export type { JWTClaims } from "./jwt/signer.js";

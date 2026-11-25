@@ -2,6 +2,7 @@ import { requestSignal } from "./requestSignal.js";
 import { requireClientAuthentication, type ApplicationCredential, type ClientAuthenticator } from "./credentials.js";
 import { fetchAuthorizationServerMetadata, type OAuthAuthorizationServerMetadata } from "./discovery.js";
 import { ConfigurationError, DeviceGrantError, DevicePollError, HTTPError, OAuthError } from "./errors.js";
+import { oauthErrorFields } from "./oauthErrorFields.js";
 import { deserializeTokenResponse, type TokenResponse } from "./tokenExchange.js";
 
 // =============================================================================
@@ -520,7 +521,7 @@ async function errorFromResponse(response: Response, what: string): Promise<Devi
     const fields = body as Record<string, unknown>;
     if (typeof fields.error === "string" && fields.error) {
       return new DeviceGrantError(fields.error, {
-        errorDescription: typeof fields.error_description === "string" ? fields.error_description : undefined,
+        ...oauthErrorFields(fields),
         errorUri: typeof fields.error_uri === "string" ? fields.error_uri : undefined,
         status: response.status,
       });

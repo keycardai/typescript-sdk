@@ -156,6 +156,23 @@ describe('exchangeAuthorizationCode', () => {
     expect(thrown).toBeInstanceOf(OAuthError);
     expect((thrown as OAuthError).errorCode).toBe('invalid_grant');
     expect((thrown as OAuthError).message).toBe('Authorization code expired');
+    expect((thrown as OAuthError).errorDescription).toBe('Authorization code expired');
+    expect((thrown as OAuthError).reason).toBeUndefined();
+  });
+
+  it('exposes the reason from an RFC 6749 error response unchanged', async () => {
+    fetchMock
+      .mockImplementationOnce(async () => metadataResponse())
+      .mockImplementationOnce(async () =>
+        jsonResponse(400, { error: 'invalid_grant', error_description: 'Denied', reason: 'custom_denial' }),
+      );
+
+    await expect(
+      exchangeAuthorizationCode(ISSUER, 'code', {
+        codeVerifier: 'v',
+        redirectUri: 'http://localhost:8080/callback',
+      }),
+    ).rejects.toMatchObject({ errorCode: 'invalid_grant', reason: 'custom_denial', errorDescription: 'Denied' });
   });
 
   it('throws when the AS does not advertise token_endpoint', async () => {

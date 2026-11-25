@@ -159,6 +159,41 @@ describe('ClientCredentialsClient.requestToken', () => {
     await expect(client.requestToken()).rejects.toThrow(OAuthError);
   });
 
+  it('exposes reason and error_description from the error response unchanged', async () => {
+    tokenResponseFactory = () =>
+      new Response(
+        JSON.stringify({ error: 'access_denied', error_description: 'Denied', reason: 'custom_denial' }),
+        { status: 400, headers: { 'content-type': 'application/json' } },
+      );
+
+    const client = new ClientCredentialsClient(ISSUER);
+    await expect(client.requestToken()).rejects.toMatchObject({
+      errorCode: 'access_denied',
+      reason: 'custom_denial',
+      errorDescription: 'Denied',
+      message: 'Denied',
+    });
+  });
+
+  it('leaves reason undefined when the error response omits it', async () => {
+    tokenResponseFactory = () =>
+      new Response(
+        JSON.stringify({ error: 'access_denied', error_description: 'Denied' }),
+        { status: 400, headers: { 'content-type': 'application/json' } },
+      );
+
+    const client = new ClientCredentialsClient(ISSUER);
+    let thrown: unknown;
+    try {
+      await client.requestToken();
+    } catch (e) {
+      thrown = e;
+    }
+    expect(thrown).toBeInstanceOf(OAuthError);
+    expect((thrown as OAuthError).reason).toBeUndefined();
+    expect((thrown as OAuthError).errorDescription).toBe('Denied');
+  });
+
   it('throws OAuthError("invalid_response") with the HTTP status on a non-JSON error response', async () => {
     tokenResponseFactory = () => new Response('upstream failure', { status: 502 });
 

@@ -3,6 +3,7 @@ import base64url from "./base64url.js";
 import { basicAuthorization } from "./basicAuthorization.js";
 import { fetchAuthorizationServerMetadata, type OAuthAuthorizationServerMetadata } from "./discovery.js";
 import { AuthorizationDeniedError, ConfigurationError, OAuthError, RefreshGrantError, StateMismatchError } from "./errors.js";
+import { oauthErrorFields } from "./oauthErrorFields.js";
 import { requireClientAuthentication, type ApplicationCredential, type ClientAuthenticator } from "./credentials.js";
 import { buildAuthorizeUrl, exchangeAuthorizationCode, generatePkcePair } from "./pkce.js";
 import { deserializeTokenResponse, type TokenResponse } from "./tokenExchange.js";
@@ -341,6 +342,7 @@ export async function refreshAuthorization(
         retryable,
         status: response.status,
         errorUri,
+        ...oauthErrorFields(errorBody),
       });
     }
     throw new RefreshGrantError(
