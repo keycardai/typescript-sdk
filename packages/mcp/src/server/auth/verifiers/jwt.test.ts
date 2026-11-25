@@ -1,4 +1,5 @@
 import { jest } from '@jest/globals';
+import { JWTSigner } from '@keycardai/oauth/jwt/signer';
 import { JWTOAuthTokenVerifier } from './jwt.js';
 import { JSONWebTokenSigner } from '../../../client/auth/signers/jwt.js'
 
@@ -74,8 +75,30 @@ describe('JSON Web Token Verifier', () => {
       clientId: 's6BhdRkqt3',
       resource: new URL('https://api.example.com'),
       scopes: ['profile', 'reademail'],
+      aud: ['https://api.example.com/'],
       expiresAt: Math.floor(now / 1000) + 3600
     });
+  });
+
+  it.each([
+    { row: '4a', aud: ['resource-a', 'resource-b'], act: { sub: 'actor', act: { sub: 'previous' } }, expected: ['resource-a', 'resource-b'] },
+    { row: '4b', aud: 'resource-a', act: undefined, expected: ['resource-a'] },
+  ])('row $row: exposes the verified audiences and actor chain', async ({ aud, act, expected }) => {
+    const { privateKey, publicKey } = await crypto.subtle.generateKey(
+      { name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' },
+      false,
+      ['sign', 'verify'],
+    );
+    const issuer = 'https://auth.example.com';
+    const now = Math.floor(Date.now() / 1000);
+    const signer = new JWTSigner({ key: async () => ({ issuer, kid: 'caller-key', key: privateKey }) });
+    const token = await signer.sign({ iss: issuer, sub: 'caller', client_id: 'client', iat: now, exp: now + 60, aud, act });
+    const verifier = new JWTOAuthTokenVerifier({ key: async () => publicKey }, { issuers: issuer, audiences: 'resource-a' });
+
+    const caller = await verifier.verifyAccessToken(token);
+
+    expect(caller.aud).toEqual(expected);
+    expect(caller.act).toEqual(act);
   });
 
   describe('missing-audience warning', () => {
