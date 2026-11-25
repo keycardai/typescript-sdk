@@ -1,3 +1,16 @@
+## 0.35.2-keycardai-oauth (2026-11-25)
+
+
+- fix(oauth): cap decoded authorization-server responses at 1 MiB (#395)
+- * fix(oauth): cap decoded authorization-server responses at 1 MiB
+- Co-Authored-By: Larry Osakwe <larry@keycard.ai>
+- * test(oauth): cover oversized 200 and 400 device polls in poll until done
+- Device row 36: after slow_down, an oversized 200 or 400 returns invalid_response directly, without a DevicePollError or interval (keycard-sdk-spec#141).
+- ---------
+- Co-authored-by: devin-ai-keycard <devin-ai@keycard.ai>
+Co-authored-by: Larry Osakwe <larry@keycard.ai>
+Co-authored-by: Larry Osakwe <23560354+Larry-Osakwe@users.noreply.github.com>
+
 ## 0.35.1-keycardai-oauth (2026-11-25)
 
 
