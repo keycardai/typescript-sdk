@@ -1,3 +1,10 @@
+## 0.35.0-keycardai-oauth (2026-11-25)
+
+
+- feat(oauth): add a read-only WorkloadIdentity.clientId getter (SDK-146) (#393)
+- Co-authored-by: devin-ai-keycard <devin-ai@keycard.ai>
+Co-authored-by: Larry Osakwe <larry@keycard.ai>
+
 ## 0.34.0-keycardai-oauth (2026-11-25)
 
 
