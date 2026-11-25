@@ -355,10 +355,13 @@ When a grant is within 60 seconds of expiry and holds a refresh token,
 client (public, no secret; a per-attempt client registers with
 `refresh_token` among its grant types), stores the rotated access and refresh
 token pair, and returns the new access token without parking. A refresh the
-zone refuses with `invalid_grant` deletes the grant and throws `Required`, so
-the turn parks for a fresh sign-in. A transport or 5xx failure keeps the grant
-and fails the tool call with `retryable: true`. A grant without a refresh token
-parks at expiry, as before.
+zone refuses with `invalid_grant` or `insufficient_authorization` deletes the
+grant and throws `Required`, so the turn parks for a fresh sign-in.
+`invalid_client` does the same if the grant's client is not the configured
+`clientId`. If the grant belongs to the configured client, the grant is kept
+and the tool call fails with a non-retryable acquisition error instead.
+A transport or 5xx failure keeps the grant and fails the tool call with
+`retryable: true`. A grant without a refresh token parks at expiry.
 
 `evict` removes every grant of the principal that covers this connection's
 resource, leaving grants for other resources in place.
