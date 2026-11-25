@@ -5,13 +5,37 @@ import {
   type ApplicationCredential,
   type ClientCredentialsRequest,
 } from "@keycardai/oauth";
+import { WorkloadIdentity } from "@keycardai/oauth/server";
 
+import {
+  CursorDeploymentTokenSource,
+  type CursorOidcTokenFetcher,
+} from "./cursorOidc.js";
 import { ConnectionAuthError, FailureReason } from "./errors.js";
 import { defaultSubjectTokenStore, type SubjectTokenStore } from "./subjectTokens.js";
 import { KeycardZoneClient, type ZoneClient } from "./zoneClient.js";
 
 /** Default skew: a cached token this close to expiry is replaced. */
 export const DEFAULT_EXPIRY_SKEW_SECONDS = 60;
+
+/** Options for authenticating a Cursor-hosted deployment with a Cursor OIDC token. */
+export interface CursorWorkloadIdentityOptions {
+  /** Public ID of the v2 token credential in the Keycard zone. */
+  clientId: string;
+  /**
+   * Audience requested from Cursor's `getOidcToken`. Defaults to the zone
+   * issuer URL. Must match the token credential's allowed audience and be
+   * declared in `hosting.oidc.audiences`.
+   */
+  audience?: string;
+  /**
+   * Optional override for Cursor's `getOidcToken` helper, primarily for tests.
+   * When omitted, `@grok/agent-sdk` is resolved lazily on the first token request.
+   */
+  getOidcToken?: CursorOidcTokenFetcher;
+  /** @internal Override for loading `@grok/agent-sdk`, used in tests. */
+  loadSdk?: () => Promise<{ getOidcToken?: unknown }>;
+}
 
 /** Options shared by every Keycard connection auth factory. */
 export interface KeycardConnectionOptions {
@@ -22,7 +46,7 @@ export interface KeycardConnectionOptions {
   /**
    * How the agent authenticates to the zone: `ClientSecret` for Keycard-issued
    * client credentials, or any other `ApplicationCredential`. Mutually
-   * exclusive with `clientId` / `clientSecret`.
+   * exclusive with `clientId` / `clientSecret` and `cursorWorkloadIdentity`.
    */
   applicationCredential?: ApplicationCredential;
   /** With `clientSecret`, shorthand for `applicationCredential: new ClientSecret(clientId, clientSecret)`. */
@@ -35,6 +59,12 @@ export interface KeycardConnectionOptions {
    * the module.
    */
   clientSecret?: string | SecretRef;
+  /**
+   * Explicitly selects the hosted Cursor deployment OIDC credential path
+   * (requires `@grok/agent-sdk` 0.7.1 or later). Mutually exclusive with
+   * `applicationCredential` and `clientId` / `clientSecret`.
+   */
+  cursorWorkloadIdentity?: CursorWorkloadIdentityOptions;
   /** Scopes requested from the zone for this connection. */
   requestScopes?: string | readonly string[];
   /** The header the minted token is returned under, as `Bearer <token>`. Defaults to `authorization`. */
@@ -93,6 +123,31 @@ export function resolveConnectionConfig(
   if (!options.zoneUrl && !options.client) {
     throw new AuthProviderConfigurationError(`${factory} requires zoneUrl or client`);
   }
+  const hasSecretShorthand = options.clientId !== undefined || options.clientSecret !== undefined;
+  if (options.cursorWorkloadIdentity !== undefined) {
+    if (options.applicationCredential || hasSecretShorthand) {
+      throw new AuthProviderConfigurationError(
+        `${factory} accepts only one credential: cursorWorkloadIdentity cannot be combined with applicationCredential or clientId/clientSecret`,
+      );
+    }
+    if (
+      typeof options.cursorWorkloadIdentity.clientId !== "string" ||
+      !options.cursorWorkloadIdentity.clientId.trim()
+    ) {
+      throw new AuthProviderConfigurationError(
+        `${factory} cursorWorkloadIdentity requires a non-empty clientId`,
+      );
+    }
+    if (
+      options.cursorWorkloadIdentity.audience !== undefined &&
+      (typeof options.cursorWorkloadIdentity.audience !== "string" ||
+        !options.cursorWorkloadIdentity.audience.trim())
+    ) {
+      throw new AuthProviderConfigurationError(
+        `${factory} cursorWorkloadIdentity audience must not be blank`,
+      );
+    }
+  }
   if (options.applicationCredential && (options.clientId || options.clientSecret)) {
     throw new AuthProviderConfigurationError(
       `${factory} accepts either applicationCredential or clientId/clientSecret, not both`,
@@ -112,7 +167,30 @@ export function resolveConnectionConfig(
   const scope = joinScopes(options.requestScopes);
   const skewSeconds = options.expirySkewSeconds ?? DEFAULT_EXPIRY_SKEW_SECONDS;
 
+  let cursorCredential: WorkloadIdentity | undefined;
+  if (options.cursorWorkloadIdentity !== undefined) {
+    const audience = options.cursorWorkloadIdentity.audience ?? issuer;
+    if (!audience || !audience.trim()) {
+      throw new AuthProviderConfigurationError(
+        `${factory} cursorWorkloadIdentity requires zoneUrl or an explicit audience`,
+      );
+    }
+    const source = new CursorDeploymentTokenSource({
+      audience,
+      ...(options.cursorWorkloadIdentity.getOidcToken
+        ? { getOidcToken: options.cursorWorkloadIdentity.getOidcToken }
+        : {}),
+      ...(options.cursorWorkloadIdentity.loadSdk
+        ? { loadSdk: options.cursorWorkloadIdentity.loadSdk }
+        : {}),
+    });
+    cursorCredential = new WorkloadIdentity(source, {
+      clientId: options.cursorWorkloadIdentity.clientId,
+    });
+  }
+
   const resolveCredential = (): ApplicationCredential | undefined => {
+    if (cursorCredential) return cursorCredential;
     if (options.applicationCredential) return options.applicationCredential;
     if (!options.clientId) return undefined;
     if (isSecretRef(options.clientSecret)) {

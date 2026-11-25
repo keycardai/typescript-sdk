@@ -5,8 +5,10 @@ import {
   type ApplicationCredential,
   type TokenExchangeRequest,
 } from "@keycardai/oauth";
+import { WorkloadIdentityConfigurationError } from "@keycardai/oauth/server";
 
 import { asSelf, headersFor, impersonate, onBehalfOf } from "./connections.js";
+import { WORKLOAD_IDENTITY_SOURCE_CURSOR_DEPLOYMENT } from "./cursorOidc.js";
 import { ConnectionAuthError, FailureReason } from "./errors.js";
 import { memorySubjectTokenStore, SUBJECT_TOKEN_ATTRIBUTE } from "./subjectTokens.js";
 import {
@@ -378,5 +380,340 @@ describe("headersFor", () => {
     expect((await failure(headersFor(auth, { auth: null }))).reason).toBe(FailureReason.PRINCIPAL_REQUIRED);
     const self = asSelf({ resource: CALENDAR, zoneUrl: ZONE, client });
     expect((await headersFor(self, { auth: null })).headers.authorization).toMatch(/^Bearer app-token/);
+  });
+});
+
+interface RecordedTokenRequest {
+  url: string;
+  headers: Record<string, string>;
+  body: URLSearchParams;
+}
+
+function stubZoneFetch(): {
+  requests: RecordedTokenRequest[];
+  allUrls: string[];
+  restore: () => void;
+} {
+  const requests: RecordedTokenRequest[] = [];
+  const allUrls: string[] = [];
+  const originalFetch = globalThis.fetch;
+  let serial = 0;
+
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    allUrls.push(url);
+    if (url.endsWith("/.well-known/oauth-authorization-server")) {
+      return new Response(
+        JSON.stringify({
+          issuer: ZONE,
+          token_endpoint: `${ZONE}/token`,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+    if (url === `${ZONE}/token`) {
+      const headers: Record<string, string> = {};
+      if (init?.headers) {
+        const entries =
+          init.headers instanceof Headers
+            ? [...init.headers.entries()]
+            : Array.isArray(init.headers)
+              ? init.headers
+              : Object.entries(init.headers);
+        for (const [k, v] of entries) {
+          headers[k.toLowerCase()] = v;
+        }
+      }
+      const body = new URLSearchParams(typeof init?.body === "string" ? init.body : "");
+      requests.push({ url, headers, body });
+      serial += 1;
+      return new Response(
+        JSON.stringify({
+          access_token: `zone-issued-${serial}`,
+          token_type: "Bearer",
+          expires_in: 3600,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+    throw new Error(`Unexpected fetch to ${url}`);
+  }) as typeof fetch;
+
+  return {
+    requests,
+    allUrls,
+    restore: () => {
+      globalThis.fetch = originalFetch;
+    },
+  };
+}
+
+describe("cursorWorkloadIdentity", () => {
+  let restoreFetch: (() => void) | undefined;
+
+  afterEach(() => {
+    restoreFetch?.();
+    restoreFetch = undefined;
+  });
+
+  it("row 42: each connection factory uses WorkloadIdentity with default and overridden audience and no Basic auth", async () => {
+    const zone = stubZoneFetch();
+    restoreFetch = zone.restore;
+
+    const seenAudiences: string[] = [];
+    let tokenSeq = 0;
+    const getOidcToken = jest.fn(async (audience: string) => {
+      seenAudiences.push(audience);
+      tokenSeq += 1;
+      return {
+        token: `cursor-oidc-jwt-${tokenSeq}`,
+        expiresAt: new Date(Date.now() + 300_000),
+      };
+    });
+
+    const callerToken = validJwt(3600, { sub: "user-1" });
+    const customAudience = "https://custom-aud.example.com";
+
+    // Default audience (zone issuer URL, trailing slash stripped)
+    const selfDefault = asSelf({
+      resource: CALENDAR,
+      zoneUrl: `${ZONE}/`,
+      cursorWorkloadIdentity: { clientId: "v2-client-1", getOidcToken },
+    });
+    const oboDefault = onBehalfOf({
+      resource: CALENDAR,
+      zoneUrl: ZONE,
+      subjectTokens: storeWith(callerToken),
+      cursorWorkloadIdentity: { clientId: "v2-client-1", getOidcToken },
+    });
+    const impDefault = impersonate({
+      resource: CALENDAR,
+      zoneUrl: ZONE,
+      cursorWorkloadIdentity: { clientId: "v2-client-1", getOidcToken },
+    });
+
+    // Helper is not called at definition time.
+    expect(getOidcToken).not.toHaveBeenCalled();
+
+    await selfDefault(session(null));
+    await oboDefault(session(keycardPrincipal()));
+    await impDefault(session(keycardPrincipal()));
+
+    // Overridden audience
+    const selfOverride = asSelf({
+      resource: CALENDAR,
+      zoneUrl: ZONE,
+      cursorWorkloadIdentity: { clientId: "v2-client-2", audience: customAudience, getOidcToken },
+    });
+    const oboOverride = onBehalfOf({
+      resource: CALENDAR,
+      zoneUrl: ZONE,
+      subjectTokens: storeWith(callerToken),
+      cursorWorkloadIdentity: { clientId: "v2-client-2", audience: customAudience, getOidcToken },
+    });
+    const impOverride = impersonate({
+      resource: CALENDAR,
+      zoneUrl: ZONE,
+      cursorWorkloadIdentity: { clientId: "v2-client-2", audience: customAudience, getOidcToken },
+    });
+
+    await selfOverride(session(null));
+    await oboOverride(session(keycardPrincipal()));
+    await impOverride(session(keycardPrincipal()));
+
+    expect(seenAudiences).toEqual([
+      ZONE,
+      ZONE,
+      ZONE,
+      customAudience,
+      customAudience,
+      customAudience,
+    ]);
+    expect(zone.requests).toHaveLength(6);
+
+    for (let i = 0; i < zone.requests.length; i += 1) {
+      const req = zone.requests[i]!;
+      expect(req.headers["authorization"]).toBeUndefined();
+      expect(req.body.get("client_id")).toBe(i < 3 ? "v2-client-1" : "v2-client-2");
+      expect(req.body.get("client_assertion")).toBe(`cursor-oidc-jwt-${i + 1}`);
+      expect(req.body.get("client_assertion_type")).toBe(
+        "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+      );
+    }
+
+    // onBehalfOf preserves the caller's subject token unchanged.
+    expect(zone.requests[1]!.body.get("subject_token")).toBe(callerToken);
+    expect(zone.requests[4]!.body.get("subject_token")).toBe(callerToken);
+  });
+
+  it("row 43: invalid cursorWorkloadIdentity configurations fail at definition time without calling the helper", () => {
+    const getOidcToken = jest.fn(async () => ({
+      token: "unused",
+      expiresAt: new Date(Date.now() + 300_000),
+    }));
+    const factories = [asSelf, onBehalfOf, impersonate] as const;
+
+    for (const factory of factories) {
+      // Combined with applicationCredential
+      expect(() =>
+        factory({
+          resource: CALENDAR,
+          zoneUrl: ZONE,
+          applicationCredential: new AssertionCredential(),
+          cursorWorkloadIdentity: { clientId: "v2-client-1", getOidcToken },
+        }),
+      ).toThrow(AuthProviderConfigurationError);
+
+      // Combined with clientId / clientSecret shorthand
+      expect(() =>
+        factory({
+          resource: CALENDAR,
+          zoneUrl: ZONE,
+          clientId: "app-1",
+          clientSecret: "secret",
+          cursorWorkloadIdentity: { clientId: "v2-client-1", getOidcToken },
+        }),
+      ).toThrow(AuthProviderConfigurationError);
+
+      // Missing or blank clientId
+      expect(() =>
+        factory({
+          resource: CALENDAR,
+          zoneUrl: ZONE,
+          cursorWorkloadIdentity: { clientId: "   ", getOidcToken },
+        }),
+      ).toThrow(AuthProviderConfigurationError);
+
+      // Blank audience override
+      expect(() =>
+        factory({
+          resource: CALENDAR,
+          zoneUrl: ZONE,
+          cursorWorkloadIdentity: { clientId: "v2-client-1", audience: "  ", getOidcToken },
+        }),
+      ).toThrow(AuthProviderConfigurationError);
+
+      // Neither zoneUrl nor audience override
+      expect(() =>
+        factory({
+          resource: CALENDAR,
+          client: fakeZoneClient(),
+          cursorWorkloadIdentity: { clientId: "v2-client-1", getOidcToken },
+        }),
+      ).toThrow(AuthProviderConfigurationError);
+    }
+
+    expect(getOidcToken).not.toHaveBeenCalled();
+  });
+
+  it("row 44: missing helper or undeclared audience surfaces WorkloadIdentityConfigurationError with no zone request", async () => {
+    const zone = stubZoneFetch();
+    restoreFetch = zone.restore;
+
+    const undeclaredError = Object.assign(
+      new Error("OIDC mint failed with HTTP 400: audience not allowed"),
+      { name: "OidcTokenError", code: "failed", status: 400 },
+    );
+    const scenarios = [
+      {
+        name: "missing helper",
+        cursorWorkloadIdentity: {
+          clientId: "v2-client-1",
+          loadSdk: async () => ({}),
+        },
+        pattern: /getOidcToken/,
+      },
+      {
+        name: "undeclared audience",
+        cursorWorkloadIdentity: {
+          clientId: "v2-client-1",
+          getOidcToken: async () => {
+            throw undeclaredError;
+          },
+        },
+        pattern: /hosting\.oidc\.audiences/,
+      },
+    ];
+
+    for (const scenario of scenarios) {
+      const providers = [
+        {
+          auth: asSelf({
+            resource: CALENDAR,
+            zoneUrl: ZONE,
+            cursorWorkloadIdentity: scenario.cursorWorkloadIdentity,
+          }),
+          sess: session(null),
+        },
+        {
+          auth: onBehalfOf({
+            resource: CALENDAR,
+            zoneUrl: ZONE,
+            subjectTokens: storeWith(validJwt()),
+            cursorWorkloadIdentity: scenario.cursorWorkloadIdentity,
+          }),
+          sess: session(keycardPrincipal()),
+        },
+        {
+          auth: impersonate({
+            resource: CALENDAR,
+            zoneUrl: ZONE,
+            cursorWorkloadIdentity: scenario.cursorWorkloadIdentity,
+          }),
+          sess: session(keycardPrincipal()),
+        },
+      ];
+
+      for (const { auth, sess } of providers) {
+        let caught: unknown;
+        try {
+          await auth(sess);
+        } catch (error) {
+          caught = error;
+        }
+        expect(caught).toBeInstanceOf(WorkloadIdentityConfigurationError);
+        expect(caught).not.toBeInstanceOf(ConnectionAuthError);
+        expect((caught as WorkloadIdentityConfigurationError).source).toBe(
+          WORKLOAD_IDENTITY_SOURCE_CURSOR_DEPLOYMENT,
+        );
+        expect((caught as Error).message).toMatch(scenario.pattern);
+      }
+    }
+
+    expect(zone.allUrls).toEqual([]);
+  });
+
+  it("row 45: self-hosted credentials do not load or call Cursor's OIDC helper", async () => {
+    const zone = stubZoneFetch();
+    restoreFetch = zone.restore;
+
+    const self = asSelf({
+      resource: CALENDAR,
+      zoneUrl: ZONE,
+      clientId: "app-1",
+      clientSecret: "top-secret",
+    });
+    const obo = onBehalfOf({
+      resource: CALENDAR,
+      zoneUrl: ZONE,
+      applicationCredential: new AssertionCredential(),
+      subjectTokens: storeWith(validJwt()),
+    });
+    const imp = impersonate({
+      resource: CALENDAR,
+      zoneUrl: ZONE,
+      clientId: "app-1",
+      clientSecret: "top-secret",
+    });
+
+    await self(session(null));
+    await obo(session(keycardPrincipal()));
+    await imp(session(keycardPrincipal()));
+
+    expect(zone.requests).toHaveLength(3);
+    expect(zone.requests[0]!.headers["authorization"]).toMatch(/^Basic /);
+    expect(zone.requests[0]!.body.get("client_assertion")).toBeNull();
+    expect(zone.requests[1]!.body.get("client_assertion")).toBe("assertion-jwt");
+    expect(zone.requests[2]!.headers["authorization"]).toMatch(/^Basic /);
   });
 });

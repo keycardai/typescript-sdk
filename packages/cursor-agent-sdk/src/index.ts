@@ -11,7 +11,8 @@
  *   them at turn-build time with the session and attaches the headers they
  *   return, so no credential reaches the model.
  *
- * `@grok/agent-sdk` is imported for types only; nothing here loads SDK code.
+ * `@grok/agent-sdk` is imported for types only; the hosted workload identity
+ * path resolves `getOidcToken` dynamically on the first token request.
  */
 import { asSelf, impersonate, onBehalfOf } from "./connections.js";
 
@@ -21,8 +22,18 @@ export type { KeycardAuthOptions, KeycardTokenVerifier, SubjectTokenRetention } 
 export { asSelf, headersFor, impersonate, onBehalfOf } from "./connections.js";
 export type { KeycardConnectionAuth, KeycardImpersonateOptions, SessionLike } from "./connections.js";
 
-export type { KeycardConnectionOptions } from "./config.js";
+export type { CursorWorkloadIdentityOptions, KeycardConnectionOptions } from "./config.js";
 export { DEFAULT_EXPIRY_SKEW_SECONDS } from "./config.js";
+
+export {
+  CursorDeploymentTokenSource,
+  WORKLOAD_IDENTITY_SOURCE_CURSOR_DEPLOYMENT,
+} from "./cursorOidc.js";
+export type {
+  CursorDeploymentTokenSourceOptions,
+  CursorOidcToken,
+  CursorOidcTokenFetcher,
+} from "./cursorOidc.js";
 
 export { ConnectionAuthError, FailureReason } from "./errors.js";
 export type { FailureReasonCode } from "./errors.js";

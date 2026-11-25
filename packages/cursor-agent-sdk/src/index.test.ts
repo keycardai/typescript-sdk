@@ -13,6 +13,8 @@ describe("package surface", () => {
     expect(pkg.Keycard.onBehalfOf).toBe(pkg.onBehalfOf);
     expect(pkg.Keycard.impersonate).toBe(pkg.impersonate);
     expect(typeof pkg.headersFor).toBe("function");
+    expect(typeof pkg.CursorDeploymentTokenSource).toBe("function");
+    expect(pkg.WORKLOAD_IDENTITY_SOURCE_CURSOR_DEPLOYMENT).toBe("cursor-deployment");
     expect(pkg.ConnectionAuthError.name).toBe("ConnectionAuthError");
     expect(pkg.FailureReason.PRINCIPAL_REQUIRED).toBe("principal_required");
     // Every import of the SDK in the package's source is type-only, so the
