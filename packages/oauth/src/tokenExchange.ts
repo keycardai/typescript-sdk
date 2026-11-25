@@ -1,4 +1,5 @@
 import { OAuthError } from "./errors.js";
+import { tokenEndpointError } from "./tokenEndpointError.js";
 import type { ApplicationCredential } from "./credentials.js";
 import { basicAuthorization } from "./basicAuthorization.js";
 import { buildSubstituteUserToken } from "./jwt/substituteUser.js";
@@ -173,26 +174,7 @@ export class TokenExchangeClient {
     });
 
     if (!response.ok) {
-      try {
-        const errorBody = await response.json() as Record<string, unknown>;
-        if (typeof errorBody.error === "string") {
-          const errorCode = errorBody.error;
-          const description = typeof errorBody.error_description === "string"
-            ? errorBody.error_description
-            : errorCode;
-          const errorUri = typeof errorBody.error_uri === "string"
-            ? errorBody.error_uri
-            : undefined;
-          throw new OAuthError(errorCode, description, errorUri);
-        }
-      } catch (e) {
-        if (e instanceof OAuthError) throw e;
-        // non-JSON or no "error" key — fall through
-      }
-      throw new OAuthError(
-        "invalid_response",
-        `Token exchange failed (HTTP ${response.status})`,
-      );
+      throw await tokenEndpointError(response, "Token exchange");
     }
 
     const json = await response.json() as Record<string, unknown>;
