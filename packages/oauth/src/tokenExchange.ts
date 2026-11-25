@@ -1,4 +1,4 @@
-import { HTTPError, OAuthError } from "./errors.js";
+import { ConfigurationError, HTTPError, OAuthError } from "./errors.js";
 import { tokenEndpointError } from "./tokenEndpointError.js";
 import type { ApplicationCredential } from "./credentials.js";
 import { basicAuthorization } from "./basicAuthorization.js";
@@ -160,7 +160,7 @@ export class TokenExchangeClient {
     const issuer = options?.issuer ?? this.#issuer;
     const basicAuth = request.clientAssertion ? null : this.#resolveBasicAuth(issuer);
     if (basicAuth && request.clientId) {
-      throw new TypeError("Token exchange clientId cannot be sent with HTTP Basic");
+      throw new ConfigurationError("Token exchange clientId cannot be sent with HTTP Basic");
     }
 
     const tokenEndpoint = await this.#tokenEndpoint.resolve();

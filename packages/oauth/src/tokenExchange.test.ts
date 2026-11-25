@@ -2,7 +2,7 @@ import { jest } from '@jest/globals';
 import { TokenExchangeClient, TokenType } from './tokenExchange.js';
 import { ClientSecret } from './server/clientSecret.js';
 import { WorkloadIdentity } from './server/workloadIdentity.js';
-import { HTTPError, OAuthError } from './errors.js';
+import { ConfigurationError, HTTPError, OAuthError } from './errors.js';
 import { buildSubstituteUserToken } from './jwt/substituteUser.js';
 import type { ApplicationCredential } from './credentials.js';
 import type { TokenExchangeRequest } from './tokenExchange.js';
@@ -86,7 +86,19 @@ describe('TokenExchangeClient', () => {
     const client = new TokenExchangeClient(ISSUER, options);
 
     await expect(client.exchangeToken({ subjectToken: 'subject', clientId: 'request-id' }))
-      .rejects.toThrow(TypeError);
+      .rejects.toThrow(ConfigurationError);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('row 4f: resolves the client issuer for a multi-zone ClientSecret without a per-call issuer', async () => {
+    const credential = new ClientSecret({
+      [ISSUER]: ['configured', 'secret'],
+      'https://zone-b.keycard.cloud': ['id-b', 'sec-b'],
+    });
+    const client = new TokenExchangeClient(ISSUER, { credential });
+
+    await expect(client.exchangeToken({ subjectToken: 'subject', clientId: 'request-id' }))
+      .rejects.toThrow(ConfigurationError);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
