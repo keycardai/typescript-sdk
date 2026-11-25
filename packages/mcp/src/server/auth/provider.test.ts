@@ -244,6 +244,53 @@ describe("AuthProvider", () => {
         globalThis.fetch = originalFetch;
       });
 
+      it("should record the authorization server reason on the resource error", async () => {
+        fetchMock.mockImplementation(async (input: Parameters<typeof fetch>[0]) => {
+          const url = typeof input === "string" ? input : input.toString();
+          if (url.includes("/.well-known/")) {
+            return new Response(
+              JSON.stringify({ issuer: ZONE, token_endpoint: `${ZONE}/token` }),
+              { status: 200, headers: { "content-type": "application/json" } },
+            );
+          }
+          return new Response(
+            JSON.stringify({ error: "access_denied", error_description: "Denied", reason: "policy_denied" }),
+            { status: 400, headers: { "content-type": "application/json" } },
+          );
+        });
+        const provider = new AuthProvider({ zoneUrl: ZONE });
+
+        const ctx = await provider.exchangeTokens("subject-token", "https://api.example.com");
+
+        expect(ctx.getResourceError("https://api.example.com")).toEqual({
+          message: "Token exchange failed for https://api.example.com",
+          code: "access_denied",
+          description: "Denied",
+          reason: "policy_denied",
+        });
+      });
+
+      it("should leave reason off the resource error when the response has none", async () => {
+        fetchMock.mockImplementation(async (input: Parameters<typeof fetch>[0]) => {
+          const url = typeof input === "string" ? input : input.toString();
+          if (url.includes("/.well-known/")) {
+            return new Response(
+              JSON.stringify({ issuer: ZONE, token_endpoint: `${ZONE}/token` }),
+              { status: 200, headers: { "content-type": "application/json" } },
+            );
+          }
+          return new Response(
+            JSON.stringify({ error: "access_denied", error_description: "Denied" }),
+            { status: 400, headers: { "content-type": "application/json" } },
+          );
+        });
+        const provider = new AuthProvider({ zoneUrl: ZONE });
+
+        const ctx = await provider.exchangeTokens("subject-token", "https://api.example.com");
+
+        expect(ctx.getResourceError("https://api.example.com")).not.toHaveProperty("reason");
+      });
+
       it("should merge tokens from stacked grant middlewares into one accessContext", async () => {
         const provider = new AuthProvider({ zoneUrl: ZONE });
         const first = provider.grant("https://api-a.example.com");

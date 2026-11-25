@@ -217,6 +217,9 @@ export class AuthProvider {
           if (e.message) {
             detail.description = e.message;
           }
+          if (e.reason !== undefined) {
+            detail.reason = e.reason;
+          }
         } else {
           detail.rawError = String(e);
         }
