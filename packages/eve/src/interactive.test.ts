@@ -1145,6 +1145,44 @@ describe("interactive grant lifecycle", () => {
     expect(await tokens.list(PRINCIPAL_KEY)).toEqual([]);
   });
 
+  it.each([429, 503])(
+    "keeps a grant held by a different client on HTTP %i with invalid_client",
+    async (status) => {
+      const flow = recordingFlow({
+        refresh: new RefreshGrantError("invalid_client", "refresh unavailable", {
+          retryable: true,
+          status,
+        }),
+      });
+      const tokens = memoryAuthorizedTokenStore();
+      const grant = {
+        id: "grant-1",
+        clientId: "old-client",
+        accessToken: "granted-token",
+        expiresAt: Date.now() + 30_000,
+        refreshToken: "refresh-1",
+        resources: [CALENDAR],
+        scopes: [],
+      };
+      await tokens.put(PRINCIPAL_KEY, grant);
+      const auth = interactive({
+        resource: CALENDAR,
+        clientId: "current-client",
+        tokens,
+        flow,
+      });
+
+      await expect(
+        auth.getToken({ principal: userPrincipal(), connection }),
+      ).rejects.toMatchObject({
+        name: "ConnectionAuthorizationFailedError",
+        reason: FailureReason.ACQUISITION_FAILED,
+        retryable: true,
+      });
+      expect(await tokens.list(PRINCIPAL_KEY)).toEqual([grant]);
+    },
+  );
+
   it("row 27b: keeps the configured client's grant and fails on invalid_client", async () => {
     const flow = recordingFlow({
       completion: {

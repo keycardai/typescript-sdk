@@ -357,11 +357,13 @@ client (public, no secret; a per-attempt client registers with
 token pair, and returns the new access token without parking. A refresh the
 zone refuses with `invalid_grant` or `insufficient_authorization` deletes the
 grant and throws `Required`, so the turn parks for a fresh sign-in.
-`invalid_client` does the same if the grant's client is not the configured
-`clientId`. If the grant belongs to the configured client, the grant is kept
-and the tool call fails with a non-retryable acquisition error instead.
-A transport or 5xx failure keeps the grant and fails the tool call with
-`retryable: true`. A grant without a refresh token parks at expiry.
+`invalid_client` does the same if the error is non-retryable and the grant's
+client is not the configured `clientId`. If the error is non-retryable and
+the grant belongs to the configured client, the grant is kept and the tool
+call fails with a non-retryable acquisition error instead.
+A transport failure, an HTTP 5xx without an OAuth error code, or an
+`invalid_client` body on HTTP 429 or HTTP 5xx keeps the grant and fails the
+tool call with `retryable: true`. A grant without a refresh token parks at expiry.
 
 `evict` removes every grant of the principal that covers this connection's
 resource, leaving grants for other resources in place.
