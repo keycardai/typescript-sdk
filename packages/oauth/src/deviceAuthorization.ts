@@ -216,7 +216,8 @@ export async function pollDeviceToken(
  *   from the credential's `clientAuthentication`.
  * - If the next poll would start after `authorization.expiresAt`, it stops
  *   without waiting or polling and throws `DeviceGrantError` with code
- *   `expired_token`.
+ *   `expired_token`. If the wait ends after `authorization.expiresAt`, it
+ *   throws the same error before client authentication or polling.
  *
  * To resume after a `DevicePollError`, call it again before `expiresAt` with
  * the same `authorization` and `interval` set to the error's `interval`.
@@ -274,12 +275,13 @@ export async function waitForDeviceToken(
 
   for (;;) {
     if (clock.now() + interval * 1000 > authorization.expiresAt) {
-      throw new DeviceGrantError("expired_token", {
-        errorDescription: "The device code expired before the request was approved",
-      });
+      throw expiredDeviceCodeError();
     }
     await clock.sleep(interval * 1000, signal);
     signal?.throwIfAborted();
+    if (clock.now() > authorization.expiresAt) {
+      throw expiredDeviceCodeError();
+    }
 
     try {
       return await poll(issuer, tokenEndpoint, client, authorization, options);
@@ -308,6 +310,12 @@ export async function waitForDeviceToken(
 // =============================================================================
 
 type ResolvedClient = { credential: ClientAuthenticator } | { clientId: string };
+
+function expiredDeviceCodeError(): DeviceGrantError {
+  return new DeviceGrantError("expired_token", {
+    errorDescription: "The device code expired before the request was approved",
+  });
+}
 
 /**
  * A request that ended without a complete response: a network error or a

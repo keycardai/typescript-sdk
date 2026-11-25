@@ -763,6 +763,40 @@ describe('device authorization grant', () => {
       expect(clock.waits).toEqual(waits);
     });
 
+    it('row 11a: stops before client authentication or polling if the code expires during the wait', async () => {
+      const clock = new FakeClock();
+      clock.onSleep = () => { clock.time += 1000; };
+      const credential = fakeCredential();
+      const calls = mockFetch({ polls: [token] });
+
+      const error = await waitForDeviceToken(ISSUER, {
+        credential,
+        authorization: authorization({ expiresIn: 5, expiresAt: T0 + 5000 }),
+        metadata: METADATA,
+        clock,
+      }).catch((e) => e);
+
+      expect(error).toBeInstanceOf(DeviceGrantError);
+      expect(error).toMatchObject({ errorCode: 'expired_token', retryable: false });
+      expect(credential.clientAuthentication).not.toHaveBeenCalled();
+      expect(calls).toHaveLength(0);
+      expect(clock.waits).toEqual([5000]);
+    });
+
+    it('polls when the wait ends exactly at expiresAt', async () => {
+      const clock = new FakeClock();
+      const calls = mockFetch({ polls: [token] });
+
+      await expect(waitForDeviceToken(ISSUER, {
+        clientId: 'c',
+        authorization: authorization({ expiresIn: 5, expiresAt: T0 + 5000 }),
+        metadata: METADATA,
+        clock,
+      })).resolves.toEqual(EXPECTED_TOKEN);
+      expect(calls).toHaveLength(1);
+      expect(clock.waits).toEqual([5000]);
+    });
+
     it('an interval longer than the time left stops without waiting or polling', async () => {
       const clock = new FakeClock();
       const calls = mockFetch({ polls: [token] });
