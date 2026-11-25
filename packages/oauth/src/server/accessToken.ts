@@ -25,4 +25,6 @@ export interface AccessToken {
   sub?: string;
   subProfile?: string;
   keycardAppId?: string;
+  aud?: string[];
+  act?: Record<string, unknown>;
 }

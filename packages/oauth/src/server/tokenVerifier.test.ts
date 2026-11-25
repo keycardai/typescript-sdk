@@ -92,6 +92,23 @@ describe('TokenVerifier', () => {
     expect(result!.resource).toBe('https://api.example.com');
   });
 
+  it.each([
+    { row: '4a', aud: ['resource-a', 'resource-b'], act: { sub: 'actor', act: { sub: 'previous' } }, expected: ['resource-a', 'resource-b'] },
+    { row: '4b', aud: 'resource-a', act: undefined, expected: ['resource-a'] },
+  ])('row $row: exposes the verified audiences and actor chain', async ({ aud, act, expected }) => {
+    const [pub, priv] = await Promise.all([importPublicKey(), importPrivateKey()]);
+    const token = await signWith({
+      iss: ISSUER, sub: 'user-1', client_id: 'service-x',
+      iat: nowSec(), exp: nowSec() + 60, aud, act,
+    }, priv);
+    const verifier = new TokenVerifier({ issuer: ISSUER, keyring: makeKeyring(pub), audience: 'resource-a' });
+
+    const caller = await verifier.verifyToken(token);
+
+    expect(caller?.aud).toEqual(expected);
+    expect(caller?.act).toEqual(act);
+  });
+
   it('exposes the caller identity claims from a Keycard token', async () => {
     const [pub, priv] = await Promise.all([importPublicKey(), importPrivateKey()]);
     const claims: JWTClaims = {
