@@ -55,11 +55,14 @@ export interface TokenExchangeClientOptions extends TokenEndpointCacheOptions {
   clientSecret?: string;
   /**
    * Application credential provider. When set, takes precedence over
-   * static `clientId`/`clientSecret` and resolves the per-request
-   * Authorization header from the credential's `getAuth(issuer)`.
-   * `impersonate` also builds its request through the credential's
-   * `prepareTokenExchangeRequest`, so an assertion-based credential
-   * authenticates the substitute-user exchange with its client assertion.
+   * static `clientId`/`clientSecret`. A shared-secret credential sets the
+   * per-request Authorization header from its `getAuth(issuer)`. When
+   * `getAuth(issuer)` returns null and the request carries no
+   * `clientAssertion`, `exchangeToken` takes `clientAssertion`,
+   * `clientAssertionType` and `clientId` from the credential's
+   * `prepareTokenExchangeRequest`, so an assertion-based credential such as
+   * `WorkloadIdentity` or `WebIdentity` authenticates every exchange. The
+   * request's other fields are sent as the caller set them.
    */
   credential?: ApplicationCredential;
   /**
@@ -155,16 +158,22 @@ export class TokenExchangeClient {
     options?: ExchangeOptions,
   ): Promise<TokenResponse> {
     const tokenEndpoint = await this.#tokenEndpoint.resolve();
-    const body = serializeRequest(request);
+    const issuer = options?.issuer ?? this.#issuer;
 
     const headers: Record<string, string> = {
       "Content-Type": "application/x-www-form-urlencoded",
     };
 
-    const basicAuth = this.#resolveBasicAuth(options?.issuer);
+    const basicAuth = this.#resolveBasicAuth(issuer);
     if (basicAuth) {
       headers["Authorization"] = basicAuthorization(basicAuth.clientId, basicAuth.clientSecret);
     }
+
+    const body = serializeRequest(
+      basicAuth || request.clientAssertion
+        ? request
+        : await this.#withCredentialAssertion(request, tokenEndpoint, issuer),
+    );
 
     const signal = AbortSignal.timeout(this.#fetchTimeoutMs);
     let response: Response;
@@ -217,8 +226,38 @@ export class TokenExchangeClient {
     );
   }
 
+  /**
+   * Adds the credential's client assertion to `request`. Only the
+   * client-authentication fields come from the credential. Returns
+   * `request` unchanged when there is no
+   * credential or the credential produces no assertion.
+   */
+  async #withCredentialAssertion(
+    request: TokenExchangeRequest,
+    tokenEndpoint: string,
+    issuer: string,
+  ): Promise<TokenExchangeRequest> {
+    if (!this.#credential) {
+      return request;
+    }
+    const prepared = await this.#credential.prepareTokenExchangeRequest(
+      request.subjectToken,
+      request.resource ?? "",
+      { tokenEndpoint, issuer },
+    );
+    if (!prepared.clientAssertion) {
+      return request;
+    }
+    return {
+      ...request,
+      clientAssertion: prepared.clientAssertion,
+      clientAssertionType: prepared.clientAssertionType,
+      clientId: prepared.clientId,
+    };
+  }
+
   #resolveBasicAuth(
-    issuer: string | undefined,
+    issuer: string,
   ): { clientId: string; clientSecret: string } | null {
     if (this.#credential) {
       return this.#credential.getAuth(issuer);

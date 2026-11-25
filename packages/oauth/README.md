@@ -97,17 +97,39 @@ import { TokenExchangeClient } from "@keycardai/oauth/tokenExchange";
 import { ClientSecret } from "@keycardai/oauth/server";
 
 const credential = new ClientSecret({
-  "zone-a": ["client-id-a", "client-secret-a"],
-  "zone-b": ["client-id-b", "client-secret-b"],
+  "https://zone-a.keycard.cloud": ["client-id-a", "client-secret-a"],
+  "https://zone-b.keycard.cloud": ["client-id-b", "client-secret-b"],
 });
 
-const client = new TokenExchangeClient("https://keycard.cloud", { credential });
+const client = new TokenExchangeClient("https://zone-a.keycard.cloud", { credential });
 
 const response = await client.exchangeToken(
   { subjectToken: userToken, resource: "https://api.example.com" },
-  { zoneId: "zone-a" },
+  { issuer: "https://zone-a.keycard.cloud" },
 );
 ```
+
+Keys are zone issuer URLs, and `issuer` selects the entry for the call. An
+issuer with no entry gets no client authentication.
+
+### Workload Identity Credentials
+
+```typescript
+import { TokenExchangeClient } from "@keycardai/oauth/tokenExchange";
+import { WorkloadIdentity, FileTokenSource } from "@keycardai/oauth/server";
+
+const credential = new WorkloadIdentity(new FileTokenSource(), { clientId: "my-client" });
+const client = new TokenExchangeClient("https://your-zone.keycard.cloud", { credential });
+
+const response = await client.exchangeToken({
+  subjectToken: userToken,
+  resource: "https://api.example.com",
+});
+```
+
+`exchangeToken` fetches the current platform token on every call and sends it
+as the `client_assertion`. A request that already sets `clientAssertion` is
+sent as is.
 
 ### Server-tier Token Verification
 
@@ -367,7 +389,7 @@ issuer's `userinfo_endpoint`. Pass `{ metadata }` to skip discovery.
 | `TokenVerifier` | `@keycardai/oauth/server` | High-level JWT verifier with JWKS discovery, multi-zone, audience and scope validation; returns `AccessToken \| null` |
 | `AccessToken` (type) | `@keycardai/oauth/server` | Verified token shape (`token`, `clientId`, `scopes`, `expiresAt?`, `resource?`) |
 | `AccessContext` | `@keycardai/oauth/server` | Non-throwing per-resource token container with partial-error tracking |
-| `ClientSecret` | `@keycardai/oauth/server` | Application credential provider; supports `(clientId, clientSecret)`, tuple, or `Record<zoneId, [id, secret]>` |
+| `ClientSecret` | `@keycardai/oauth/server` | Application credential provider; supports `(clientId, clientSecret)`, tuple, or `Record<issuerUrl, [id, secret]>` |
 | `WorkloadIdentity` | `@keycardai/oauth/server` | Application credential using a platform-signed OIDC token from a pluggable source; optional `clientId` names the Keycard application credential |
 | `FileTokenSource` | `@keycardai/oauth/server` | Token source for projected token files (EKS, AKS, Kubernetes projected tokens). **Node.js only** |
 | `GCPMetadataTokenSource` | `@keycardai/oauth/server` | Token source for the GCP metadata server (GKE, GCE, Cloud Run) |
