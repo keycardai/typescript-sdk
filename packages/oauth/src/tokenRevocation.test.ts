@@ -124,6 +124,26 @@ describe('revokeToken', () => {
     expect(String(transport.mock.calls[0]![0])).toBe(`${ISSUER}/.well-known/oauth-authorization-server`);
   });
 
+  it('rejects an HTTP endpoint advertised by HTTPS discovery before sending the token or secret', async () => {
+    transport.mockResolvedValueOnce(Response.json({
+      issuer: ISSUER,
+      revocation_endpoint: 'http://zone.example.com/custom/revoke',
+    }));
+
+    await expect(revokeToken(ISSUER, TOKEN, {
+      ...options, clientSecret: 'secret', metadata: undefined,
+    })).rejects.toThrow(ConfigurationError);
+    expect(transport).toHaveBeenCalledTimes(1);
+    expect(String(transport.mock.calls[0]![0])).toBe(`${ISSUER}/.well-known/oauth-authorization-server`);
+  });
+
+  it('rejects an HTTP endpoint in supplied metadata without making a request', async () => {
+    const metadata = { issuer: 'http://zone.example.com', revocation_endpoint: 'http://zone.example.com/custom/revoke' };
+
+    await expect(revokeToken(undefined, TOKEN, { ...options, metadata })).rejects.toThrow(ConfigurationError);
+    expect(transport).not.toHaveBeenCalled();
+  });
+
   it.each([
     { status: 401, code: 'invalid_client', description: 'Client authentication failed', retryable: false },
     { status: 400, code: 'invalid_grant', description: 'Token belongs to another client', retryable: true },

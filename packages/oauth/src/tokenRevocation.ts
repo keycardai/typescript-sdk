@@ -46,7 +46,7 @@ export async function revokeToken(
   }
 
   const zoneIssuer = issuer ?? metadata?.issuer;
-  if (!isHttpUrl(zoneIssuer)) {
+  if (!isUrlWithProtocol(zoneIssuer, "http:", "https:")) {
     throw new ConfigurationError("revokeToken requires an HTTP or HTTPS issuer URL");
   }
   if (metadata) assertMetadataIssuer(zoneIssuer, metadata, "revokeToken");
@@ -55,8 +55,8 @@ export async function revokeToken(
     fetchAuthorizationServerMetadata(zoneIssuer, { signal, timeoutMs: 0, fetch: transport }),
   );
   const endpoint = server.revocation_endpoint;
-  if (!isHttpUrl(endpoint)) {
-    throw new ConfigurationError("revokeToken requires a valid revocation_endpoint in authorization server metadata");
+  if (!isUrlWithProtocol(endpoint, "https:")) {
+    throw new ConfigurationError("revokeToken requires an HTTPS revocation_endpoint in authorization server metadata");
   }
 
   options.signal?.throwIfAborted();
@@ -98,11 +98,11 @@ export async function revokeToken(
   });
 }
 
-function isHttpUrl(value: string | undefined): value is string {
+function isUrlWithProtocol(value: string | undefined, ...protocols: string[]): value is string {
   if (!value) return false;
   try {
     const { protocol } = new URL(value);
-    return protocol === "https:" || protocol === "http:";
+    return protocols.includes(protocol);
   } catch {
     return false;
   }
