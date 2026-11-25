@@ -1,3 +1,17 @@
+## 0.31.0-keycardai-oauth (2026-11-25)
+
+
+- feat(oauth): expose verified audience and actor claims (#387)
+- * feat(oauth): expose verified audience and actor claims
+- Co-Authored-By: Devin AI <158243242+devin-ai-integration[bot]@users.noreply.github.com>
+- * feat(mcp): expose verified audience and actor claims
+- Co-Authored-By: Devin AI <158243242+devin-ai-integration[bot]@users.noreply.github.com>
+- * feat(cloudflare): expose verified audience and actor claims
+- Co-Authored-By: Devin AI <158243242+devin-ai-integration[bot]@users.noreply.github.com>
+- ---------
+- Co-authored-by: devin-ai-keycard <devin-ai@keycard.ai>
+Co-authored-by: Devin AI <158243242+devin-ai-integration[bot]@users.noreply.github.com>
+
 ## 0.30.0-keycardai-oauth (2026-11-25)
 
 
