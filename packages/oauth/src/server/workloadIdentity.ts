@@ -383,6 +383,11 @@ export class WorkloadIdentity implements ApplicationCredential {
     this.#clientId = options?.clientId;
   }
 
+  /** The configured client ID, if any. */
+  get clientId(): string | undefined {
+    return this.#clientId;
+  }
+
   getAuth(): null {
     return null;
   }

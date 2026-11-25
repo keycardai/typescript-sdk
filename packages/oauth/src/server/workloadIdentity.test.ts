@@ -205,6 +205,21 @@ describe("WorkloadIdentity clientAuthentication", () => {
   });
 });
 
+it("row 4f: exposes a read-only clientId without calling the token source", () => {
+  let calls = 0;
+  const source = () => {
+    calls++;
+    return "platform-token";
+  };
+  const configured = new WorkloadIdentity(source, { clientId: "acr_123" });
+  const unconfigured = new WorkloadIdentity(source);
+
+  expect(configured.clientId).toBe("acr_123");
+  expect(unconfigured.clientId).toBeUndefined();
+  expect(Reflect.set(configured, "clientId", "acr_other")).toBe(false);
+  expect(calls).toBe(0);
+});
+
 describe("FileTokenSource", () => {
   it("uses an explicit path and returns the trimmed token", async () => {
     const file = makeTokenFile("projected-token\n");
