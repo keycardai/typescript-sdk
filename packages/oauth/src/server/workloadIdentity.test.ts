@@ -378,6 +378,7 @@ describe("GCPMetadataTokenSource", () => {
     } catch (error) {
       expect(error).toBeInstanceOf(WorkloadIdentityRuntimeError);
       expect((error as WorkloadIdentityRuntimeError).source).toBe("gcp-metadata");
+      expect((error as WorkloadIdentityRuntimeError).retryable).toBe(false);
     }
   });
 
@@ -394,6 +395,7 @@ describe("GCPMetadataTokenSource", () => {
     } catch (error) {
       expect(error).toBeInstanceOf(WorkloadIdentityRuntimeError);
       expect((error as WorkloadIdentityRuntimeError).cause).toBeDefined();
+      expect((error as WorkloadIdentityRuntimeError).retryable).toBe(true);
     }
   });
 });
@@ -476,6 +478,7 @@ describe("FlyTokenSource", () => {
     } catch (error) {
       expect(error).toBeInstanceOf(WorkloadIdentityRuntimeError);
       expect((error as WorkloadIdentityRuntimeError).source).toBe("fly");
+      expect((error as WorkloadIdentityRuntimeError).retryable).toBe(false);
     }
   });
 
@@ -488,6 +491,7 @@ describe("FlyTokenSource", () => {
     } catch (error) {
       expect(error).toBeInstanceOf(WorkloadIdentityRuntimeError);
       expect((error as WorkloadIdentityRuntimeError).cause).toBeDefined();
+      expect((error as WorkloadIdentityRuntimeError).retryable).toBe(true);
     }
   });
 });
