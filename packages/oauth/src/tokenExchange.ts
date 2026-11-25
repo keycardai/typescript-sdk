@@ -172,7 +172,7 @@ export class TokenExchangeClient {
       throw new ConfigurationError("Token exchange clientId cannot be sent with HTTP Basic");
     }
 
-    if (this.#actor && request.actorToken === undefined && request.subjectTokenType !== TokenType.SUBSTITUTE_USER) {
+    if (this.#actor && !request.actorToken && request.subjectTokenType !== TokenType.SUBSTITUTE_USER) {
       request = {
         ...request,
         actorToken: await fetchIdentityToken(this.#actor),

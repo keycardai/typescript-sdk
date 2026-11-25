@@ -508,6 +508,22 @@ describe('TokenExchangeClient', () => {
     expect(actor).toHaveBeenCalledTimes(1);
   });
 
+  it.each(['', null])('row 24: uses the source when the request actor token is %j', async (actorToken) => {
+    const actor = jest.fn(() => 'source-jwt');
+    const client = new TokenExchangeClient(ISSUER, { actor });
+
+    await client.exchangeToken({
+      subjectToken: 'subject',
+      actorToken: actorToken as string,
+      actorTokenType: 'urn:ietf:params:oauth:token-type:access_token',
+    });
+
+    const [body] = tokenRequestBodies();
+    expect(body.get('actor_token')).toBe('source-jwt');
+    expect(body.get('actor_token_type')).toBe('urn:ietf:params:oauth:token-type:jwt');
+    expect(actor).toHaveBeenCalledTimes(1);
+  });
+
   it('row 25: omits actor fields and skips the source on impersonation', async () => {
     const actor = jest.fn(async () => 'source-jwt');
     const client = new TokenExchangeClient(ISSUER, { actor, clientId: 'app', clientSecret: 'secret' });
