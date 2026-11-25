@@ -2,7 +2,7 @@ import { jest } from '@jest/globals';
 import { TokenVerifier } from './tokenVerifier.js';
 import { JWTSigner, type JWTClaims } from '../jwt/signer.js';
 import { JWKSOAuthKeyring, type OAuthKeyring, type PrivateKeyring } from '../keyring.js';
-import { HTTPError, JWKSFetchError } from '../errors.js';
+import { ConfigurationError, HTTPError, JWKSFetchError } from '../errors.js';
 
 const RS256_PRIVATE_JWK = {
   kty: 'RSA',
@@ -60,6 +60,27 @@ async function signWith(claims: JWTClaims, privateKey: CryptoKey, kid = KID, iss
 
 describe('TokenVerifier', () => {
   const nowSec = () => Math.floor(Date.now() / 1000);
+
+  it.each<{ row: string; aud: string | string[]; accepted: boolean }>([
+    { row: '8a: scalar match', aud: 'resource-b', accepted: true },
+    { row: '8b: scalar mismatch', aud: 'resource-c', accepted: false },
+    { row: '8c: array match', aud: ['resource-c', 'resource-b'], accepted: true },
+    { row: '8d: array mismatch', aud: ['resource-c', 'resource-d'], accepted: false },
+  ])('row $row', async ({ aud, accepted }) => {
+    const [pub, priv] = await Promise.all([importPublicKey(), importPrivateKey()]);
+    const iat = nowSec();
+    const token = await signWith({
+      iss: ISSUER, sub: 'user-1', client_id: 'service-x', iat, exp: iat + 60, aud,
+    }, priv);
+    const verifier = new TokenVerifier({
+      issuer: ISSUER, keyring: makeKeyring(pub), audience: ['resource-a', 'resource-b'],
+    });
+    expect((await verifier.verifyToken(token)) !== null).toBe(accepted);
+  });
+
+  it('row 8e: rejects an explicitly empty audience list at construction', () => {
+    expect(() => new TokenVerifier({ issuer: ISSUER, audience: [] })).toThrow(ConfigurationError);
+  });
 
   it('rejects construction without an issuer', () => {
     expect(() => new TokenVerifier({ issuer: '' })).toThrow(/issuer is required/);
