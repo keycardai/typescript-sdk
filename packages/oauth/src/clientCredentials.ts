@@ -1,8 +1,8 @@
-import { OAuthError } from "./errors.js";
+import { ConfigurationError, OAuthError } from "./errors.js";
 import { readResponseText } from "./responseBody.js";
 import { tokenEndpointError } from "./tokenEndpointError.js";
-import type { ApplicationCredential } from "./credentials.js";
-import { basicAuthorization } from "./basicAuthorization.js";
+import { providesClientAuthentication, type ApplicationCredential } from "./credentials.js";
+import { ClientSecret } from "./server/clientSecret.js";
 import { DEFAULT_FETCH_TIMEOUT_MS, TokenEndpointResolver, type TokenEndpointCacheOptions } from "./tokenEndpoint.js";
 import { deserializeTokenResponse, type TokenResponse } from "./tokenExchange.js";
 
@@ -27,9 +27,9 @@ export interface ClientCredentialsClientOptions extends TokenEndpointCacheOption
   clientId?: string;
   clientSecret?: string;
   /**
-   * Application credential provider. When set, takes precedence over
-   * static `clientId`/`clientSecret` and resolves the per-request
-   * Authorization header from the credential's `getAuth(issuer)`.
+   * Application credential provider. Set either a credential or a
+   * `clientId`/`clientSecret` pair. A request with a client assertion
+   * authenticates with that assertion alone.
    */
   credential?: ApplicationCredential;
   /**
@@ -68,17 +68,19 @@ function serializeRequest(request: ClientCredentialsRequest): URLSearchParams {
 
 export class ClientCredentialsClient {
   #issuer: string;
-  #clientId?: string;
-  #clientSecret?: string;
   #credential?: ApplicationCredential;
   #tokenEndpoint: TokenEndpointResolver;
   #fetchTimeoutMs: number;
 
   constructor(issuer: string, options?: ClientCredentialsClientOptions) {
     this.#issuer = issuer;
-    this.#clientId = options?.clientId;
-    this.#clientSecret = options?.clientSecret;
-    this.#credential = options?.credential;
+    const { credential, clientId, clientSecret } = options ?? {};
+    if (credential !== undefined && clientId !== undefined && clientSecret !== undefined) {
+      throw new ConfigurationError("Pass either credential or clientId and clientSecret, not both");
+    }
+    this.#credential = credential ?? (clientId && clientSecret
+      ? new ClientSecret(clientId, clientSecret)
+      : undefined);
     this.#fetchTimeoutMs = options?.fetchTimeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS;
     this.#tokenEndpoint = new TokenEndpointResolver(issuer, options);
   }
@@ -87,6 +89,13 @@ export class ClientCredentialsClient {
     request?: ClientCredentialsRequest,
     options?: RequestTokenOptions,
   ): Promise<TokenResponse> {
+    const credential = request?.clientAssertion ? undefined : this.#credential;
+    const authenticator = credential && providesClientAuthentication(credential)
+      ? credential
+      : undefined;
+    if (credential && !authenticator) {
+      throw new ConfigurationError("Client credentials requires a credential that provides clientAuthentication");
+    }
     const tokenEndpoint = await this.#tokenEndpoint.resolve();
     const body = serializeRequest(request ?? {});
 
@@ -94,9 +103,12 @@ export class ClientCredentialsClient {
       "Content-Type": "application/x-www-form-urlencoded",
     };
 
-    const basicAuth = this.#resolveBasicAuth(options?.issuer);
-    if (basicAuth) {
-      headers["Authorization"] = basicAuthorization(basicAuth.clientId, basicAuth.clientSecret);
+    if (authenticator) {
+      const auth = await authenticator.clientAuthentication(options?.issuer ?? this.#issuer, tokenEndpoint);
+      body.delete("client_id");
+      body.delete("client_assertion_type");
+      Object.assign(headers, auth.headers);
+      for (const [name, value] of Object.entries(auth.form)) body.set(name, value);
     }
 
     const response = await fetch(tokenEndpoint, {
@@ -121,18 +133,6 @@ export class ClientCredentialsClient {
       throw new OAuthError("invalid_response", "Client credentials response is not a valid JSON object");
     }
     return deserializeTokenResponse(json as Record<string, unknown>);
-  }
-
-  #resolveBasicAuth(
-    issuer: string | undefined,
-  ): { clientId: string; clientSecret: string } | null {
-    if (this.#credential) {
-      return this.#credential.getAuth(issuer);
-    }
-    if (this.#clientId && this.#clientSecret) {
-      return { clientId: this.#clientId, clientSecret: this.#clientSecret };
-    }
-    return null;
   }
 
   /**

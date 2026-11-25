@@ -107,6 +107,7 @@ export type {
   AuthorizationRedirect,
 } from "./webApp.js";
 export {
+  DeviceAuthorizationClient,
   requestDeviceAuthorization,
   pollDeviceToken,
   waitForDeviceToken,
