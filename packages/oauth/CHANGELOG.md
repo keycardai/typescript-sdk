@@ -1,3 +1,10 @@
+## 0.32.0-keycardai-oauth (2026-11-25)
+
+
+- feat(oauth): carry HTTP status and network causes on token endpoint errors (SDK-147) (#398)
+- Co-authored-by: devin-ai-keycard <devin-ai@keycard.ai>
+Co-authored-by: Larry Osakwe <larry@keycard.ai>
+
 ## 0.31.0-keycardai-oauth (2026-11-25)
 
 
