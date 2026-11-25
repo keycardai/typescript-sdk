@@ -1,3 +1,10 @@
+## 0.35.3-keycardai-oauth (2026-11-25)
+
+
+- fix(oauth): pace retries for cached metadata fetches (#396)
+- Pace discovery and JWKS retries in TokenEndpointResolver and JWKSOAuthKeyring per keycard-sdk-spec#142: honor Retry-After on 429 and 503, back off on 5xx and transport failures, and start no delay for a 429 without Retry-After. An oversized body (keycard-sdk-spec#141) follows its status: retryable on 200, 429 and 5xx, with no Retry-After since the body is discarded. Device discovery keeps no pacing state in TypeScript.
+- Co-authored-by: Larry Osakwe <23560354+Larry-Osakwe@users.noreply.github.com>
+
 ## 0.35.2-keycardai-oauth (2026-11-25)
 
 
