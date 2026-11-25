@@ -369,6 +369,10 @@ describe("requireBearerAuth middleware", () => {
   });
 
   describe("missing-audience warning at construction", () => {
+    it("row 8e: rejects empty audiences even with a supplied verifier", () => {
+      expect(() => requireBearerAuth({ verifier: mockVerifier, audiences: [] }))
+        .toThrow(/audiences must not be an empty list/);
+    });
     let warn: ReturnType<typeof jest.spyOn>;
     beforeEach(() => {
       warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
