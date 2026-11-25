@@ -16,6 +16,17 @@ export class BadRequestError extends HTTPError {
 export class UnauthorizedError extends HTTPError {
 }
 
+/** A revocation request or its discovery failed without an OAuth error response. */
+export class TokenRevocationHTTPError extends HTTPError {
+  readonly retryable: boolean;
+
+  constructor(message: string, status?: number, cause?: unknown, retryAfter?: string) {
+    super(message, status, cause, retryAfter);
+    this.name = "TokenRevocationHTTPError";
+    this.retryable = status === undefined || status === 429 || status >= 500;
+  }
+}
+
 export class OAuthError extends Error {
   readonly errorDescription?: string;
   readonly reason?: string;

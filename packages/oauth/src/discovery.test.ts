@@ -76,6 +76,55 @@ describe('fetchAuthorizationServerMetadata', () => {
     });
   });
 
+  it('authorization server discovery row 12: types both revocation fields', async () => {
+    const endpoint = `${ISSUER}/revoke`;
+    const methods = ['client_secret_basic', 'client_secret_post', 'private_key_jwt', 'none'];
+    mockFetch({
+      issuer: ISSUER,
+      revocation_endpoint: endpoint,
+      revocation_endpoint_auth_methods_supported: methods,
+    });
+
+    const metadata = await fetchAuthorizationServerMetadata(ISSUER);
+    const typedEndpoint: string | undefined = metadata.revocation_endpoint;
+    const typedMethods: string[] | undefined = metadata.revocation_endpoint_auth_methods_supported;
+    expect(typedEndpoint).toBe(endpoint);
+    expect(typedMethods).toEqual(methods);
+  });
+
+  it('authorization server discovery row 13: leaves both revocation fields undefined when absent', async () => {
+    mockFetch({ issuer: ISSUER });
+
+    const metadata = await fetchAuthorizationServerMetadata(ISSUER);
+    expect(metadata.revocation_endpoint).toBeUndefined();
+    expect(metadata.revocation_endpoint_auth_methods_supported).toBeUndefined();
+  });
+
+  it.each([
+    ['revocation_endpoint', 42],
+    ['revocation_endpoint_auth_methods_supported', 'none'],
+    ['revocation_endpoint_auth_methods_supported', [false]],
+  ])('ignores an incorrectly typed %s value %p', async (field, value) => {
+    mockFetch({ issuer: ISSUER, [field]: value });
+
+    const metadata = await fetchAuthorizationServerMetadata(ISSUER);
+    expect(metadata[field]).toBeUndefined();
+  });
+
+  it('returns other metadata even when a revocation field is malformed', async () => {
+    const tokenEndpoint = `${ISSUER}/token`;
+    const jwksUri = `${ISSUER}/jwks`;
+    mockFetch({
+      issuer: ISSUER,
+      token_endpoint: tokenEndpoint,
+      jwks_uri: jwksUri,
+      revocation_endpoint: [],
+    });
+
+    const metadata = await fetchAuthorizationServerMetadata(ISSUER);
+    expect(metadata).toMatchObject({ issuer: ISSUER, token_endpoint: tokenEndpoint, jwks_uri: jwksUri });
+  });
+
   it('throws HTTPError on a non-2xx response', async () => {
     mockFetch({}, 503);
 

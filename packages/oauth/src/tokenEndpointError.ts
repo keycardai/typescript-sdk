@@ -17,6 +17,12 @@ export async function tokenEndpointError(response: Response, operation: string, 
       });
     }
   }
+  return parseOAuthError(text, status) ?? new OAuthError("invalid_response", `${operation} failed (HTTP ${status})`, undefined, {
+    retryable: transient, status,
+  });
+}
+
+export function parseOAuthError(text: string, status: number): OAuthError | undefined {
   let body: Record<string, unknown> | null = null;
   try {
     const parsed: unknown = JSON.parse(text);
@@ -31,10 +37,8 @@ export async function tokenEndpointError(response: Response, operation: string, 
     const reason = typeof body.reason === "string" ? body.reason : undefined;
     const errorUri = typeof body.error_uri === "string" ? body.error_uri : undefined;
     return new OAuthError(body.error, errorDescription ?? body.error, errorUri, {
-      errorDescription, reason, retryable: transient || !isPermanentErrorCode(body.error), status,
+      errorDescription, reason, retryable: status === 429 || status >= 500 || !isPermanentErrorCode(body.error), status,
     });
   }
-  return new OAuthError("invalid_response", `${operation} failed (HTTP ${status})`, undefined, {
-    retryable: transient, status,
-  });
+  return undefined;
 }

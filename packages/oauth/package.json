@@ -109,6 +109,11 @@
       "import": "./dist/esm/userinfo.js",
       "require": "./dist/cjs/userinfo.js",
       "types": "./dist/esm/userinfo.d.ts"
+    },
+    "./tokenRevocation": {
+      "import": "./dist/esm/tokenRevocation.js",
+      "require": "./dist/cjs/tokenRevocation.js",
+      "types": "./dist/esm/tokenRevocation.d.ts"
     }
   },
   "files": [

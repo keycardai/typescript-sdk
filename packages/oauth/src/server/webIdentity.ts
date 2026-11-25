@@ -117,9 +117,9 @@ export class WebIdentity implements ApplicationCredential {
   /**
    * Returns a newly signed `client_assertion` and its `client_assertion_type`.
    * `headers` is empty. The assertion's `iss` and `sub` are `clientId`, and its
-   * `aud` is `endpoint`: a Keycard zone rejects an assertion whose `aud` is
-   * not the endpoint it is sent to. `audienceConfig` does not apply. Throws
-   * `ConfigurationError` when `clientId` is not set.
+   * `aud` is the supplied `endpoint` value. The revocation operation passes
+   * the zone issuer as this value. `audienceConfig` does not apply.
+   * Throws `ConfigurationError` when `clientId` is not set.
    */
   async clientAuthentication(_issuer: string, endpoint: string): Promise<ClientAuthentication> {
     const clientId = this.#requireClientId();
