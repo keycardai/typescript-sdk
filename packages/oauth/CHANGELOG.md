@@ -1,3 +1,16 @@
+## 0.34.0-keycardai-oauth (2026-11-25)
+
+
+- fix(oauth)!: reject request client IDs with Basic token exchange (#392)
+- * fix(oauth)!: reject request client IDs with Basic token exchange
+- Co-Authored-By: Larry Osakwe <larry@keycard.ai>
+- * fix(oauth): throw ConfigurationError for a request clientId with Basic token exchange
+- Resolve the issuer as options.issuer or the client's issuer before the guard, so a multi-zone ClientSecret without a per-call issuer is rejected before discovery too (keycard-sdk-spec#138).
+- ---------
+- Co-authored-by: devin-ai-keycard <devin-ai@keycard.ai>
+Co-authored-by: Larry Osakwe <larry@keycard.ai>
+Co-authored-by: Larry Osakwe <23560354+Larry-Osakwe@users.noreply.github.com>
+
 ## 0.33.1-keycardai-oauth (2026-11-25)
 
 
