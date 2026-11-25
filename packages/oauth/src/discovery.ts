@@ -1,6 +1,6 @@
 import { requestSignal } from "./requestSignal.js";
 import { z } from "zod";
-import { HTTPError, OAuthError } from "./errors.js";
+import { ConfigurationError, HTTPError, OAuthError } from "./errors.js";
 
 const OAuthAuthorizationServerMetadataSchema = z.looseObject({
   issuer: z.string(),
@@ -75,4 +75,24 @@ export async function fetchAuthorizationServerMetadata(
   }
 
   return metadata;
+}
+
+/**
+ * Throws `ConfigurationError` when caller-supplied metadata names a
+ * different issuer than `issuer`, ignoring a trailing slash. The caller
+ * keeps using `issuer` as supplied for client authentication.
+ */
+export function assertMetadataIssuer(
+  issuer: string,
+  metadata: OAuthAuthorizationServerMetadata,
+  operation: string,
+): void {
+  if (typeof metadata.issuer !== "string" || !metadata.issuer) {
+    throw new ConfigurationError(`${operation}: the metadata has no issuer`);
+  }
+  if (metadata.issuer.replace(/\/$/, "") !== issuer.replace(/\/$/, "")) {
+    throw new ConfigurationError(
+      `${operation}: issuer ${JSON.stringify(issuer)} does not match the metadata issuer ${JSON.stringify(metadata.issuer)}`,
+    );
+  }
 }

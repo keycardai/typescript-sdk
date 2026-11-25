@@ -494,6 +494,61 @@ describe('device authorization grant', () => {
     });
   });
 
+  describe('explicit issuer with pre-discovered metadata', () => {
+    const operations = [
+      {
+        name: 'requestDeviceAuthorization',
+        endpoint: DEVICE_ENDPOINT,
+        routes: { device: json(200, DEVICE_RESPONSE) },
+        run: (issuer: string, o: object) => requestDeviceAuthorization(issuer, o as never),
+      },
+      {
+        name: 'pollDeviceToken',
+        endpoint: TOKEN_ENDPOINT,
+        routes: { polls: [token] },
+        run: (issuer: string, o: object) => pollDeviceToken(issuer, { authorization: authorization(), ...o } as never),
+      },
+      {
+        name: 'waitForDeviceToken',
+        endpoint: TOKEN_ENDPOINT,
+        routes: { polls: [token] },
+        run: (issuer: string, o: object) =>
+          waitForDeviceToken(issuer, { authorization: authorization(), clock: new FakeClock(), ...o } as never),
+      },
+    ];
+    const matches = operations.flatMap((op) => [
+      { op, issuer: `${ISSUER}/`, metadataIssuer: ISSUER },
+      { op, issuer: ISSUER, metadataIssuer: `${ISSUER}/` },
+    ]);
+
+    it.each(matches)(
+      'row 35: $op.name with issuer $issuer and metadata issuer $metadataIssuer authenticates with the explicit issuer unchanged',
+      async ({ op, issuer, metadataIssuer }) => {
+        const credential = fakeCredential();
+        const calls = mockFetch(op.routes);
+
+        await op.run(issuer, { credential, metadata: { ...METADATA, issuer: metadataIssuer } });
+
+        expect(credential.clientAuthentication.mock.calls).toEqual([[issuer, op.endpoint]]);
+        expect(calls.map((c) => c.url)).toEqual([op.endpoint]);
+      },
+    );
+
+    it.each(operations)('row 35: $op.name with metadata for another zone is a configuration error', async (op) => {
+      const credential = fakeCredential();
+      const calls = mockFetch(op.routes);
+
+      const failure = op.run(ISSUER, { credential, metadata: { ...METADATA, issuer: 'https://other.example.com' } });
+
+      await expect(failure).rejects.toThrow(ConfigurationError);
+      await expect(failure).rejects.toThrow(
+        `${op.name}: issuer "${ISSUER}" does not match the metadata issuer "https://other.example.com"`,
+      );
+      expect(credential.clientAuthentication).not.toHaveBeenCalled();
+      expect(calls).toHaveLength(0);
+    });
+  });
+
   describe('discovery failures', () => {
     const operations = [
       { name: 'requestDeviceAuthorization', run: (issuer: string, o: object) => requestDeviceAuthorization(issuer, { clientId: 'c', ...o }) },

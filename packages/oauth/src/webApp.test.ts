@@ -660,6 +660,49 @@ describe('web-app flow', () => {
       });
     });
 
+    describe('with an explicit issuer and pre-discovered metadata', () => {
+      const credential = () => ({
+        getAuth: () => null,
+        prepareTokenExchangeRequest: async () => ({ subjectToken: 'unused' }),
+        clientAuthentication: jest.fn(async (_issuer: string, _endpoint: string) => ({ headers: {}, form: {} })),
+      });
+
+      it.each([
+        { issuer: `${ISSUER}/`, metadataIssuer: ISSUER },
+        { issuer: ISSUER, metadataIssuer: `${ISSUER}/` },
+      ])('issuer $issuer with metadata issuer $metadataIssuer authenticates with the explicit issuer unchanged', async ({ issuer, metadataIssuer }) => {
+        const cred = credential();
+        const calls = mockFetch(() => jsonResponse(200, { access_token: 'at', token_type: 'Bearer' }));
+
+        await refreshAuthorization(issuer, {
+          metadata: { ...METADATA, issuer: metadataIssuer },
+          refreshToken: 'rt-1',
+          credential: cred,
+        });
+
+        expect(cred.clientAuthentication.mock.calls).toEqual([[issuer, TOKEN_ENDPOINT]]);
+        expect(calls.map((c) => c.url)).toEqual([TOKEN_ENDPOINT]);
+      });
+
+      it('metadata for another zone throws ConfigurationError before client authentication or any request', async () => {
+        const cred = credential();
+        const calls = mockFetch(() => jsonResponse(200, { access_token: 'at', token_type: 'Bearer' }));
+
+        const failure = refreshAuthorization(ISSUER, {
+          metadata: { ...METADATA, issuer: 'https://other.example.com' },
+          refreshToken: 'rt-1',
+          credential: cred,
+        });
+
+        await expect(failure).rejects.toThrow(ConfigurationError);
+        await expect(failure).rejects.toThrow(
+          `refreshAuthorization: issuer "${ISSUER}" does not match the metadata issuer "https://other.example.com"`,
+        );
+        expect(cred.clientAuthentication).not.toHaveBeenCalled();
+        expect(calls).toHaveLength(0);
+      });
+    });
+
     it('discovers the token endpoint when no metadata is supplied', async () => {
       const calls = mockFetch((url) =>
         url.includes('.well-known')
