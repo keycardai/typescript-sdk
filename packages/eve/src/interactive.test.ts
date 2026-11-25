@@ -14,7 +14,7 @@ import {
   type TokenResponse,
   type UserInfoResponse,
 } from "@keycardai/oauth";
-import { WorkloadIdentity } from "@keycardai/oauth/server";
+import { ClientSecret, WorkloadIdentity } from "@keycardai/oauth/server";
 import type { AuthorizationCallback } from "eve/connections";
 
 import { encodeCallbackState } from "./callbackRoute.js";
@@ -509,10 +509,11 @@ describe("interactive", () => {
 });
 
 /**
- * eve mints a new callback URL per attempt, and RFC 9700 requires the server to
- * match `redirect_uri` by exact string comparison. These cover the arrangement
- * that satisfies both: the client is registered alongside the callback it is
- * bound to, and the code is redeemed by that same client.
+ * With no explicit or derived `clientId`, eve mints a new callback URL per
+ * attempt, and RFC 9700 requires the server to match `redirect_uri` by exact
+ * string comparison. These cover the arrangement that satisfies both (row 23):
+ * each attempt registers a public client bound to its callback, and the code
+ * is redeemed by that same client with no secret sent.
  */
 describe("interactive per-attempt client registration", () => {
   it("registers a client bound to the callback URL of that attempt", async () => {
@@ -543,7 +544,7 @@ describe("interactive per-attempt client registration", () => {
     expect(started.resume.clientId).toBe("attempt-client-1");
   });
 
-  it("gives each attempt its own client and callback", async () => {
+  it("row 23: with no explicit or derived clientId, each attempt registers its own public client and callback", async () => {
     const flow = recordingFlow();
     const auth = interactive({
       resource: CALENDAR,
@@ -835,7 +836,7 @@ describe("interactive confidential client through the stable callback route", ()
     ).rejects.toMatchObject({ reason: FailureReason.INVALID_CALLBACK });
   });
 
-  it("row 49: without clientId the per-attempt path is byte-for-byte unchanged", async () => {
+  it("row 49: with no explicit or derived clientId, the per-attempt path is byte-for-byte unchanged", async () => {
     const run = async (): Promise<unknown> => {
       resetInteractiveDefinitions();
       const flow = recordingFlow({
@@ -923,16 +924,26 @@ describe("interactive confidential client through the stable callback route", ()
     });
   });
 
-  it("row 50: applicationCredential excludes clientSecret, and either needs clientId", () => {
-    const credential = new WorkloadIdentity(() => "platform-token", {
+  it("row 50: applicationCredential and clientSecret are mutually exclusive, and clientSecret or a non-WorkloadIdentity credential requires clientId", () => {
+    const workloadCredential = new WorkloadIdentity(() => "platform-token", {
       clientId: "app-credential-1",
     });
+    const secretCredential = new ClientSecret("app-credential-1", "app-secret");
     expect(() =>
       interactive({
         resource: CALENDAR,
         flow: staticOnlyFlow(),
         clientId: "app-credential-1",
-        applicationCredential: credential,
+        applicationCredential: workloadCredential,
+        clientSecret: "app-secret",
+      }),
+    ).toThrow(AuthProviderConfigurationError);
+    expect(() =>
+      interactive({
+        resource: CALENDAR,
+        flow: staticOnlyFlow(),
+        clientId: "app-credential-1",
+        applicationCredential: workloadCredential,
         clientSecret: "app-secret",
       }),
     ).toThrow(/applicationCredential or clientSecret, not both/);
@@ -940,18 +951,33 @@ describe("interactive confidential client through the stable callback route", ()
       interactive({
         resource: CALENDAR,
         flow: staticOnlyFlow(),
-        applicationCredential: credential,
+        applicationCredential: secretCredential,
+      }),
+    ).toThrow(AuthProviderConfigurationError);
+    expect(() =>
+      interactive({
+        resource: CALENDAR,
+        flow: staticOnlyFlow(),
+        applicationCredential: secretCredential,
       }),
     ).toThrow(/applicationCredential requires clientId/);
     expect(() =>
       interactive({
         resource: CALENDAR,
         flow: staticOnlyFlow(),
-        clientId: "app-credential-1",
-        applicationCredential: credential,
+        applicationCredential: workloadCredential,
       }),
     ).not.toThrow();
     // The accepted definition took the default connection name.
+    resetInteractiveDefinitions();
+    expect(() =>
+      interactive({
+        resource: CALENDAR,
+        flow: staticOnlyFlow(),
+        clientId: "app-credential-1",
+        applicationCredential: workloadCredential,
+      }),
+    ).not.toThrow();
     resetInteractiveDefinitions();
     expect(() =>
       interactive({
@@ -2189,5 +2215,96 @@ describe("interactive confidential client with an applicationCredential", () => 
     expect(refresh.form.get("grant_type")).toBe("refresh_token");
     expect(refresh.form.get("client_id")).toBe(CREDENTIAL_ID);
     expect(refresh.form.get("client_assertion")).toBe("vercel-oidc-1");
+  });
+
+  it("row 62: derives clientId from a WorkloadIdentity credential when omitted, with no registration, and redeems and refreshes with its assertion and client_id", async () => {
+    const calls = zone();
+    const { credential } = vercelCredential(CREDENTIAL_ID);
+    const tokens = memoryAuthorizedTokenStore();
+    const auth = interactive({
+      resource: CALENDAR,
+      zoneUrl: ZONE,
+      applicationCredential: credential,
+      tokens,
+    });
+
+    const started = await auth.startAuthorization({
+      principal: userPrincipal(),
+      connection,
+      callbackUrl: ATTEMPT,
+    });
+    const authorize = new URL(started.challenge.url);
+    expect(authorize.searchParams.get("client_id")).toBe(CREDENTIAL_ID);
+    expect(authorize.searchParams.get("redirect_uri")).toBe(ROUTE);
+    expect(authorize.searchParams.get("state")).toBe(started.resume.state);
+    expect(started.resume.clientId).toBe(CREDENTIAL_ID);
+    expect(started.resume.callbackUrl).toBe(ROUTE);
+
+    const state = new URL(started.challenge.url).searchParams.get("state")!;
+    await auth.completeAuthorization({
+      principal: userPrincipal(),
+      connection,
+      callbackUrl: ATTEMPT,
+      resume: started.resume,
+      callback: callback({ code: "auth-code", state }),
+    });
+    const result = await auth.getToken({ principal: userPrincipal(), connection });
+    expect(result.token).toBe("zone-token-2");
+
+    expect(calls.some((call) => call.url.endsWith("/register"))).toBe(false);
+    const [redeem, refresh] = tokenRequests(calls);
+    expect(redeem!.form.get("grant_type")).toBe("authorization_code");
+    expect(redeem!.form.get("code")).toBe("auth-code");
+    expect(redeem!.form.get("redirect_uri")).toBe(ROUTE);
+    expect(redeem!.form.get("client_id")).toBe(CREDENTIAL_ID);
+    expect(redeem!.form.get("client_assertion")).toBe("vercel-oidc-1");
+    expect(redeem!.form.get("client_assertion_type")).toBe(
+      "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+    );
+    expect(redeem!.form.has("client_secret")).toBe(false);
+    expect(redeem!.headers["Authorization"]).toBeUndefined();
+
+    expect(refresh!.form.get("grant_type")).toBe("refresh_token");
+    expect(refresh!.form.get("refresh_token")).toBe("refresh-1");
+    expect(refresh!.form.get("client_id")).toBe(CREDENTIAL_ID);
+    expect(refresh!.form.get("client_assertion")).toBe("vercel-oidc-2");
+    expect(refresh!.form.get("client_assertion_type")).toBe(
+      "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+    );
+    expect(refresh!.form.has("client_secret")).toBe(false);
+    expect(refresh!.headers["Authorization"]).toBeUndefined();
+
+    const [grant] = await tokens.list(PRINCIPAL_KEY);
+    expect(grant?.clientId).toBe(CREDENTIAL_ID);
+    expect(grant?.refreshToken).toBe("refresh-2");
+  });
+
+  it("row 63: an explicit clientId different from the WorkloadIdentity credential's client_id is a configuration error at definition time", () => {
+    const calls = zone();
+    const { credential, fetched } = vercelCredential(CREDENTIAL_ID);
+    expect(() =>
+      interactive({
+        resource: CALENDAR,
+        zoneUrl: ZONE,
+        clientId: "other-credential-id",
+        applicationCredential: credential,
+      }),
+    ).toThrow(AuthProviderConfigurationError);
+    expect(fetched()).toBe(0);
+    expect(calls).toEqual([]);
+  });
+
+  it("row 64: a WorkloadIdentity without client_id and no explicit clientId is a configuration error at definition time", () => {
+    const calls = zone();
+    const unnamed = vercelCredential();
+    expect(() =>
+      interactive({
+        resource: CALENDAR,
+        zoneUrl: ZONE,
+        applicationCredential: unnamed.credential,
+      }),
+    ).toThrow(AuthProviderConfigurationError);
+    expect(unnamed.fetched()).toBe(0);
+    expect(calls).toEqual([]);
   });
 });
