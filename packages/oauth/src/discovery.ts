@@ -9,6 +9,8 @@ const OAuthAuthorizationServerMetadataSchema = z.looseObject({
   token_endpoint: z.string().optional(),
   jwks_uri: z.string().optional(),
   registration_endpoint: z.string().optional(),
+  revocation_endpoint: z.string().optional(),
+  revocation_endpoint_auth_methods_supported: z.array(z.string()).optional(),
   grant_types_supported: z.array(z.string()).optional(),
   response_types_supported: z.array(z.string()).optional(),
   token_endpoint_auth_methods_supported: z.array(z.string()).optional(),
@@ -28,7 +30,7 @@ export type OAuthAuthorizationServerMetadata = z.infer<typeof OAuthAuthorization
 
 export async function fetchAuthorizationServerMetadata(
   issuer: string,
-  options?: { signal?: AbortSignal; timeoutMs?: number },
+  options?: { signal?: AbortSignal; timeoutMs?: number; fetch?: typeof globalThis.fetch },
 ): Promise<OAuthAuthorizationServerMetadata> {
   const issuerURL = new URL(issuer);
   let path = issuerURL.pathname;
@@ -37,7 +39,8 @@ export async function fetchAuthorizationServerMetadata(
   }
 
   const url = new URL(`/.well-known/oauth-authorization-server${path}`, issuer);
-  const response = await fetch(url, { signal: requestSignal(options?.signal, options?.timeoutMs) });
+  const fetchMetadata = options?.fetch ?? globalThis.fetch;
+  const response = await fetchMetadata(url, { signal: requestSignal(options?.signal, options?.timeoutMs) });
   if (!response.ok) {
     discardResponseBody(response);
     throw new HTTPError(
