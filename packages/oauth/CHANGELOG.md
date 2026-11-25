@@ -1,3 +1,12 @@
+## 0.35.1-keycardai-oauth (2026-11-25)
+
+
+- fix(oauth): reject pre-discovered metadata for another issuer (#394)
+- The device grant operations and refreshAuthorization now compare metadata.issuer with the issuer argument, ignoring a trailing slash, and throw ConfigurationError on a mismatch before client authentication or any request. On a match the credential still gets the issuer argument as supplied.
+- Implements keycard-sdk-spec#140, specs/oauth-client/device-authorization.md unit row 35 and the base rule for a caller-supplied issuer and metadata. SDK-124.
+- Co-authored-by: devin-ai-keycard <devin-ai@keycard.ai>
+Co-authored-by: Larry Osakwe <larry@keycard.ai>
+
 ## 0.35.0-keycardai-oauth (2026-11-25)
 
 
