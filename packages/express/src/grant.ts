@@ -239,12 +239,15 @@ export function grant(
           issuer: resolvedIssuer,
         });
       } catch (e) {
-        const detail: { message: string; code?: string; description?: string; rawError?: string } = {
+        const detail: { message: string; code?: string; description?: string; reason?: string; rawError?: string } = {
           message: `Token exchange failed for ${resource}`,
         };
         if (e instanceof OAuthError) {
           detail.code = e.errorCode;
           detail.description = e.message;
+          if (e.reason !== undefined) {
+            detail.reason = e.reason;
+          }
         } else {
           detail.rawError = String(e);
         }

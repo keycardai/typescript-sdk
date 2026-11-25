@@ -254,6 +254,40 @@ describe('grant', () => {
     expect(res.body.status).toBe('partial_error');
   });
 
+  it('records the authorization server reason on the resource error', async () => {
+    fetchMock.mockImplementation(async (input: FetchInput) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.includes('/.well-known/')) {
+        return new Response(
+          JSON.stringify({ issuer: ZONE_URL, token_endpoint: `${ZONE_URL}/token` }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      return new Response(
+        JSON.stringify({ error: 'access_denied', error_description: 'Denied', reason: 'policy_denied' }),
+        { status: 400, headers: { 'content-type': 'application/json' } },
+      );
+    });
+
+    const app = express();
+    app.use((req, _res, next) => {
+      (req as any).auth = VALID_AUTH;
+      next();
+    });
+    app.use(grant([RESOURCE], { zoneUrl: ZONE_URL }));
+    app.get('/data', (req, res) => {
+      res.json({ error: (req as any).accessContext.getResourceError(RESOURCE) });
+    });
+
+    const res = await request(app).get('/data');
+    expect(res.body.error).toEqual({
+      message: `Token exchange failed for ${RESOURCE}`,
+      code: 'access_denied',
+      description: 'Denied',
+      reason: 'policy_denied',
+    });
+  });
+
   it('throws at construction when neither zoneUrl nor zoneId is provided', () => {
     expect(() => grant([RESOURCE], {} as any)).toThrow(/zoneUrl.*zoneId/);
   });
