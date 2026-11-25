@@ -154,16 +154,19 @@ export class GCPMetadataTokenSource implements IdentityTokenSource {
 
     let response: Response;
     let body: string;
+    let signal: AbortSignal | undefined;
     try {
+      signal = AbortSignal.timeout(this.#timeoutMs);
       response = await fetch(url, {
         headers: { "Metadata-Flavor": "Google" },
-        signal: AbortSignal.timeout(this.#timeoutMs),
+        signal,
       });
       body = await response.text();
     } catch (error) {
+      const timedOut = signal?.aborted && error instanceof Error && error.name === "AbortError";
       throw new WorkloadIdentityRuntimeError(
         `Error calling metadata server at ${this.#metadataUrl} (is this running on GCP?)`,
-        { source: WORKLOAD_IDENTITY_SOURCE_GCP_METADATA, cause: error },
+        { source: WORKLOAD_IDENTITY_SOURCE_GCP_METADATA, cause: error, retryable: timedOut ? true : undefined },
       );
     }
 

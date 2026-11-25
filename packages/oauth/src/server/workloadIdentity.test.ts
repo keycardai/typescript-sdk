@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as http from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
+import { jest } from "@jest/globals";
 import {
   DEFAULT_FILE_TOKEN_ENV_VARS,
   FileTokenSource,
@@ -426,6 +427,30 @@ describe("GCPMetadataTokenSource", () => {
       source: "gcp-metadata",
       retryable: false,
     });
+  });
+
+  it.each([true, false])("classifies AbortError using the timeout signal (timed out: %s)", async (timedOut) => {
+    const cause = Object.assign(new Error("The operation was aborted"), { name: "AbortError" });
+    const fetchMock = jest.spyOn(globalThis, "fetch").mockImplementation(async (_url, options) => {
+      if (!timedOut) throw cause;
+      return new Promise((_, reject) => {
+        options?.signal?.addEventListener("abort", () => reject(cause), { once: true });
+      });
+    });
+    try {
+      const source = new GCPMetadataTokenSource({
+        audience: "https://zone.example.com",
+        metadataUrl,
+        timeoutMs: 10,
+      });
+      await expect(source.identityToken()).rejects.toMatchObject({
+        source: "gcp-metadata",
+        cause,
+        retryable: timedOut,
+      });
+    } finally {
+      fetchMock.mockRestore();
+    }
   });
 });
 
