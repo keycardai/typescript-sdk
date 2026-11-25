@@ -158,7 +158,7 @@ describe('ClientCredentialsClient.requestToken', () => {
     });
   });
 
-  it('throws an OAuthError on an RFC 6749 error response', async () => {
+  it('throws an OAuthError with the status on an RFC 6749 error response', async () => {
     tokenResponseFactory = () =>
       new Response(
         JSON.stringify({
@@ -169,7 +169,9 @@ describe('ClientCredentialsClient.requestToken', () => {
       );
 
     const client = new ClientCredentialsClient(ISSUER);
-    await expect(client.requestToken()).rejects.toThrow(OAuthError);
+    const failure = client.requestToken();
+    await expect(failure).rejects.toBeInstanceOf(OAuthError);
+    await expect(failure).rejects.toMatchObject({ status: 401, errorCode: 'invalid_client' });
   });
 
   it('throws OAuthError("invalid_response") with the HTTP status on a non-JSON error response', async () => {
@@ -185,6 +187,7 @@ describe('ClientCredentialsClient.requestToken', () => {
     expect(thrown).toBeInstanceOf(OAuthError);
     expect((thrown as OAuthError).errorCode).toBe('invalid_response');
     expect((thrown as OAuthError).message).toContain('HTTP 502');
+    expect((thrown as OAuthError).status).toBe(502);
   });
 
   it('discovers the token endpoint once across multiple requests', async () => {

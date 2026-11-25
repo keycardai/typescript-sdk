@@ -2,7 +2,7 @@ import { jest } from '@jest/globals';
 import { TokenExchangeClient, TokenType } from './tokenExchange.js';
 import { ClientSecret } from './server/clientSecret.js';
 import { WorkloadIdentity } from './server/workloadIdentity.js';
-import { OAuthError } from './errors.js';
+import { HTTPError, OAuthError } from './errors.js';
 import { buildSubstituteUserToken } from './jwt/substituteUser.js';
 import type { ApplicationCredential } from './credentials.js';
 import type { TokenExchangeRequest } from './tokenExchange.js';
@@ -287,7 +287,110 @@ describe('TokenExchangeClient.impersonate', () => {
     });
 
     const client = new TokenExchangeClient(ISSUER, { clientId: 'app', clientSecret: 'shh', fetchTimeoutMs: 50 });
-    await expect(client.exchangeToken({ subjectToken: 'subject' })).rejects.toMatchObject({ name: 'TimeoutError' });
+    const failure = client.exchangeToken({ subjectToken: 'subject' });
+    await expect(failure).rejects.toMatchObject({ name: 'TimeoutError' });
+    const tokenCall = fetchMock.mock.calls.find(([url]) => url === TOKEN_ENDPOINT);
+    await expect(failure).rejects.toBe((tokenCall![1] as RequestInit).signal!.reason);
+  });
+
+  it.each(['TimeoutError', 'AbortError'])('preserves the timeout reason when the body rejects with %s', async (errorName) => {
+    fetchMock.mockImplementation(async (input: FetchInput, init?: FetchInit) => {
+      if (input !== TOKEN_ENDPOINT) return mockMetadataResponse();
+      const signal = init!.signal!;
+      return new Response(new ReadableStream({
+        start(controller) {
+          signal.addEventListener('abort', () => {
+            const cause = errorName === 'AbortError'
+              ? new DOMException('The operation was aborted.', 'AbortError')
+              : signal.reason;
+            controller.error(cause);
+          });
+        },
+      }));
+    });
+
+    const client = new TokenExchangeClient(ISSUER, { fetchTimeoutMs: 50 });
+    const failure = client.exchangeToken({ subjectToken: 'subject' });
+    await expect(failure).rejects.toBeInstanceOf(DOMException);
+    await expect(failure).rejects.toMatchObject({ name: 'TimeoutError' });
+    const tokenCall = fetchMock.mock.calls.find(([url]) => url === TOKEN_ENDPOINT);
+    await expect(failure).rejects.toBe((tokenCall![1] as RequestInit).signal!.reason);
+  });
+
+  it('preserves the HTTP status, code, description and URI of a token endpoint error', async () => {
+    const errorUri = 'https://auth.example.com/errors/unauthorized-client';
+    const description = 'Client is not permitted to impersonate';
+    fetchMock.mockImplementation(async (input: FetchInput) => {
+      if (input !== TOKEN_ENDPOINT) return mockMetadataResponse();
+      return Response.json({
+        error: 'unauthorized_client',
+        error_description: description,
+        error_uri: errorUri,
+      }, { status: 429 });
+    });
+
+    const client = new TokenExchangeClient(ISSUER);
+    const failure = client.impersonate({ userIdentifier: 'user@example.com', resource: 'https://api.example.com' });
+    await expect(failure).rejects.toBeInstanceOf(OAuthError);
+    await expect(failure).rejects.toMatchObject({
+      status: 429,
+      errorCode: 'unauthorized_client',
+      message: description,
+      errorDescription: description,
+      errorUri,
+      retryable: true,
+    });
+  });
+
+  it('preserves the HTTP status when the token endpoint sends no OAuth error body', async () => {
+    fetchMock.mockImplementation(async (input: FetchInput) =>
+      input === TOKEN_ENDPOINT ? new Response('Service unavailable', { status: 503 }) : mockMetadataResponse(),
+    );
+
+    const client = new TokenExchangeClient(ISSUER);
+    const failure = client.impersonate({ userIdentifier: 'user@example.com', resource: 'https://api.example.com' });
+    await expect(failure).rejects.toBeInstanceOf(OAuthError);
+    await expect(failure).rejects.toMatchObject({
+      status: 503,
+      errorCode: 'invalid_response',
+      message: 'Token exchange failed (HTTP 503)',
+      retryable: true,
+    });
+  });
+
+  it('reports a network failure without a response status', async () => {
+    const cause = new TypeError('fetch failed');
+    fetchMock.mockImplementation(async (input: FetchInput) => {
+      if (input === TOKEN_ENDPOINT) throw cause;
+      return mockMetadataResponse();
+    });
+
+    const client = new TokenExchangeClient(ISSUER);
+    const error = await client.impersonate({
+      userIdentifier: 'user@example.com',
+      resource: 'https://api.example.com',
+    }).catch((error: unknown) => error);
+    expect(error).toBeInstanceOf(HTTPError);
+    expect(error).toMatchObject({ status: undefined, message: 'fetch failed' });
+    expect((error as HTTPError).cause).toBe(cause);
+  });
+
+  it.each([200, 503])('preserves the cause of a body read failure after HTTP %s', async (status) => {
+    const cause = new Error('response stream failed');
+    fetchMock.mockImplementation(async (input: FetchInput) => {
+      if (input !== TOKEN_ENDPOINT) return mockMetadataResponse();
+      return new Response(new ReadableStream({
+        start(controller) {
+          controller.error(cause);
+        },
+      }), { status });
+    });
+
+    const client = new TokenExchangeClient(ISSUER);
+    const error = await client.exchangeToken({ subjectToken: 'subject' }).catch((error: unknown) => error);
+    expect(error).toBeInstanceOf(HTTPError);
+    expect(error).toMatchObject({ status: undefined, message: 'response stream failed' });
+    expect((error as HTTPError).cause).toBe(cause);
   });
 
   it('throws on missing userIdentifier', async () => {

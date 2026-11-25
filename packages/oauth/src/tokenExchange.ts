@@ -1,4 +1,4 @@
-import { OAuthError } from "./errors.js";
+import { HTTPError, OAuthError } from "./errors.js";
 import { tokenEndpointError } from "./tokenEndpointError.js";
 import type { ApplicationCredential } from "./credentials.js";
 import { basicAuthorization } from "./basicAuthorization.js";
@@ -166,18 +166,30 @@ export class TokenExchangeClient {
       headers["Authorization"] = basicAuthorization(basicAuth.clientId, basicAuth.clientSecret);
     }
 
-    const response = await fetch(tokenEndpoint, {
-      method: "POST",
-      headers,
-      body: body.toString(),
-      signal: AbortSignal.timeout(this.#fetchTimeoutMs),
-    });
-
-    if (!response.ok) {
-      throw await tokenEndpointError(response, "Token exchange");
+    const signal = AbortSignal.timeout(this.#fetchTimeoutMs);
+    let response: Response;
+    let bodyText: string;
+    try {
+      response = await fetch(tokenEndpoint, {
+        method: "POST",
+        headers,
+        body: body.toString(),
+        signal,
+      });
+      bodyText = await response.text();
+    } catch (cause) {
+      // Some fetch implementations reject an aborted body read with a separate AbortError.
+      if (signal.aborted && (cause === signal.reason || (cause instanceof DOMException && cause.name === "AbortError"))) {
+        throw signal.reason;
+      }
+      throw new HTTPError(cause instanceof Error ? cause.message : String(cause), undefined, cause);
     }
 
-    const json = await response.json() as Record<string, unknown>;
+    if (!response.ok) {
+      throw await tokenEndpointError(response, "Token exchange", bodyText);
+    }
+
+    const json = JSON.parse(bodyText) as Record<string, unknown>;
     return deserializeTokenResponse(json);
   }
 
