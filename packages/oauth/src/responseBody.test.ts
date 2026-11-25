@@ -335,6 +335,61 @@ describe("Response body size limit (specs/base.md rows 1, 1a, 1b, 1c; device row
   it.each([
     [200, true],
     [400, false],
+  ])(
+    "device row 36: waitForDeviceToken returns oversized %i as invalid_response directly, without an interval",
+    async (status, expectedRetryable) => {
+      let pollCount = 0;
+      const server = await startServer((_req, res) => {
+        pollCount += 1;
+        if (pollCount === 1) {
+          res.writeHead(400, { "Content-Type": "application/json", Connection: "close" });
+          res.end(JSON.stringify({ error: "slow_down" }));
+          return;
+        }
+        res.writeHead(status, { "Content-Type": "application/json", Connection: "close" });
+        res.end(makeOversizedJson(1024));
+      });
+
+      try {
+        const clock = fakeClock();
+        const auth: DeviceAuthorization = {
+          deviceCode: "dev-1",
+          userCode: "ABCD-1234",
+          verificationUri: `${server.url}/verify`,
+          expiresIn: 600,
+          interval: 5,
+          expiresAt: clock.now() + 600_000,
+        };
+        const metadata: OAuthAuthorizationServerMetadata = {
+          issuer: server.url,
+          token_endpoint: `${server.url}/token`,
+        };
+
+        const err = await catchError(() =>
+          waitForDeviceToken(server.url, {
+            clientId: "cid",
+            authorization: auth,
+            metadata,
+            clock,
+          }),
+        );
+        expect(err).not.toBeInstanceOf(DevicePollError);
+        expect(err).toBeInstanceOf(DeviceGrantError);
+        expect(err).not.toHaveProperty("interval");
+        const grantErr = err as DeviceGrantError;
+        expect(grantErr.errorCode).toBe("invalid_response");
+        expect(grantErr.status).toBe(status);
+        expect(grantErr.retryable).toBe(expectedRetryable);
+        expect(pollCount).toBe(2);
+      } finally {
+        await server.close();
+      }
+    },
+  );
+
+  it.each([
+    [200, true],
+    [400, false],
     [429, true],
     [503, true],
   ])(
