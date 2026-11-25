@@ -2,6 +2,7 @@ import { describe, expect, it } from "@jest/globals";
 import {
   AuthProviderConfigurationError,
   ClientSecret,
+  HTTPError,
   OAuthError,
   TokenType,
   type ApplicationCredential,
@@ -458,6 +459,7 @@ describe("impersonate refusals", () => {
     });
   }
 
+  // Eve unit row 57: a fixed identifier requires an operator.
   it("reports a missing grant as user_authorization_required", async () => {
     const auth = refusedWith(
       new OAuthError(
@@ -482,6 +484,7 @@ describe("impersonate refusals", () => {
     expect(message).not.toContain(USER);
   });
 
+  // Eve unit row 54: a callable identifier lets the user authorize the resource.
   it("tells the user to authorize the resource when the identifier follows the turn", async () => {
     const auth = impersonate({
       resource: CALENDAR,
@@ -509,6 +512,7 @@ describe("impersonate refusals", () => {
     expect(message).not.toContain(USER);
   });
 
+  // Eve unit row 58: consent is an Application setting.
   it("reports missing consent as user_authorization_required with the operator's remedy", async () => {
     const auth = refusedWith(
       new OAuthError("insufficient_authorization", "User consent is required."),
@@ -528,6 +532,7 @@ describe("impersonate refusals", () => {
     expect(message).not.toContain("keycard auth resource");
   });
 
+  // Eve unit rows 55 and 57: an unknown fixed identifier requires an operator.
   it("reports an identifier the zone has no user for as unknown_user", async () => {
     const auth = refusedWith(new OAuthError("invalid_grant", "User not found for identifier"));
 
@@ -560,6 +565,7 @@ describe("impersonate refusals", () => {
     expect(message).not.toContain(USER);
   });
 
+  // Eve unit row 56: other invalid_grant and unauthorized_client are terminal.
   it.each([
     ["invalid_grant", "Invalid token subject"],
     ["unauthorized_client", "Client is not permitted to impersonate"],
@@ -581,6 +587,52 @@ describe("impersonate refusals", () => {
     await expect(
       auth.getToken({ principal: appPrincipal(), connection }),
     ).rejects.toMatchObject({ reason: FailureReason.ACQUISITION_FAILED, message: "fetch failed" });
+  });
+
+  it.each([
+    ["a network failure", new HTTPError("Network connection failed")],
+    ["a timeout", new DOMException("Token endpoint timed out", "TimeoutError")],
+  ])("row 59: reports retryable acquisition failure for %s", async (_name, failure) => {
+    const auth = refusedWith(failure);
+
+    await expect(
+      auth.getToken({ principal: appPrincipal(), connection }),
+    ).rejects.toMatchObject({
+      reason: FailureReason.ACQUISITION_FAILED,
+      retryable: true,
+      message: failure.message,
+    });
+  });
+
+  it.each([
+    ["60", 503, "invalid_response", "Token exchange failed (HTTP 503)"],
+    ["60a", 503, "access_denied", "Access denied"],
+    ["60b", 503, "insufficient_authorization", "User authorization is required"],
+    ["60c", 503, "invalid_grant", "User not found for identifier"],
+    ["60d", 429, "unauthorized_client", "Client is not permitted to impersonate"],
+  ])("row %s: HTTP %i takes precedence over %s", async (_row, status, code, message) => {
+    const auth = refusedWith(new OAuthError(code, message, undefined, { status }));
+
+    await expect(
+      auth.getToken({ principal: appPrincipal(), connection }),
+    ).rejects.toMatchObject({
+      reason: FailureReason.ACQUISITION_FAILED,
+      retryable: true,
+      message,
+    });
+  });
+
+  it("row 61: reports a non-retryable acquisition failure for a policy denial", async () => {
+    const message = "Denied by policy";
+    const auth = refusedWith(new OAuthError("access_denied", message, undefined, { status: 403 }));
+
+    await expect(
+      auth.getToken({ principal: appPrincipal(), connection }),
+    ).rejects.toMatchObject({
+      reason: FailureReason.ACQUISITION_FAILED,
+      retryable: false,
+      message,
+    });
   });
 
   it("leaves onBehalfOf refusals as acquisition_failed", async () => {

@@ -1,5 +1,6 @@
 import {
   AuthProviderConfigurationError,
+  HTTPError,
   OAuthError,
   TokenType,
   type ClientCredentialsRequest,
@@ -267,15 +268,35 @@ interface RefusalContext {
 }
 
 /**
- * Classifies the impersonation refusals someone can fix: a missing grant or
- * consent (`insufficient_authorization`) and an identifier the zone has no
- * user for. Returns undefined for every other failure. Messages name the
- * resource and never the substitute user.
+ * A network error, a timeout, or an HTTP 429 or 5xx from the token endpoint.
+ * The token endpoint's HTTP status on `OAuthError.status` decides before the
+ * OAuth error code, so a 503 carrying `insufficient_authorization` is still
+ * transient. An `HTTPError` without a status is a network failure.
+ */
+function isTransientExchangeFailure(cause: unknown): cause is Error {
+  if (cause instanceof OAuthError || cause instanceof HTTPError) {
+    const { status } = cause;
+    if (status === undefined) return cause instanceof HTTPError;
+    return status === 429 || (status >= 500 && status < 600);
+  }
+  return cause instanceof DOMException && cause.name === "TimeoutError";
+}
+
+/**
+ * Classifies transient failures and the impersonation refusals someone can
+ * fix. Messages for those refusals name the resource, not the substitute user.
  */
 function impersonationRefusal(
   cause: unknown,
   { connectionName, resource, fixedIdentifier }: RefusalContext,
 ): AuthorizationFailedError | undefined {
+  if (isTransientExchangeFailure(cause)) {
+    return new AuthorizationFailedError(connectionName, {
+      message: cause.message,
+      reason: FailureReason.ACQUISITION_FAILED,
+      retryable: true,
+    });
+  }
   if (!(cause instanceof OAuthError)) return undefined;
   if (cause.errorCode === "insufficient_authorization") {
     return new AuthorizationFailedError(connectionName, {
