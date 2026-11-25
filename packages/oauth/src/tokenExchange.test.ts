@@ -41,7 +41,7 @@ function hangUntilAborted(init?: FetchInit): Promise<Response> {
   });
 }
 
-describe('TokenExchangeClient.impersonate', () => {
+describe('TokenExchangeClient', () => {
   let originalFetch: typeof fetch;
   let fetchMock: jest.Mock;
 
@@ -78,6 +78,43 @@ describe('TokenExchangeClient.impersonate', () => {
       errorCode: 'access_denied', errorDescription: 'Denied', reason, retryable: false,
     });
   });
+
+  it.each([
+    ['static credentials', { clientId: 'configured', clientSecret: 'secret' }],
+    ['ClientSecret', { credential: new ClientSecret('configured', 'secret') }],
+  ] as const)('row 4f: rejects a request clientId with %s before discovery', async (_name, options) => {
+    const client = new TokenExchangeClient(ISSUER, options);
+
+    await expect(client.exchangeToken({ subjectToken: 'subject', clientId: 'request-id' }))
+      .rejects.toThrow(TypeError);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([undefined, 'request-id'])(
+    'row 4g: an explicit assertion suppresses Basic with clientId %s',
+    async (clientId) => {
+      const assertionType = 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer';
+      const credential = new ClientSecret('configured', 'secret');
+      const prepare = jest.spyOn(credential, 'prepareTokenExchangeRequest');
+      const client = new TokenExchangeClient(ISSUER, { credential });
+
+      await client.exchangeToken({
+        subjectToken: 'subject',
+        clientAssertion: 'assertion',
+        clientAssertionType: assertionType,
+        clientId,
+      });
+
+      const tokenCall = fetchMock.mock.calls.find(([url]) => url === TOKEN_ENDPOINT);
+      const { body, headers } = tokenCall![1] as RequestInit;
+      const params = new URLSearchParams(body as string);
+      expect(params.get('client_assertion')).toBe('assertion');
+      expect(params.get('client_assertion_type')).toBe(assertionType);
+      expect(params.get('client_id')).toBe(clientId ?? null);
+      expect(new Headers(headers).has('Authorization')).toBe(false);
+      expect(prepare).not.toHaveBeenCalled();
+    },
+  );
 
   it('posts the substitute-user URN as subject_token_type', async () => {
     const client = new TokenExchangeClient(ISSUER, { clientId: 'app', clientSecret: 'shh' });
@@ -276,7 +313,7 @@ describe('TokenExchangeClient.impersonate', () => {
       'https://api.example.com',
       { tokenEndpoint: TOKEN_ENDPOINT, issuer: 'https://zone-b.keycard.cloud' },
     );
-    expect(getAuth).toHaveBeenCalledWith('https://zone-b.keycard.cloud');
+    expect(getAuth).not.toHaveBeenCalled();
     const tokenCall = fetchMock.mock.calls.find(([url]) => url === TOKEN_ENDPOINT);
     const params = new URLSearchParams(((tokenCall![1] as RequestInit).body ?? '') as string);
     expect(params.get('client_assertion')).toBe('prepared-assertion');

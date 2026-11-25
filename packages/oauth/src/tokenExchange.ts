@@ -34,7 +34,7 @@ export interface TokenExchangeRequest {
   /**
    * Names the application credential the client authenticates as, sent as
    * the client_id form parameter beside `clientAssertion`, such as a v2 token
-   * credential's public ID.
+   * credential's public ID. A request ID with HTTP Basic is a configuration error.
    */
   clientId?: string;
 }
@@ -157,14 +157,18 @@ export class TokenExchangeClient {
     request: TokenExchangeRequest,
     options?: ExchangeOptions,
   ): Promise<TokenResponse> {
-    const tokenEndpoint = await this.#tokenEndpoint.resolve();
     const issuer = options?.issuer ?? this.#issuer;
+    const basicAuth = request.clientAssertion ? null : this.#resolveBasicAuth(issuer);
+    if (basicAuth && request.clientId) {
+      throw new TypeError("Token exchange clientId cannot be sent with HTTP Basic");
+    }
+
+    const tokenEndpoint = await this.#tokenEndpoint.resolve();
 
     const headers: Record<string, string> = {
       "Content-Type": "application/x-www-form-urlencoded",
     };
 
-    const basicAuth = this.#resolveBasicAuth(issuer);
     if (basicAuth) {
       headers["Authorization"] = basicAuthorization(basicAuth.clientId, basicAuth.clientSecret);
     }
