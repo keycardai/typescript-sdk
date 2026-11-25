@@ -352,7 +352,7 @@ export class WorkloadIdentity implements ApplicationCredential {
     subjectToken: string,
     resource: string,
   ): Promise<TokenExchangeRequest> {
-    const assertion = await fetchIdentityToken(this.#source);
+    const assertion = await fetchIdentityToken(this.#source, this);
 
     return {
       subjectToken,
@@ -372,7 +372,7 @@ export class WorkloadIdentity implements ApplicationCredential {
    */
   async clientAuthentication(_issuer: string, _endpoint: string): Promise<ClientAuthentication> {
     const form: Record<string, string> = {
-      client_assertion: await fetchIdentityToken(this.#source),
+      client_assertion: await fetchIdentityToken(this.#source, this),
       client_assertion_type: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
     };
     if (this.#clientId) form.client_id = this.#clientId;

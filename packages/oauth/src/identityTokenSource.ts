@@ -72,10 +72,13 @@ function isRetryableSourceFailure(cause: unknown): boolean {
   return false;
 }
 
-export async function fetchIdentityToken(source: IdentityTokenSource | IdentityTokenFetcher): Promise<string> {
+export async function fetchIdentityToken(
+  source: IdentityTokenSource | IdentityTokenFetcher,
+  receiver?: object,
+): Promise<string> {
   let token: string;
   try {
-    token = typeof source === "function" ? await source() : await source.identityToken();
+    token = typeof source === "function" ? await Reflect.apply(source, receiver, []) : await source.identityToken();
   } catch (error) {
     if (
       error instanceof WorkloadIdentityConfigurationError ||

@@ -101,6 +101,20 @@ describe("WorkloadIdentity", () => {
     expect(request.clientAssertion).toBe("sync-token");
   });
 
+  it("calls a bare token source with the credential as its receiver", async () => {
+    const credential = new WorkloadIdentity(
+      function (this: WorkloadIdentity) { return `token-for-${this.clientId}`; },
+      { clientId: "acr_123" },
+    );
+
+    await expect(
+      credential.prepareTokenExchangeRequest("subject-token", "https://resource.example.com"),
+    ).resolves.toMatchObject({ clientAssertion: "token-for-acr_123" });
+    await expect(
+      credential.clientAuthentication("https://zone.example.com", "https://zone.example.com/token"),
+    ).resolves.toMatchObject({ form: { client_assertion: "token-for-acr_123" } });
+  });
+
   it("fetches a fresh token on every exchange", async () => {
     let calls = 0;
     const credential = new WorkloadIdentity(async () => `token-${++calls}`);
