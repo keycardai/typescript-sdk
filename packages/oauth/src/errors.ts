@@ -15,12 +15,20 @@ export class UnauthorizedError extends HTTPError {
 }
 
 export class OAuthError extends Error {
+  readonly errorDescription?: string;
+  readonly reason?: string;
+  readonly retryable?: boolean;
+
   constructor(
     public readonly errorCode: string,
     message: string,
-    public readonly errorUri?: string
+    public readonly errorUri?: string,
+    options?: { errorDescription?: string; reason?: string; retryable?: boolean },
   ) {
     super(message);
+    this.errorDescription = options?.errorDescription;
+    this.reason = options?.reason;
+    this.retryable = options?.retryable;
   }
 }
 
@@ -42,8 +50,8 @@ export class InsufficientScopeError extends OAuthError {
  * (RFC 6749 §4.1.2.1). No token request is made.
  */
 export class AuthorizationDeniedError extends OAuthError {
-  constructor(errorCode: string, public readonly errorDescription?: string, errorUri?: string) {
-    super(errorCode, errorDescription ?? `Authorization denied: ${errorCode}`, errorUri);
+  constructor(errorCode: string, errorDescription?: string, errorUri?: string) {
+    super(errorCode, errorDescription ?? `Authorization denied: ${errorCode}`, errorUri, { errorDescription });
     this.name = "AuthorizationDeniedError";
   }
 }
@@ -116,7 +124,6 @@ export class RefreshGrantError extends OAuthError {
  */
 export class DeviceGrantError extends OAuthError {
   readonly retryable: boolean;
-  readonly errorDescription?: string;
   readonly status?: number;
   readonly cause?: unknown;
 
@@ -124,13 +131,12 @@ export class DeviceGrantError extends OAuthError {
     errorCode: string,
     options?: { errorDescription?: string; errorUri?: string; status?: number; retryable?: boolean; cause?: unknown },
   ) {
-    super(errorCode, options?.errorDescription ?? `Device authorization grant failed: ${errorCode}`, options?.errorUri);
+    super(errorCode, options?.errorDescription ?? `Device authorization grant failed: ${errorCode}`, options?.errorUri, options);
     this.name = "DeviceGrantError";
     const status = options?.status;
     const transientStatus = status !== undefined && (status >= 500 || status === 429);
     this.retryable =
       options?.retryable ?? (transientStatus || (!isPermanentErrorCode(errorCode) && errorCode !== "invalid_grant"));
-    this.errorDescription = options?.errorDescription;
     this.status = status;
     this.cause = options?.cause;
   }
@@ -174,6 +180,7 @@ export type ErrorDetail = {
   message: string;
   code?: string;
   description?: string;
+  reason?: string;
   rawError?: string;
 };
 

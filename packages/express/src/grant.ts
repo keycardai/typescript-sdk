@@ -1,6 +1,6 @@
 import type { Request, Response, NextFunction, RequestHandler } from "express";
 import { TokenExchangeClient } from "@keycardai/oauth/tokenExchange";
-import { AccessContext } from "@keycardai/oauth/server/accessContext";
+import { AccessContext, type ErrorDetail } from "@keycardai/oauth/server/accessContext";
 import type { ApplicationCredential } from "@keycardai/oauth/credentials";
 import { OAuthError, AuthProviderConfigurationError } from "@keycardai/oauth/errors";
 import type { AuthenticatedRequest } from "./bearerAuth.js";
@@ -239,12 +239,17 @@ export function grant(
           issuer: resolvedIssuer,
         });
       } catch (e) {
-        const detail: { message: string; code?: string; description?: string; rawError?: string } = {
+        const detail: ErrorDetail & { reason?: string } = {
           message: `Token exchange failed for ${resource}`,
         };
         if (e instanceof OAuthError) {
           detail.code = e.errorCode;
-          detail.description = e.message;
+          detail.description = "errorDescription" in e && typeof e.errorDescription === "string"
+            ? e.errorDescription
+            : e.message;
+          if ("reason" in e && typeof e.reason === "string") {
+            detail.reason = e.reason;
+          }
         } else {
           detail.rawError = String(e);
         }

@@ -145,6 +145,19 @@ describe('ClientCredentialsClient.requestToken', () => {
     expect(headers['Authorization']).toBe(`Basic ${btoa('id-b:sec-b')}`);
   });
 
+  it.each([
+    ['6a', 'custom_denial'],
+    ['6b', undefined],
+  ])('row %s: preserves the optional denial reason and separate description', async (_row, reason) => {
+    const payload = { error: 'access_denied', error_description: 'Denied', reason };
+    tokenResponseFactory = () => Response.json(payload, { status: 400 });
+    const client = new ClientCredentialsClient(ISSUER);
+
+    await expect(client.requestToken()).rejects.toMatchObject({
+      errorCode: 'access_denied', errorDescription: 'Denied', reason, retryable: false,
+    });
+  });
+
   it('throws an OAuthError on an RFC 6749 error response', async () => {
     tokenResponseFactory = () =>
       new Response(

@@ -1,4 +1,6 @@
 import { jest } from "@jest/globals";
+import { OAuthError } from "@keycardai/oauth/errors";
+import { TokenExchangeClient } from "@keycardai/oauth/tokenExchange";
 import { AccessContext } from "./provider.js";
 import { ResourceAccessError } from "./errors.js";
 
@@ -242,6 +244,24 @@ describe("AuthProvider", () => {
 
       afterEach(() => {
         globalThis.fetch = originalFetch;
+      });
+
+      it("row 5a: records the OAuth reason on the failed resource", async () => {
+        const resource = "https://api.example.com";
+        const failure = Object.assign(new OAuthError("access_denied", "Token exchange failed"), {
+          errorDescription: "Denied", reason: "policy_denied",
+        });
+        const exchange = jest.spyOn(TokenExchangeClient.prototype, "exchangeToken").mockRejectedValue(failure);
+        const provider = new AuthProvider({ zoneUrl: ZONE });
+        const req: any = { headers: {}, auth: { token: "subject-tok" } };
+        try {
+          await provider.grant(resource)(req, mockResponse(), jest.fn());
+          expect(req.accessContext.getResourceError(resource)).toMatchObject({
+            code: "access_denied", description: "Denied", reason: "policy_denied",
+          });
+        } finally {
+          exchange.mockRestore();
+        }
       });
 
       it("should merge tokens from stacked grant middlewares into one accessContext", async () => {

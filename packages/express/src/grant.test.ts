@@ -1,6 +1,8 @@
 import { jest } from '@jest/globals';
 import express from 'express';
 import request from 'supertest';
+import { OAuthError } from '@keycardai/oauth/errors';
+import { TokenExchangeClient } from '@keycardai/oauth/tokenExchange';
 import { grant } from './grant.js';
 import type { AccessToken } from '@keycardai/oauth/server';
 
@@ -30,7 +32,7 @@ function makeApp(resources: string[], auth?: AccessToken | null) {
 
   app.get('/data', (req, res) => {
     const ctx = (req as any).accessContext;
-    res.json({ status: ctx.getStatus() });
+    res.json({ status: ctx.getStatus(), resourceError: ctx.getResourceError(resources[0]) });
   });
 
   return app;
@@ -256,6 +258,21 @@ describe('grant', () => {
 
   it('throws at construction when neither zoneUrl nor zoneId is provided', () => {
     expect(() => grant([RESOURCE], {} as any)).toThrow(/zoneUrl.*zoneId/);
+  });
+
+  it('row 5a: records the OAuth reason on the failed resource', async () => {
+    const failure = Object.assign(new OAuthError('access_denied', 'Token exchange failed'), {
+      errorDescription: 'Denied', reason: 'policy_denied',
+    });
+    const exchange = jest.spyOn(TokenExchangeClient.prototype, 'exchangeToken').mockRejectedValue(failure);
+    try {
+      const res = await request(makeApp([RESOURCE], VALID_AUTH)).get('/data');
+      expect(res.body.resourceError).toMatchObject({
+        code: 'access_denied', description: 'Denied', reason: 'policy_denied',
+      });
+    } finally {
+      exchange.mockRestore();
+    }
   });
 
   it('resolves zoneId dynamically from a function and routes the exchange', async () => {

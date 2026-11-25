@@ -64,6 +64,21 @@ describe('TokenExchangeClient.impersonate', () => {
     globalThis.fetch = originalFetch;
   });
 
+  it.each([
+    ['6a', 'custom_denial'],
+    ['6b', undefined],
+  ])('row %s: preserves the optional denial reason and separate description', async (_row, reason) => {
+    const payload = { error: 'access_denied', error_description: 'Denied', reason };
+    fetchMock.mockImplementation(async (input: FetchInput) =>
+      input === TOKEN_ENDPOINT ? Response.json(payload, { status: 400 }) : mockMetadataResponse(),
+    );
+    const client = new TokenExchangeClient(ISSUER);
+
+    await expect(client.exchangeToken({ subjectToken: 'subject' })).rejects.toMatchObject({
+      errorCode: 'access_denied', errorDescription: 'Denied', reason, retryable: false,
+    });
+  });
+
   it('posts the substitute-user URN as subject_token_type', async () => {
     const client = new TokenExchangeClient(ISSUER, { clientId: 'app', clientSecret: 'shh' });
     await client.impersonate({
