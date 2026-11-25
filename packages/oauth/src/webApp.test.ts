@@ -129,6 +129,19 @@ describe('web-app flow', () => {
       expect(new URL(flow.url).searchParams.getAll('resource')).toEqual([]);
     });
 
+    it('row 12: emits one resource parameter per distinct value', async () => {
+      mockFetch(() => jsonResponse(200, {
+        ...METADATA,
+        authorization_endpoint: `${AUTHORIZE_ENDPOINT}?resource=https://old`,
+      }));
+      const flow = await beginAuthorization(ISSUER, {
+        clientId: 'client-123',
+        redirectUri: REDIRECT_URI,
+        resources: ['a', 'b', 'a'],
+      });
+      expect(new URL(flow.url).searchParams.getAll('resource')).toEqual(['a', 'b']);
+    });
+
     it('skips discovery when pre-discovered metadata is supplied', async () => {
       const calls = mockFetch(() => jsonResponse(200, METADATA));
 

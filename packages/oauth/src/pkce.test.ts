@@ -563,4 +563,36 @@ describe('buildAuthorizeUrl', () => {
     expect(url.searchParams.has('scope')).toBe(false);
     expect(url.searchParams.has('resource')).toBe(false);
   });
+
+  const authorizeParams = {
+    clientId: 'sdk-client',
+    redirectUri: 'https://app.example.com/callback',
+    codeChallenge: 'challenge-abc',
+  };
+
+  it('row 3a: preserves unrelated parameters and replaces SDK parameters', async () => {
+    const { buildAuthorizeUrl } = await import('./pkce.js');
+    const url = new URL(buildAuthorizeUrl(
+      'https://as.example/authorize?tenant=acme&client_id=x&client%5Fid=y',
+      authorizeParams,
+    ));
+    expect(url.searchParams.getAll('tenant')).toEqual(['acme']);
+    expect(url.searchParams.getAll('client_id')).toEqual(['sdk-client']);
+    expect([...url.searchParams.keys()]).toHaveLength(new Set(url.searchParams.keys()).size);
+  });
+
+  it.each([
+    [{ resources: ['a', 'b'] }, ['a', 'b']],
+    [{ resource: 'b', resources: ['a', 'b', 'a'] }, ['b', 'a']],
+    [{ resource: 'a' }, ['a']],
+    [{ resources: [] }, ['https://old']],
+    [{}, ['https://old']],
+  ])('row 3b: merges SDK resources %j into the authorize URL', async (inputs, expected) => {
+    const { buildAuthorizeUrl } = await import('./pkce.js');
+    const url = new URL(buildAuthorizeUrl(
+      'https://as.example/authorize?resource=https://old',
+      { ...authorizeParams, ...inputs },
+    ));
+    expect(url.searchParams.getAll('resource')).toEqual(expected);
+  });
 });

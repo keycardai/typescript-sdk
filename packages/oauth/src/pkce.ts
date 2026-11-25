@@ -202,7 +202,7 @@ export interface AuthorizeUrlParams {
   scope?: string;
   /** RFC 8707 resource indicator. */
   resource?: string;
-  /** RFC 8707 resource indicators; each entry becomes its own `resource` parameter. */
+  /** RFC 8707 resource indicators; each distinct value becomes a `resource` parameter. */
   resources?: readonly string[];
 }
 
@@ -223,8 +223,14 @@ export function buildAuthorizeUrl(
   url.searchParams.set("code_challenge_method", params.codeChallengeMethod ?? "S256");
   if (params.state) url.searchParams.set("state", params.state);
   if (params.scope) url.searchParams.set("scope", params.scope);
-  if (params.resource) url.searchParams.set("resource", params.resource);
-  for (const resource of params.resources ?? []) {
+  const resources = new Set(params.resources);
+  if (params.resource) {
+    resources.delete(params.resource);
+    url.searchParams.set("resource", params.resource);
+  } else if (resources.size > 0) {
+    url.searchParams.delete("resource");
+  }
+  for (const resource of resources) {
     url.searchParams.append("resource", resource);
   }
   return url.toString();
