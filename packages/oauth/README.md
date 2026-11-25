@@ -131,6 +131,27 @@ const response = await client.exchangeToken({
 as the `client_assertion`. A request that already sets `clientAssertion` is
 sent as is.
 
+### Credential discovery
+
+Use the Node.js factory to construct a credential explicitly. It reads
+`process.env` at call time unless you pass an environment mapping.
+
+```typescript
+import { discoverCredential } from "@keycardai/oauth";
+
+const credential = discoverCredential({ env: process.env, webIdentityServerName: "payments-api" });
+```
+
+Set `KEYCARD_CLIENT_ID` and `KEYCARD_CLIENT_SECRET` for client credentials,
+a `FileTokenSource` environment variable for a projected token file, or
+`KEYCARD_WEB_IDENTITY_KEY_STORAGE_DIR` for web identity. If more than one is
+configured, set `KEYCARD_APPLICATION_CREDENTIAL_TYPE` to `client_secret`,
+`workload_identity`, or `web_identity`. The deprecated
+`eks_workload_identity` selector is an alias for `workload_identity`.
+Selecting `web_identity` without a directory uses the WebIdentity default.
+Invalid or ambiguous configuration throws `CredentialDiscoveryError`, which
+provides a `reason` and the list of `resolvable` credential types.
+
 ### Server-tier Token Verification
 
 ```typescript
