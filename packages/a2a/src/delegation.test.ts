@@ -3,6 +3,9 @@ import { DelegationClient } from './delegation.js';
 import { buildAgentCard } from './server.js';
 import { ServiceDiscovery } from './discovery.js';
 import type { AgentCard } from '@a2a-js/sdk';
+import { ResponseBodyTooLargeError } from '@keycardai/oauth';
+import { createServer } from 'node:http';
+import { gzipSync } from 'node:zlib';
 
 const CONFIG = {
   serviceName: 'Caller Agent',
@@ -119,11 +122,14 @@ function makeHarness(opts: {
   card?: unknown;
   rpcResponse?: unknown;
   rpcStatus?: number;
+  peerResponse?: (document: unknown, invocation: boolean) => Response;
+  tokenResponse?: Response;
 } = {}) {
   const rpcCalls: Recorded[] = [];
   const fetchMock = jest.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
     if (url === `${TARGET_URL}/.well-known/agent-card.json`) {
+      if (opts.peerResponse) return opts.peerResponse(opts.card ?? TARGET_CARD_JSON, false);
       return jsonResponse(opts.card ?? TARGET_CARD_JSON);
     }
     if (url === 'https://zone-abc.keycard.cloud/.well-known/oauth-authorization-server') {
@@ -133,6 +139,7 @@ function makeHarness(opts: {
       });
     }
     if (url === 'https://zone-abc.keycard.cloud/token') {
+      if (opts.tokenResponse) return opts.tokenResponse;
       return jsonResponse({
         access_token: 'delegated-token',
         token_type: 'Bearer',
@@ -143,6 +150,7 @@ function makeHarness(opts: {
       const body = JSON.parse(String(init?.body));
       rpcCalls.push({ url, method: init?.method ?? 'GET', headers: headersOf(init), body });
       const response = { ...(opts.rpcResponse ?? RECORDED_1_0_MESSAGE_RESPONSE), id: body.id };
+      if (opts.peerResponse) return opts.peerResponse(response, true);
       return jsonResponse(response, opts.rpcStatus ?? 200);
     }
     throw new Error(`unexpected fetch: ${url}`);
@@ -168,6 +176,118 @@ function makeClient(harness: ReturnType<typeof makeHarness>, extra: { legacyComp
     ...extra,
   });
 }
+
+const padding = new Uint8Array(1024 * 1024).fill(32);
+
+function paddedResponse(document: unknown, mib: number, status = 200): Response {
+  let remaining = mib;
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode(JSON.stringify(document)));
+    },
+    pull(controller) {
+      if (remaining-- > 0) controller.enqueue(padding);
+      else controller.close();
+    },
+  });
+  return new Response(body, { status, headers: { 'content-type': 'application/json' } });
+}
+
+describe('A2A delegation v3 peer response limit', () => {
+  const options = { subjectToken: 'user-token' };
+
+  it('row 9: accepts agent cards and invocation replies above 1 MiB by default', async () => {
+    globalThis.fetch = makeHarness({ peerResponse: (doc) => paddedResponse(doc, 1) }).fetch;
+    const result = await new DelegationClient(CONFIG).invokeService(TARGET_URL, 'ping', options);
+    expect(result.agentCard.name).toBe(TARGET_CARD_JSON.name);
+    expect(result.message?.messageId).toBe('resp-1');
+  });
+
+  it.each([false, true])('row 10: bounds the decoded gzip body (invocation: %s)', async (invocation) => {
+    const compressed = gzipSync(JSON.stringify({ name: 'Peer' }) + ' '.repeat(1024));
+    expect(compressed.byteLength).toBeLessThan(768);
+    const harness = makeHarness();
+    const server = createServer((request, response) => {
+      if (invocation && request.method === 'GET') {
+        const target = { ...TARGET_CARD_JSON, supportedInterfaces: [
+          { ...TARGET_CARD_JSON.supportedInterfaces[0], url: targetUrl },
+        ] };
+        response.end(JSON.stringify(target));
+      } else {
+        response.writeHead(200, { 'content-encoding': 'gzip' });
+        response.end(compressed);
+      }
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('Missing local server address');
+    const targetUrl = `http://127.0.0.1:${address.port}`;
+    globalThis.fetch = (input, init) => String(input).startsWith(targetUrl)
+      ? originalFetch(input, init) : harness.fetch(input, init);
+    try {
+      const pending = invocation
+        ? new DelegationClient(CONFIG, { maxPeerResponseBytes: 768 }).invokeService(targetUrl, 'ping', options)
+        : new ServiceDiscovery({ maxPeerResponseBytes: 768 }).discoverService(targetUrl);
+      await expect(pending).rejects.toMatchObject({
+        errorCode: 'invalid_response', status: 200, retryable: !invocation,
+      });
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  it.each([200, 429, 503])('row 10a: preserves status and classifies HTTP %s', async (status) => {
+    for (const invocation of [false, true]) {
+      globalThis.fetch = makeHarness({
+        peerResponse: (doc, rpc) => rpc === invocation ? paddedResponse(doc, 1, status) : jsonResponse(doc),
+      }).fetch;
+      const pending = invocation
+        ? new DelegationClient(CONFIG, { maxPeerResponseBytes: 1024 }).invokeService(TARGET_URL, 'ping', options)
+        : new ServiceDiscovery({ maxPeerResponseBytes: 1024 }).discoverService(TARGET_URL);
+      await expect(pending).rejects.toMatchObject({
+        errorCode: 'invalid_response', status, retryable: !invocation || status !== 200,
+      });
+    }
+  });
+
+  it('row 10a: bounds invocation through the legacy transport', async () => {
+    globalThis.fetch = makeHarness({
+      card: LEGACY_TARGET_CARD_JSON,
+      peerResponse: (doc, rpc) => rpc ? paddedResponse(doc, 1) : jsonResponse(doc),
+    }).fetch;
+    const client = new DelegationClient(CONFIG, {
+      legacyCompat: { enabled: true }, maxPeerResponseBytes: 1024,
+    });
+    await expect(client.invokeService(TARGET_URL, 'ping', options)).rejects.toMatchObject({
+      errorCode: 'invalid_response', status: 200, retryable: false,
+    });
+  });
+
+  it.each([false, true])('row 11: lowers and raises the default cap (invocation: %s)', async (invocation) => {
+    const invoke = (maxPeerResponseBytes?: number) => invocation
+      ? new DelegationClient(CONFIG, { maxPeerResponseBytes }).invokeService(TARGET_URL, 'ping', options)
+      : new ServiceDiscovery({ maxPeerResponseBytes }).discoverService(TARGET_URL);
+    const setup = (mib: number) => {
+      globalThis.fetch = makeHarness({
+        peerResponse: (doc, rpc) => rpc === invocation ? paddedResponse(doc, mib) : jsonResponse(doc),
+      }).fetch;
+    };
+    setup(1);
+    await expect(invoke()).resolves.toBeDefined();
+    await expect(invoke(1024)).rejects.toBeInstanceOf(ResponseBodyTooLargeError);
+    setup(64);
+    await expect(invoke()).rejects.toBeInstanceOf(ResponseBodyTooLargeError);
+    await expect(invoke(65 * padding.length)).resolves.toBeDefined();
+  });
+
+  it.each([1024, 65 * padding.length])('row 11: keeps the token exchange cap with peer limit %s', async (limit) => {
+    globalThis.fetch = makeHarness({ tokenResponse: paddedResponse({ access_token: 'token' }, 1) }).fetch;
+    const client = new DelegationClient(CONFIG, { maxPeerResponseBytes: limit });
+    await expect(client.invokeService(TARGET_URL, 'ping', options)).rejects.toMatchObject({
+      errorCode: 'invalid_response', limit: padding.length, status: 200,
+    });
+  });
+});
 
 describe('DelegationClient wire shape (A2A 1.0)', () => {
   it('sends SendMessage with an A2A-Version: 1.0 header and the delegated bearer token', async () => {

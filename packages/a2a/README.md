@@ -130,6 +130,15 @@ app.use("/a2a/jsonrpc", requireBearerAuth({ ... }), jsonRpcHandler({ requestHand
 
 The Python equivalent is `enable_v0_3_compat` in `keycardai-a2a`. See the upstream [v0.3 compatibility guide](https://github.com/a2aproject/a2a-js/blob/main/docs/compatibility-v0_3.md).
 
+## Peer response size
+
+`DelegationClient` and `ServiceDiscovery` accept a positive
+`maxPeerResponseBytes` option. The default fetch stops reading agent cards
+and invocation replies that exceed 64 MiB of decoded data by default.
+Overflow raises `ResponseBodyTooLargeError` from `@keycardai/oauth` with the
+HTTP status. The option does not affect replacement fetch implementations or
+the separate 1 MiB token-exchange limit.
+
 ## How it works
 
 Auth happens in two layers:

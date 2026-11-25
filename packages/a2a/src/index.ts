@@ -17,7 +17,7 @@ export type { AgentServiceConfig } from "./config.js";
 export { getAgentCardUrl, getJsonrpcUrl, getAuthServerUrl } from "./config.js";
 
 // Discovery
-export { ServiceDiscovery } from "./discovery.js";
+export { ServiceDiscovery, type ServiceDiscoveryOptions } from "./discovery.js";
 
 // Delegation client
 export { DelegationClient } from "./delegation.js";
