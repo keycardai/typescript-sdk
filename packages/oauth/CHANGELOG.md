@@ -1,3 +1,20 @@
+## 0.30.0-keycardai-oauth (2026-11-25)
+
+
+- fix(oauth): recheck device code expiry after waiting (#386)
+- Co-authored-by: devin-ai-keycard <devin-ai@keycard.ai>
+Co-authored-by: Devin AI <158243242+devin-ai-integration[bot]@users.noreply.github.com>
+- feat(oauth): preserve authorization server error reasons (#385)
+- * fix(oauth): preserve authorization server error reasons
+- Co-Authored-By: Devin AI <158243242+devin-ai-integration[bot]@users.noreply.github.com>
+- * fix(express): preserve reasons in grant errors
+- Co-Authored-By: Devin AI <158243242+devin-ai-integration[bot]@users.noreply.github.com>
+- * fix(mcp): preserve reasons in grant errors
+- Co-Authored-By: Devin AI <158243242+devin-ai-integration[bot]@users.noreply.github.com>
+- ---------
+- Co-authored-by: devin-ai-keycard <devin-ai@keycard.ai>
+Co-authored-by: Devin AI <158243242+devin-ai-integration[bot]@users.noreply.github.com>
+
 ## 0.29.1-keycardai-oauth (2026-11-25)
 
 
