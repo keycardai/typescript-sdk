@@ -162,7 +162,7 @@ export class GCPMetadataTokenSource implements IdentityTokenSource {
     } catch (error) {
       throw new WorkloadIdentityRuntimeError(
         `Error calling metadata server at ${this.#metadataUrl} (is this running on GCP?)`,
-        { source: WORKLOAD_IDENTITY_SOURCE_GCP_METADATA, cause: error, retryable: true },
+        { source: WORKLOAD_IDENTITY_SOURCE_GCP_METADATA, cause: error },
       );
     }
 

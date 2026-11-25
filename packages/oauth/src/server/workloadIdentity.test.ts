@@ -397,9 +397,10 @@ describe("GCPMetadataTokenSource", () => {
   });
 
   it("throws a runtime error with the cause when unreachable", async () => {
+    handler = (_req, res) => res.destroy();
     const source = new GCPMetadataTokenSource({
       audience: "https://zone.example.com",
-      metadataUrl: "http://127.0.0.1:1",
+      metadataUrl,
       timeoutMs: 1000,
     });
 
@@ -411,6 +412,20 @@ describe("GCPMetadataTokenSource", () => {
       expect((error as WorkloadIdentityRuntimeError).cause).toBeDefined();
       expect((error as WorkloadIdentityRuntimeError).retryable).toBe(true);
     }
+  });
+
+  it("does not mark an invalid metadata URL as retryable", async () => {
+    const source = new GCPMetadataTokenSource({
+      audience: "https://zone.example.com",
+      metadataUrl: "https://[invalid",
+    });
+
+    const failure = source.identityToken();
+    await expect(failure).rejects.toBeInstanceOf(WorkloadIdentityRuntimeError);
+    await expect(failure).rejects.toMatchObject({
+      source: "gcp-metadata",
+      retryable: false,
+    });
   });
 });
 
