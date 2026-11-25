@@ -147,6 +147,20 @@ describe('TokenExchangeClient.impersonate', () => {
     expect(headers['Authorization']).toBe(`Basic ${btoa('id-a:sec-a')}`);
   });
 
+  it('row 3: exchangeToken uses the client issuer for multi-zone Basic auth by default', async () => {
+    const credential = new ClientSecret({
+      [ISSUER]: ['default-id', 'default-secret'],
+      'https://other.example.com': ['other-id', 'other-secret'],
+    });
+    const client = new TokenExchangeClient(ISSUER, { credential });
+
+    await client.exchangeToken({ subjectToken: 'subject' });
+
+    const tokenCall = fetchMock.mock.calls.find(([url]) => url === TOKEN_ENDPOINT);
+    const headers = (tokenCall![1] as RequestInit).headers as Record<string, string>;
+    expect(headers['Authorization']).toBe(`Basic ${btoa('default-id:default-secret')}`);
+  });
+
   it('sends no Authorization header when the per-call issuer has no credential entry', async () => {
     const credential = new ClientSecret({
       'https://zone-a.keycard.cloud': ['id-a', 'sec-a'],
@@ -267,6 +281,130 @@ describe('TokenExchangeClient.impersonate', () => {
     const params = new URLSearchParams(((tokenCall![1] as RequestInit).body ?? '') as string);
     expect(params.get('client_assertion')).toBe('prepared-assertion');
     expect(params.get('subject_token_type')).toBe(TokenType.SUBSTITUTE_USER);
+  });
+
+  it('row 4b: exchangeToken sends credential authentication and keeps caller fields', async () => {
+    const credential = new WorkloadIdentity(async () => 'workload-oidc-jwt', { clientId: 'acr_123' });
+    const client = new TokenExchangeClient(ISSUER, { credential });
+
+    await client.exchangeToken({
+      subjectToken: 'subject',
+      resource: 'https://api.example.com',
+      scope: 'calendar.read',
+      audience: 'aud-1',
+    });
+
+    const tokenCall = fetchMock.mock.calls.find(([url]) => url === TOKEN_ENDPOINT);
+    const headers = (tokenCall![1] as RequestInit).headers as Record<string, string>;
+    expect(headers['Authorization']).toBeUndefined();
+    const params = new URLSearchParams(((tokenCall![1] as RequestInit).body ?? '') as string);
+    expect(params.get('client_assertion')).toBe('workload-oidc-jwt');
+    expect(params.get('client_assertion_type')).toBe(
+      'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',
+    );
+    expect(params.get('client_id')).toBe('acr_123');
+    expect(params.get('subject_token')).toBe('subject');
+    expect(params.get('subject_token_type')).toBe(TokenType.ACCESS_TOKEN);
+    expect(params.get('resource')).toBe('https://api.example.com');
+    expect(params.get('scope')).toBe('calendar.read');
+    expect(params.get('audience')).toBe('aud-1');
+  });
+
+  it.each([
+    ['credential-client', 'https://zone-b.keycard.cloud'],
+    [undefined, undefined],
+  ])('row 4e: exchangeToken uses only the prepared client ID (%s)', async (preparedId, issuer) => {
+    const prepare = jest.fn(
+      async (_subjectToken: string, _resource: string): Promise<TokenExchangeRequest> => ({
+        subjectToken: 'credential-subject',
+        resource: 'https://credential.example.com',
+        subjectTokenType: TokenType.ACCESS_TOKEN,
+        clientAssertion: 'prepared-assertion',
+        clientAssertionType: 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',
+        clientId: preparedId,
+      }),
+    );
+    const credential: ApplicationCredential = { getAuth: () => null, prepareTokenExchangeRequest: prepare };
+    const client = new TokenExchangeClient(ISSUER, { credential });
+
+    await client.exchangeToken(
+      {
+        subjectToken: 'subject',
+        subjectTokenType: TokenType.SUBSTITUTE_USER,
+        resource: 'https://api.example.com',
+        clientId: 'caller-client',
+      },
+      { issuer },
+    );
+
+    expect(prepare).toHaveBeenCalledWith('subject', 'https://api.example.com', {
+      tokenEndpoint: TOKEN_ENDPOINT,
+      issuer: issuer ?? ISSUER,
+    });
+    const tokenCall = fetchMock.mock.calls.find(([url]) => url === TOKEN_ENDPOINT);
+    const params = new URLSearchParams(((tokenCall![1] as RequestInit).body ?? '') as string);
+    expect(params.get('client_assertion')).toBe('prepared-assertion');
+    expect(params.get('client_id')).toBe(preparedId ?? null);
+    expect(params.get('subject_token')).toBe('subject');
+    expect(params.get('subject_token_type')).toBe(TokenType.SUBSTITUTE_USER);
+    expect(params.get('resource')).toBe('https://api.example.com');
+  });
+
+  it('row 4c: exchangeToken sends caller authentication without preparing', async () => {
+    const prepare = jest.fn(async (): Promise<TokenExchangeRequest> => {
+      throw new Error('prepareTokenExchangeRequest should not be called');
+    });
+    const credential: ApplicationCredential = { getAuth: () => null, prepareTokenExchangeRequest: prepare };
+    const client = new TokenExchangeClient(ISSUER, { credential });
+
+    await client.exchangeToken({
+      subjectToken: 'subject',
+      clientAssertion: 'caller-assertion',
+      clientAssertionType: 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',
+      clientId: 'caller-client',
+    });
+
+    expect(prepare).not.toHaveBeenCalled();
+    const tokenCall = fetchMock.mock.calls.find(([url]) => url === TOKEN_ENDPOINT);
+    const params = new URLSearchParams(((tokenCall![1] as RequestInit).body ?? '') as string);
+    expect(params.get('client_assertion')).toBe('caller-assertion');
+    expect(params.get('client_assertion_type')).toBe('urn:ietf:params:oauth:client-assertion-type:jwt-bearer');
+    expect(params.get('client_id')).toBe('caller-client');
+    expect(((tokenCall![1] as RequestInit).headers as Record<string, string>)['Authorization']).toBeUndefined();
+  });
+
+  it('row 3: exchangeToken with a ClientSecret sends Basic auth and no assertion or client_id', async () => {
+    const prepare = jest.fn(async (): Promise<TokenExchangeRequest> => {
+      throw new Error('prepareTokenExchangeRequest should not be called');
+    });
+    const secret = new ClientSecret('app', 'shh');
+    const credential: ApplicationCredential = {
+      getAuth: (issuer?: string) => secret.getAuth(issuer),
+      prepareTokenExchangeRequest: prepare,
+    };
+    const client = new TokenExchangeClient(ISSUER, { credential });
+
+    await client.exchangeToken({ subjectToken: 'subject' });
+
+    expect(prepare).not.toHaveBeenCalled();
+    const tokenCall = fetchMock.mock.calls.find(([url]) => url === TOKEN_ENDPOINT);
+    const headers = (tokenCall![1] as RequestInit).headers as Record<string, string>;
+    expect(headers['Authorization']).toBe(`Basic ${btoa('app:shh')}`);
+    const params = new URLSearchParams(((tokenCall![1] as RequestInit).body ?? '') as string);
+    expect(params.has('client_assertion')).toBe(false);
+    expect(params.has('client_id')).toBe(false);
+  });
+
+  it('row 4d: exchangeToken sends no token POST when the WorkloadIdentity token source fails', async () => {
+    const credential = new WorkloadIdentity(async () => {
+      throw new Error('metadata down');
+    });
+    const client = new TokenExchangeClient(ISSUER, { credential });
+
+    await expect(client.exchangeToken({ subjectToken: 'subject' })).rejects.toThrow(
+      'Error fetching identity token',
+    );
+    expect(fetchMock.mock.calls.find(([url]) => url === TOKEN_ENDPOINT)).toBeUndefined();
   });
 
   it('bounds the token request with a timeout by default', async () => {
