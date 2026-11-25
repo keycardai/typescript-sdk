@@ -124,6 +124,14 @@ describe('revokeToken', () => {
     expect(String(transport.mock.calls[0]![0])).toBe(`${ISSUER}/.well-known/oauth-authorization-server`);
   });
 
+  it.each([42, 'not a URL'])('rejects an unusable discovered endpoint %p as a configuration error', async (endpoint) => {
+    transport.mockResolvedValueOnce(Response.json({ issuer: ISSUER, revocation_endpoint: endpoint }));
+
+    await expect(revokeToken(ISSUER, TOKEN, { ...options, metadata: undefined })).rejects.toThrow(ConfigurationError);
+    expect(transport).toHaveBeenCalledTimes(1);
+    expect(String(transport.mock.calls[0]![0])).toBe(`${ISSUER}/.well-known/oauth-authorization-server`);
+  });
+
   it('rejects an HTTP endpoint advertised by HTTPS discovery before sending the token or secret', async () => {
     transport.mockResolvedValueOnce(Response.json({
       issuer: ISSUER,

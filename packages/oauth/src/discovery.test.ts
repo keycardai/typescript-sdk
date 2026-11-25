@@ -104,12 +104,25 @@ describe('fetchAuthorizationServerMetadata', () => {
     ['revocation_endpoint', 42],
     ['revocation_endpoint_auth_methods_supported', 'none'],
     ['revocation_endpoint_auth_methods_supported', [false]],
-  ])('rejects an incorrectly typed %s value %p', async (field, value) => {
+  ])('ignores an incorrectly typed %s value %p', async (field, value) => {
     mockFetch({ issuer: ISSUER, [field]: value });
 
-    await expect(fetchAuthorizationServerMetadata(ISSUER)).rejects.toMatchObject({
-      errorCode: 'invalid_response',
+    const metadata = await fetchAuthorizationServerMetadata(ISSUER);
+    expect(metadata[field]).toBeUndefined();
+  });
+
+  it('returns other metadata even when a revocation field is malformed', async () => {
+    const tokenEndpoint = `${ISSUER}/token`;
+    const jwksUri = `${ISSUER}/jwks`;
+    mockFetch({
+      issuer: ISSUER,
+      token_endpoint: tokenEndpoint,
+      jwks_uri: jwksUri,
+      revocation_endpoint: [],
     });
+
+    const metadata = await fetchAuthorizationServerMetadata(ISSUER);
+    expect(metadata).toMatchObject({ issuer: ISSUER, token_endpoint: tokenEndpoint, jwks_uri: jwksUri });
   });
 
   it('throws HTTPError on a non-2xx response', async () => {
