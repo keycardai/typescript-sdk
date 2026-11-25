@@ -3,6 +3,7 @@ export class HTTPError extends Error {
     message: string,
     /** HTTP status of the failed response, when one was received. */
     public readonly status?: number,
+    public readonly cause?: unknown,
   ) {
     super(message);
   }
@@ -18,17 +19,19 @@ export class OAuthError extends Error {
   readonly errorDescription?: string;
   readonly reason?: string;
   readonly retryable?: boolean;
+  readonly status?: number;
 
   constructor(
     public readonly errorCode: string,
     message: string,
     public readonly errorUri?: string,
-    options?: { errorDescription?: string; reason?: string; retryable?: boolean },
+    options?: { errorDescription?: string; reason?: string; retryable?: boolean; status?: number },
   ) {
     super(message);
     this.errorDescription = options?.errorDescription;
     this.reason = options?.reason;
     this.retryable = options?.retryable;
+    this.status = options?.status;
   }
 }
 
@@ -86,7 +89,6 @@ export function isPermanentErrorCode(errorCode: string): boolean {
  */
 export class RefreshGrantError extends OAuthError {
   readonly retryable: boolean;
-  readonly status?: number;
   readonly cause?: unknown;
 
   constructor(
@@ -94,10 +96,9 @@ export class RefreshGrantError extends OAuthError {
     message: string,
     options: { retryable: boolean; status?: number; errorUri?: string; cause?: unknown },
   ) {
-    super(errorCode, message, options.errorUri);
+    super(errorCode, message, options.errorUri, { status: options.status });
     this.name = "RefreshGrantError";
     this.retryable = options.retryable;
-    this.status = options.status;
     this.cause = options.cause;
   }
 }
@@ -124,7 +125,6 @@ export class RefreshGrantError extends OAuthError {
  */
 export class DeviceGrantError extends OAuthError {
   readonly retryable: boolean;
-  readonly status?: number;
   readonly cause?: unknown;
 
   constructor(
@@ -133,11 +133,10 @@ export class DeviceGrantError extends OAuthError {
   ) {
     super(errorCode, options?.errorDescription ?? `Device authorization grant failed: ${errorCode}`, options?.errorUri, options);
     this.name = "DeviceGrantError";
-    const status = options?.status;
+    const status = this.status;
     const transientStatus = status !== undefined && (status >= 500 || status === 429);
     this.retryable =
       options?.retryable ?? (transientStatus || (!isPermanentErrorCode(errorCode) && errorCode !== "invalid_grant"));
-    this.status = status;
     this.cause = options?.cause;
   }
 }
