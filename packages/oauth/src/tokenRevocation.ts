@@ -113,12 +113,17 @@ async function withTransport<T>(
   options: RevokeTokenOptions,
   request: (signal: AbortSignal | undefined) => Promise<T>,
 ): Promise<T> {
+  options.signal?.throwIfAborted();
   const signal = requestSignal(options.signal, options.timeoutMs);
-  signal?.throwIfAborted();
   try {
     return await request(signal);
   } catch (cause) {
-    signal?.throwIfAborted();
+    if (signal?.aborted) {
+      if (options.signal?.aborted && signal.reason === options.signal.reason) {
+        throw signal.reason;
+      }
+      throw new TokenRevocationHTTPError(`${operation} request timed out`, undefined, signal.reason);
+    }
     if (cause instanceof OAuthError) throw cause;
     if (cause instanceof HTTPError) {
       throw new TokenRevocationHTTPError(cause.message, cause.status, cause.cause, cause.retryAfter);

@@ -262,4 +262,26 @@ describe('revokeToken', () => {
     await expect(revokeToken(ISSUER, TOKEN, { ...options, signal: controller.signal })).rejects.toBe(reason);
     expect(transport).toHaveBeenCalledTimes(1);
   });
+
+  it.each([
+    { phase: 'discovery', metadata: undefined },
+    { phase: 'revocation', metadata: METADATA },
+  ])('reports an SDK deadline during $phase as retryable with the platform timeout as cause', async ({ metadata }) => {
+    const controller = new AbortController();
+    transport.mockImplementationOnce((_url, init) => new Promise<Response>((_resolve, reject) => {
+      const signal = init!.signal!;
+      signal.addEventListener('abort', () => reject(new DOMException('The request was aborted', 'AbortError')), { once: true });
+    }));
+
+    const failure = revokeToken(ISSUER, TOKEN, {
+      ...options, metadata, signal: controller.signal, timeoutMs: 5,
+    });
+
+    await expect(failure).rejects.toBeInstanceOf(HTTPError);
+    await expect(failure).rejects.toMatchObject({
+      retryable: true,
+      cause: { name: 'TimeoutError' },
+    });
+    expect(transport).toHaveBeenCalledTimes(1);
+  });
 });
