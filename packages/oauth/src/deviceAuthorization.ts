@@ -1,6 +1,6 @@
 import { requestSignal } from "./requestSignal.js";
 import { requireClientAuthentication, type ApplicationCredential, type ClientAuthenticator } from "./credentials.js";
-import { fetchAuthorizationServerMetadata, type OAuthAuthorizationServerMetadata } from "./discovery.js";
+import { assertMetadataIssuer, fetchAuthorizationServerMetadata, type OAuthAuthorizationServerMetadata } from "./discovery.js";
 import { ConfigurationError, DeviceGrantError, DevicePollError, HTTPError, OAuthError } from "./errors.js";
 import { deserializeTokenResponse, type TokenResponse } from "./tokenExchange.js";
 
@@ -66,7 +66,11 @@ export type DeviceClientOptions = (
       credential?: never;
     }
 ) & {
-  /** Pre-discovered metadata. When set, no discovery request is made. */
+  /**
+   * Pre-discovered metadata. When set, no discovery request is made. Its
+   * `issuer` must match the `issuer` argument, ignoring a trailing slash,
+   * and the credential gets the `issuer` argument as supplied.
+   */
   metadata?: OAuthAuthorizationServerMetadata;
   /** Aborting it rejects with `signal.reason`. No request is sent after the abort. */
   signal?: AbortSignal;
@@ -132,8 +136,8 @@ export type WaitForDeviceTokenOptions = DeviceClientOptions & {
  *
  * Throws `ConfigurationError` before any request when the client options
  * are not exactly one of `credential` and `clientId`, when the credential
- * has no `clientAuthentication`, or when `metadata` is not set and `issuer`
- * is not an http or https URL. Throws `ConfigurationError` before the
+ * has no `clientAuthentication`, when `metadata` names a different issuer,
+ * or when `metadata` is not set and `issuer` is not an http or https URL. Throws `ConfigurationError` before the
  * device authorization request when the metadata has no
  * `device_authorization_endpoint` or it is not an http or https URL. An error
  * from the credential's `clientAuthentication` is thrown as is. Every other
@@ -376,7 +380,8 @@ function isPositiveInteger(value: unknown): value is number {
 }
 
 /**
- * Returns `options.metadata`, or discovers it. A failed discovery throws
+ * Returns `options.metadata` after checking that its issuer matches
+ * `issuer`, or discovers it. A failed discovery throws
  * `DeviceGrantError` `invalid_response` with the failure as `cause`.
  */
 async function resolveMetadata(
@@ -387,6 +392,7 @@ async function resolveMetadata(
   if (!options.metadata && !isHttpUrl(issuer)) {
     throw new ConfigurationError(`${operation}: issuer ${JSON.stringify(issuer)} is not an http or https URL`);
   }
+  if (options.metadata) assertMetadataIssuer(issuer, options.metadata, operation);
   options.signal?.throwIfAborted();
   if (options.metadata) return options.metadata;
   try {

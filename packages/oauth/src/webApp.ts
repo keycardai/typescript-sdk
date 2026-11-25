@@ -1,7 +1,7 @@
 import { requestSignal } from "./requestSignal.js";
 import base64url from "./base64url.js";
 import { basicAuthorization } from "./basicAuthorization.js";
-import { fetchAuthorizationServerMetadata, type OAuthAuthorizationServerMetadata } from "./discovery.js";
+import { assertMetadataIssuer, fetchAuthorizationServerMetadata, type OAuthAuthorizationServerMetadata } from "./discovery.js";
 import { AuthorizationDeniedError, ConfigurationError, OAuthError, RefreshGrantError, StateMismatchError } from "./errors.js";
 import { requireClientAuthentication, type ApplicationCredential, type ClientAuthenticator } from "./credentials.js";
 import { buildAuthorizeUrl, exchangeAuthorizationCode, generatePkcePair } from "./pkce.js";
@@ -245,7 +245,8 @@ export async function completeAuthorization(
  * When it does not, the stored refresh token is still valid.
  *
  * Throws `ConfigurationError` before any request when the client options
- * are not valid, and before the refresh request when the metadata has no
+ * are not valid or `metadata` names a different issuer, ignoring a trailing
+ * slash, and before the refresh request when the metadata has no
  * `token_endpoint`. Errors from discovery and from the credential's
  * `clientAuthentication` are thrown as is. A failed refresh request throws
  * `RefreshGrantError`, except a 2xx response without `access_token`, which
@@ -270,6 +271,7 @@ export async function refreshAuthorization(
   } else {
     throw new ConfigurationError("refreshAuthorization: clientId or credential is required");
   }
+  if (options.metadata) assertMetadataIssuer(issuer, options.metadata, "refreshAuthorization");
 
   const metadata = options.metadata
     ?? await fetchAuthorizationServerMetadata(issuer, {
