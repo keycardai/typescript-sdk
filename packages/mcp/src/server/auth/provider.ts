@@ -209,13 +209,18 @@ export class AuthProvider {
         const response = await client.exchangeToken(request);
         tokens[resource] = response;
       } catch (e) {
-        const detail: ErrorDetail = {
+        const detail: ErrorDetail & { reason?: string } = {
           message: `Token exchange failed for ${resource}`,
         };
         if (e instanceof OAuthError) {
           detail.code = e.errorCode;
-          if (e.message) {
+          if ("errorDescription" in e && typeof e.errorDescription === "string") {
+            detail.description = e.errorDescription;
+          } else if (e.message) {
             detail.description = e.message;
+          }
+          if ("reason" in e && typeof e.reason === "string") {
+            detail.reason = e.reason;
           }
         } else {
           detail.rawError = String(e);
