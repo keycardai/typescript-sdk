@@ -1,13 +1,17 @@
 import type { AuthInfo, OAuthTokenVerifier } from "../../../shared/auth.js";
 import type { OAuthKeyring } from "@keycardai/oauth/keyring";
 import { JWTVerifier, type JWTVerifierOptions } from "@keycardai/oauth/jwt/verifier";
+import { ConfigurationError } from "@keycardai/oauth/errors";
 
 export class JWTOAuthTokenVerifier implements OAuthTokenVerifier {
   #verifier: JWTVerifier;
 
   constructor(keyring: OAuthKeyring, options: JWTVerifierOptions) {
+    if (Array.isArray(options.audiences) && options.audiences.length === 0) {
+      throw new ConfigurationError("JWTOAuthTokenVerifier: audiences must not be an empty list");
+    }
     this.#verifier = new JWTVerifier(keyring, options);
-    if (options.audiences === undefined || options.audiences.length === 0) {
+    if (options.audiences === undefined) {
       console.warn(
         "JWTOAuthTokenVerifier: this verifier has no audience configured, so it accepts a " +
           "token minted for any resource in the zone; set audiences to this server's " +

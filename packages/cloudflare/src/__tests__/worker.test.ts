@@ -1,4 +1,5 @@
 import { describe, it, expect, jest, beforeEach } from "@jest/globals";
+import { ConfigurationError } from "@keycardai/oauth/errors";
 import type { AuthInfo, KeycardEnv } from "../types.js";
 
 // Mock auth and metadata modules
@@ -109,6 +110,13 @@ describe("createKeycardWorker", () => {
       audiences: ["https://my-worker.example.workers.dev"],
       requiredScopes: ["mcp:tools"],
     });
+  });
+
+  it("row 8e: rejects an empty audience list when creating the worker", () => {
+    expect(() =>
+      createKeycardWorker({ audiences: [], fetch: jest.fn<() => Promise<Response>>() }),
+    ).toThrow(ConfigurationError);
+    expect(verifyBearerToken).not.toHaveBeenCalled();
   });
 
   it("returns auth error response without calling user handler", async () => {

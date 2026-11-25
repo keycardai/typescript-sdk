@@ -2,6 +2,7 @@ import { JWKSOAuthKeyring } from "@keycardai/oauth/keyring";
 import { JWTVerifier } from "@keycardai/oauth/jwt/verifier";
 import {
   BadRequestError,
+  ConfigurationError,
   UnauthorizedError,
   InvalidTokenError,
   InsufficientScopeError,
@@ -26,7 +27,7 @@ let warnedMissingAudience = false;
 
 function warnMissingAudienceOnce(audiences: BearerAuthOptions["audiences"]): void {
   if (warnedMissingAudience) return;
-  if (audiences !== undefined && audiences.length > 0) return;
+  if (audiences !== undefined) return;
   warnedMissingAudience = true;
   console.warn(
     "verifyBearerToken: this Worker verifies tokens without an audience, so it accepts a " +
@@ -78,6 +79,9 @@ export async function verifyBearerToken(
   request: Request,
   options: BearerAuthOptions,
 ): Promise<AuthInfo | Response> {
+  if (Array.isArray(options.audiences) && options.audiences.length === 0) {
+    throw new ConfigurationError("verifyBearerToken: audiences must not be an empty list");
+  }
   const url = new URL(request.url);
   const resourceMetadataUrl = getResourceMetadataUrl(url);
 

@@ -1,10 +1,16 @@
 import { JWTVerifier } from "../jwt/verifier.js";
-import { InvalidTokenError, JWKSKeyNotFoundError } from "../errors.js";
+import { ConfigurationError, InvalidTokenError, JWKSKeyNotFoundError } from "../errors.js";
 import { JWKSOAuthKeyring, type OAuthKeyring } from "../keyring.js";
 import type { JWTClaims } from "../jwt/signer.js";
 import type { AccessToken } from "./accessToken.js";
 
 const DEFAULT_ALLOWED_ALGORITHMS = ["RS256"] as const;
+
+type Audience = string | readonly string[] | Record<string, string>;
+
+function isAudienceList(audience: Audience | undefined): audience is readonly string[] {
+  return Array.isArray(audience);
+}
 
 export interface TokenVerifierOptions {
   /**
@@ -28,7 +34,8 @@ export interface TokenVerifierOptions {
    */
   enableMultiZone?: boolean;
   /**
-   * Audience to validate against. A single string applies to every zone.
+   * Audience to validate against. A string or nonempty list applies to every
+   * zone. A token must contain at least one accepted audience.
    * A `Record<zoneId, audience>` selects the audience per zone; if a request
    * arrives for a zoneId with no entry in the dict, verification fails closed
    * (returns null) rather than silently dropping audience validation.
@@ -36,7 +43,7 @@ export interface TokenVerifierOptions {
    * When omitted the verifier accepts a token minted for any resource in the
    * zone and warns once at construction.
    */
-  audience?: string | Record<string, string>;
+  audience?: Audience;
   /**
    * Custom keyring (e.g. for testing or shared caches). When omitted,
    * a fresh JWKSOAuthKeyring is constructed.
@@ -49,12 +56,15 @@ export class TokenVerifier {
   #requiredScopes: readonly string[];
   #allowedAlgorithms: readonly string[];
   #enableMultiZone: boolean;
-  #audience?: string | Record<string, string>;
+  #audience?: Audience;
   #keyring: OAuthKeyring;
 
   constructor(options: TokenVerifierOptions) {
     if (!options.issuer) {
       throw new Error("TokenVerifier: issuer is required");
+    }
+    if (isAudienceList(options.audience) && options.audience.length === 0) {
+      throw new ConfigurationError("TokenVerifier: audience must not be an empty list");
     }
     this.#issuer = options.issuer;
     this.#requiredScopes = options.requiredScopes ?? [];
@@ -114,8 +124,8 @@ export class TokenVerifier {
   }
 
   async #verify(token: string, zoneId: string | undefined): Promise<AccessToken | null> {
-    let audience: string | undefined;
-    if (typeof this.#audience === "string") {
+    let audience: string | readonly string[] | undefined;
+    if (typeof this.#audience === "string" || isAudienceList(this.#audience)) {
       audience = this.#audience;
     } else if (this.#audience !== undefined) {
       if (!zoneId || !Object.prototype.hasOwnProperty.call(this.#audience, zoneId)) {

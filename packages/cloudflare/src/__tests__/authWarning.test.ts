@@ -45,10 +45,12 @@ describe("verifyBearerToken missing-audience warning", () => {
     expect(String(warn.mock.calls[0][0])).toMatch(/set audiences/);
   });
 
-  it("treats an empty audiences array as missing", async () => {
+  it("row 8e: rejects an empty audience list before authentication without warning", async () => {
     const verifyBearerToken = await freshVerifyBearerToken();
-    await verifyBearerToken(makeRequest(), { issuers: "https://auth.keycard.ai", audiences: [] });
-    expect(warn).toHaveBeenCalledTimes(1);
+    await expect(verifyBearerToken(new Request("https://example.com/mcp"), {
+      issuers: "https://auth.keycard.ai", audiences: [],
+    })).rejects.toMatchObject({ name: "ConfigurationError", message: expect.stringContaining("audiences") });
+    expect(warn).not.toHaveBeenCalled();
   });
 
   it("does not warn when audiences is configured", async () => {

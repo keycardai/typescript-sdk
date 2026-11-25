@@ -2,6 +2,7 @@ import type { Request, Response, NextFunction, RequestHandler } from "express";
 import type { AuthInfo, OAuthTokenVerifier } from "../../../shared/auth.js";
 import { JWTOAuthTokenVerifier } from "../verifiers/jwt.js";
 import { JWKSOAuthKeyring } from "@keycardai/oauth/keyring";
+import { ConfigurationError } from "@keycardai/oauth/errors";
 import { getOAuthProtectedResourceMetadataUrl } from "../router.js"
 import { BadRequestError, UnauthorizedError, InvalidTokenError, InsufficientScopeError, HTTPError, OAuthError, JWKSError, JWKSKeyNotFoundError } from "../errors.js";
 
@@ -40,6 +41,9 @@ export function requireBearerAuth({
   audiences,
   requiredScopes = [],
 }: BearerAuthMiddlewareOptions): RequestHandler {
+  if (Array.isArray(audiences) && audiences.length === 0) {
+    throw new ConfigurationError("requireBearerAuth: audiences must not be an empty list");
+  }
   if (!verifier) {
     const configuredIssuers =
       typeof issuers === "string" && issuers.length > 0

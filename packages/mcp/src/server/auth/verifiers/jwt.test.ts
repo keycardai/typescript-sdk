@@ -117,9 +117,10 @@ describe('JSON Web Token Verifier', () => {
       expect(String(warn.mock.calls[0][0])).toMatch(/set audiences/);
     });
 
-    it('warns when audiences is an empty array', () => {
-      new JWTOAuthTokenVerifier(keyring, { issuers: 'https://auth.example.com', audiences: [] });
-      expect(warn).toHaveBeenCalledTimes(1);
+    it('row 8e: rejects an empty audience list without warning', () => {
+      expect(() => new JWTOAuthTokenVerifier(keyring, { issuers: 'https://auth.example.com', audiences: [] }))
+        .toThrow(/audiences must not be an empty list/);
+      expect(warn).not.toHaveBeenCalled();
     });
 
     it('does not warn with a string audience', () => {

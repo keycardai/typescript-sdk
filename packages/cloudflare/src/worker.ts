@@ -1,3 +1,4 @@
+import { ConfigurationError } from "@keycardai/oauth/errors";
 import { verifyBearerToken, isAuthError } from "./auth.js";
 import { handleMetadataRequest } from "./metadata.js";
 import { WorkersClientSecret, WorkersWebIdentity } from "./credentials.js";
@@ -19,6 +20,10 @@ import type { KeycardEnv, KeycardWorkerOptions, MetadataOptions } from "./types.
 export function createKeycardWorker<Env extends KeycardEnv = KeycardEnv>(
   options: KeycardWorkerOptions<Env>,
 ): ExportedHandler<Env> {
+  if (Array.isArray(options.audiences) && options.audiences.length === 0) {
+    throw new ConfigurationError("createKeycardWorker: audiences must not be an empty list");
+  }
+
   // Cache the WebIdentity instance across requests (module-level is safe —
   // it only holds the private key, which is the same for all requests)
   let webIdentity: WorkersWebIdentity | undefined;
