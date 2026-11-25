@@ -1,6 +1,7 @@
 import { requestSignal } from "./requestSignal.js";
 import { fetchAuthorizationServerMetadata, type OAuthAuthorizationServerMetadata } from "./discovery.js";
 import { ConfigurationError, HTTPError, InsufficientScopeError, InvalidTokenError, OAuthError } from "./errors.js";
+import { discardResponseBody, readResponseText } from "./responseBody.js";
 
 /**
  * Claims returned by the UserInfo endpoint (OIDC Core 1.0 §5.3).
@@ -72,6 +73,7 @@ export async function fetchUserInfo(
   });
 
   if (response.status === 401) {
+    discardResponseBody(response);
     const errorCode = challengeError(response.headers.get("www-authenticate"));
     const message =
       `UserInfo request rejected with "${errorCode}": the access token is expired, ` +
@@ -86,13 +88,16 @@ export async function fetchUserInfo(
   }
 
   if (!response.ok) {
+    discardResponseBody(response);
     throw new HTTPError(
       `UserInfo request to "${metadata.userinfo_endpoint}" failed (HTTP ${response.status})`,
+      response.status,
     );
   }
 
   const contentType = response.headers.get("content-type") ?? "";
   if (contentType.toLowerCase().includes("application/jwt")) {
+    discardResponseBody(response);
     throw new OAuthError(
       "invalid_response",
       `Unsupported UserInfo response content type "${contentType}": signed and ` +
@@ -100,9 +105,10 @@ export async function fetchUserInfo(
     );
   }
 
+  const text = await readResponseText(response);
   let json: unknown;
   try {
-    json = await response.json() as unknown;
+    json = JSON.parse(text) as unknown;
   } catch {
     throw new OAuthError("invalid_response", "Malformed JSON in UserInfo response");
   }

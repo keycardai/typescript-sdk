@@ -1,3 +1,5 @@
+import { OAuthError } from "./errors.js";
+import { readResponseText } from "./responseBody.js";
 import { tokenEndpointError } from "./tokenEndpointError.js";
 import type { ApplicationCredential } from "./credentials.js";
 import { basicAuthorization } from "./basicAuthorization.js";
@@ -108,8 +110,17 @@ export class ClientCredentialsClient {
       throw await tokenEndpointError(response, "Client credentials request");
     }
 
-    const json = await response.json() as Record<string, unknown>;
-    return deserializeTokenResponse(json);
+    const text = await readResponseText(response);
+    let json: unknown;
+    try {
+      json = JSON.parse(text);
+    } catch {
+      throw new OAuthError("invalid_response", "Client credentials response is not valid JSON");
+    }
+    if (!json || typeof json !== "object" || Array.isArray(json)) {
+      throw new OAuthError("invalid_response", "Client credentials response is not a valid JSON object");
+    }
+    return deserializeTokenResponse(json as Record<string, unknown>);
   }
 
   #resolveBasicAuth(

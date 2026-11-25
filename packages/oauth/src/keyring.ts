@@ -5,7 +5,9 @@ import {
   JWKSFetchError,
   JWKSKeyNotFoundError,
   JWKSUriValidationError,
+  ResponseBodyTooLargeError,
 } from "./errors.js";
+import { discardResponseBody, readResponseText } from "./responseBody.js";
 
 export interface OAuthKeyring {
   key(issuer: string, kid: string): Promise<CryptoKey>
@@ -179,9 +181,19 @@ export class JWKSOAuthKeyring implements OAuthKeyring {
 
     const promise = (async () => {
       try {
-        const metadata = await fetchAuthorizationServerMetadata(issuer, {
-          signal: AbortSignal.timeout(this.#fetchTimeoutMs),
-        });
+        let metadata;
+        try {
+          metadata = await fetchAuthorizationServerMetadata(issuer, {
+            signal: AbortSignal.timeout(this.#fetchTimeoutMs),
+          });
+        } catch (cause) {
+          if (cause instanceof ResponseBodyTooLargeError) {
+            throw new JWKSDiscoveryError(
+              `Failed to discover JWKS URI for "${issuer}": ${cause.message}`,
+            );
+          }
+          throw cause;
+        }
         if (!metadata.jwks_uri) {
           throw new JWKSDiscoveryError(`No JSON Web Key Set available for "${issuer}"`);
         }
@@ -278,12 +290,24 @@ export class JWKSOAuthKeyring implements OAuthKeyring {
           signal: AbortSignal.timeout(this.#fetchTimeoutMs),
         });
         if (!response.ok) {
+          discardResponseBody(response);
           throw new JWKSFetchError(
             `Failed to fetch JWKS from "${jwksUri}" for "${issuer}" (HTTP ${response.status})`,
           );
         }
 
-        const jwkSet = JWKSetSchema.parse(await response.json());
+        let text: string;
+        try {
+          text = await readResponseText(response);
+        } catch (cause) {
+          if (cause instanceof ResponseBodyTooLargeError) {
+            throw new JWKSFetchError(
+              `Failed to fetch JWKS from "${jwksUri}" for "${issuer}": ${cause.message}`,
+            );
+          }
+          throw cause;
+        }
+        const jwkSet = JWKSetSchema.parse(JSON.parse(text));
         const now = Date.now();
         this.#jwksCache.set(jwksUri, {
           value: jwkSet,

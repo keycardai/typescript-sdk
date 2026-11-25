@@ -2,7 +2,15 @@ import { requestSignal } from "./requestSignal.js";
 import base64url from "./base64url.js";
 import { basicAuthorization } from "./basicAuthorization.js";
 import { assertMetadataIssuer, fetchAuthorizationServerMetadata, type OAuthAuthorizationServerMetadata } from "./discovery.js";
-import { AuthorizationDeniedError, ConfigurationError, OAuthError, RefreshGrantError, StateMismatchError } from "./errors.js";
+import {
+  AuthorizationDeniedError,
+  ConfigurationError,
+  OAuthError,
+  RefreshGrantError,
+  ResponseBodyTooLargeError,
+  StateMismatchError,
+} from "./errors.js";
+import { readResponseText } from "./responseBody.js";
 import { requireClientAuthentication, type ApplicationCredential, type ClientAuthenticator } from "./credentials.js";
 import { buildAuthorizeUrl, exchangeAuthorizationCode, generatePkcePair } from "./pkce.js";
 import { deserializeTokenResponse, type TokenResponse } from "./tokenExchange.js";
@@ -325,9 +333,26 @@ export async function refreshAuthorization(
 
   if (!response.ok) {
     const retryable = response.status >= 500 || response.status === 429;
+    let errorText: string;
+    try {
+      errorText = await readResponseText(response);
+    } catch (cause) {
+      if (cause instanceof ResponseBodyTooLargeError) {
+        throw new RefreshGrantError("invalid_response", cause.message, {
+          retryable: cause.retryable,
+          status: cause.status,
+          cause,
+        });
+      }
+      throw new RefreshGrantError(
+        "invalid_response",
+        `Refresh token request failed (HTTP ${response.status})`,
+        { retryable, status: response.status, cause },
+      );
+    }
     let errorBody: Record<string, unknown> | null = null;
     try {
-      const json = await response.json() as unknown;
+      const json = JSON.parse(errorText) as unknown;
       if (json && typeof json === "object" && !Array.isArray(json)) {
         errorBody = json as Record<string, unknown>;
       }
@@ -352,9 +377,26 @@ export async function refreshAuthorization(
     );
   }
 
+  let text: string;
+  try {
+    text = await readResponseText(response);
+  } catch (cause) {
+    if (cause instanceof ResponseBodyTooLargeError) {
+      throw new RefreshGrantError("invalid_response", cause.message, {
+        retryable: cause.retryable,
+        status: cause.status,
+        cause,
+      });
+    }
+    throw new RefreshGrantError(
+      "invalid_response",
+      `Refresh token request failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+      { retryable: true, status: response.status, cause },
+    );
+  }
   let json: unknown;
   try {
-    json = await response.json();
+    json = JSON.parse(text);
   } catch (cause) {
     throw new RefreshGrantError(
       "invalid_response",

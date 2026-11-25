@@ -1,4 +1,5 @@
-import { ConfigurationError, HTTPError, OAuthError } from "./errors.js";
+import { ConfigurationError, HTTPError, OAuthError, ResponseBodyTooLargeError } from "./errors.js";
+import { readResponseText } from "./responseBody.js";
 import { tokenEndpointError } from "./tokenEndpointError.js";
 import type { ApplicationCredential } from "./credentials.js";
 import { basicAuthorization } from "./basicAuthorization.js";
@@ -189,8 +190,11 @@ export class TokenExchangeClient {
         body: body.toString(),
         signal,
       });
-      bodyText = await response.text();
+      bodyText = await readResponseText(response);
     } catch (cause) {
+      if (cause instanceof ResponseBodyTooLargeError) {
+        throw cause;
+      }
       // Some fetch implementations reject an aborted body read with a separate AbortError.
       if (signal.aborted && (cause === signal.reason || (cause instanceof DOMException && cause.name === "AbortError"))) {
         throw signal.reason;
@@ -202,8 +206,16 @@ export class TokenExchangeClient {
       throw await tokenEndpointError(response, "Token exchange", bodyText);
     }
 
-    const json = JSON.parse(bodyText) as Record<string, unknown>;
-    return deserializeTokenResponse(json);
+    let json: unknown;
+    try {
+      json = JSON.parse(bodyText);
+    } catch {
+      throw new OAuthError("invalid_response", "Token exchange response is not valid JSON");
+    }
+    if (!json || typeof json !== "object" || Array.isArray(json)) {
+      throw new OAuthError("invalid_response", "Token exchange response is not a valid JSON object");
+    }
+    return deserializeTokenResponse(json as Record<string, unknown>);
   }
 
   async impersonate(req: ImpersonateRequest): Promise<TokenResponse> {

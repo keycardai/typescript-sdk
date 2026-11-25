@@ -1,6 +1,7 @@
 import { requestSignal } from "./requestSignal.js";
 import { z } from "zod";
 import { ConfigurationError, HTTPError, OAuthError } from "./errors.js";
+import { discardResponseBody, readResponseText } from "./responseBody.js";
 
 const OAuthAuthorizationServerMetadataSchema = z.looseObject({
   issuer: z.string(),
@@ -38,14 +39,15 @@ export async function fetchAuthorizationServerMetadata(
   const url = new URL(`/.well-known/oauth-authorization-server${path}`, issuer);
   const response = await fetch(url, { signal: requestSignal(options?.signal, options?.timeoutMs) });
   if (!response.ok) {
+    discardResponseBody(response);
     throw new HTTPError(
       `Failed to fetch OAuth authorization server metadata for "${issuer}" (HTTP ${response.status})`,
       response.status,
     );
   }
 
-  // A failure to read the body, such as a timeout, is thrown as is.
-  const text = await response.text();
+  // A failure to read the body, such as a timeout or size overflow, is thrown as is.
+  const text = await readResponseText(response);
   let json: unknown;
   try {
     json = JSON.parse(text);

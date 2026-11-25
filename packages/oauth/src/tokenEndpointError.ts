@@ -1,13 +1,30 @@
-import { OAuthError, isPermanentErrorCode } from "./errors.js";
+import { OAuthError, ResponseBodyTooLargeError, isPermanentErrorCode } from "./errors.js";
+import { readResponseText } from "./responseBody.js";
 
 export async function tokenEndpointError(response: Response, operation: string, bodyText?: string): Promise<OAuthError> {
   const status = response.status;
   const transient = status === 429 || status >= 500;
-  let body: Record<string, unknown> | null;
+  let text: string;
+  if (bodyText !== undefined) {
+    text = bodyText;
+  } else {
+    try {
+      text = await readResponseText(response);
+    } catch (e) {
+      if (e instanceof ResponseBodyTooLargeError) return e;
+      return new OAuthError("invalid_response", `${operation} failed (HTTP ${status})`, undefined, {
+        retryable: transient, status,
+      });
+    }
+  }
+  let body: Record<string, unknown> | null = null;
   try {
-    body = (bodyText === undefined ? await response.json() : JSON.parse(bodyText)) as Record<string, unknown> | null;
+    const parsed: unknown = JSON.parse(text);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      body = parsed as Record<string, unknown>;
+    }
   } catch {
-    body = null;
+    // non-JSON: fall through
   }
   if (typeof body?.error === "string") {
     const errorDescription = typeof body.error_description === "string" ? body.error_description : undefined;

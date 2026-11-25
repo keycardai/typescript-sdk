@@ -2,7 +2,8 @@ import { requestSignal } from "./requestSignal.js";
 import base64url from "./base64url.js";
 import { basicAuthorization } from "./basicAuthorization.js";
 import { fetchAuthorizationServerMetadata, type OAuthAuthorizationServerMetadata } from "./discovery.js";
-import { ConfigurationError, OAuthError } from "./errors.js";
+import { ConfigurationError, OAuthError, ResponseBodyTooLargeError } from "./errors.js";
+import { readResponseText } from "./responseBody.js";
 import { requireClientAuthentication, type ApplicationCredential, type ClientAuthenticator } from "./credentials.js";
 import { deserializeTokenResponse, type TokenResponse } from "./tokenExchange.js";
 
@@ -157,14 +158,24 @@ export async function exchangeAuthorizationCode(
   });
 
   if (!response.ok) {
+    let errorText: string;
+    try {
+      errorText = await readResponseText(response);
+    } catch (e) {
+      if (e instanceof ResponseBodyTooLargeError) throw e;
+      throw new OAuthError(
+        "invalid_response",
+        `Authorization code exchange failed (HTTP ${response.status})`,
+      );
+    }
     let errorBody: Record<string, unknown> | null = null;
     try {
-      const json = await response.json() as unknown;
+      const json = JSON.parse(errorText) as unknown;
       if (json && typeof json === "object" && !Array.isArray(json)) {
         errorBody = json as Record<string, unknown>;
       }
     } catch {
-      // non-JSON error body — fall through to generic error
+      // non-JSON error body: fall through to generic error
     }
     if (errorBody && typeof errorBody.error === "string") {
       const description = typeof errorBody.error_description === "string"
@@ -179,7 +190,13 @@ export async function exchangeAuthorizationCode(
     );
   }
 
-  const json = await response.json() as unknown;
+  const text = await readResponseText(response);
+  let json: unknown;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    throw new OAuthError("invalid_response", "Token endpoint response is not valid JSON");
+  }
   if (!json || typeof json !== "object" || Array.isArray(json)) {
     throw new OAuthError("invalid_response", "Token endpoint response is not a valid JSON object");
   }

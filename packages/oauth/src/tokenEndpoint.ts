@@ -1,5 +1,5 @@
 import { fetchAuthorizationServerMetadata } from "./discovery.js";
-import { HTTPError, OAuthError, TokenEndpointDiscoveryError } from "./errors.js";
+import { HTTPError, OAuthError, ResponseBodyTooLargeError, TokenEndpointDiscoveryError } from "./errors.js";
 
 export const DEFAULT_DISCOVERY_TTL_MS = 60 * 60 * 1000;
 export const DEFAULT_NEGATIVE_TTL_MS = 60 * 1000;
@@ -103,8 +103,11 @@ export class TokenEndpointResolver {
   }
 }
 
-/** Transport errors, timeouts, 5xx and 429 are transient; everything the metadata document itself gets wrong is deterministic. */
+/** Transport errors, timeouts, 5xx, 429, and 2xx/429/5xx size overflows are transient; everything the metadata document itself gets wrong is deterministic. */
 function isDeterministicDiscoveryFailure(cause: unknown): boolean {
+  if (cause instanceof ResponseBodyTooLargeError) {
+    return !cause.retryable;
+  }
   if (cause instanceof HTTPError) {
     return cause.status !== undefined && cause.status >= 400 && cause.status < 500 && cause.status !== 429;
   }
