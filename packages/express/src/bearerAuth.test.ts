@@ -4,7 +4,7 @@ import request from 'supertest';
 import { requireBearerAuth, subdomainZoneResolver } from './bearerAuth.js';
 import { TokenVerifier } from '@keycardai/oauth/server';
 import type { AccessToken } from '@keycardai/oauth/server';
-import { JWKSKeyNotFoundError } from '@keycardai/oauth/errors';
+import { ConfigurationError, JWKSKeyNotFoundError } from '@keycardai/oauth/errors';
 import { JWKSOAuthKeyring, JWTSigner, type PrivateKeyring } from '@keycardai/oauth';
 
 const VALID_TOKEN: AccessToken = {
@@ -159,7 +159,7 @@ describe('requireBearerAuth', () => {
       spies.splice(0).forEach((spy) => spy.mockRestore());
     });
 
-    function makeAudienceApp(audience: string, zoneResolver?: () => string | undefined) {
+    function makeAudienceApp(audience: string | readonly string[], zoneResolver?: () => string | undefined) {
       spies.push(
         jest.spyOn(console, 'warn').mockImplementation(() => {}),
         jest.spyOn(TokenVerifier.prototype, 'verifyToken').mockResolvedValue(tokenForUrn),
@@ -173,6 +173,13 @@ describe('requireBearerAuth', () => {
 
     it('accepts a URN resource that matches the configured audience', async () => {
       const res = await request(makeAudienceApp(URN))
+        .get('/resource')
+        .set('Authorization', 'Bearer valid-jwt');
+      expect(res.status).toBe(200);
+    });
+
+    it('accepts a URN resource that matches the second configured audience', async () => {
+      const res = await request(makeAudienceApp(['urn:other-service', URN]))
         .get('/resource')
         .set('Authorization', 'Bearer valid-jwt');
       expect(res.status).toBe(200);
@@ -306,7 +313,7 @@ describe('requireBearerAuth when the zone is unavailable (real TokenVerifier)', 
     fetchSpy.mockImplementation(async (input) => handler(String(input instanceof Request ? input.url : input)));
   }
 
-  async function signToken(kid = KID): Promise<string> {
+  async function signToken(kid = KID, aud: string | string[] = AUDIENCE): Promise<string> {
     const keyring: PrivateKeyring = {
       key: async () => ({ key: privateKey, kid, issuer: ISSUER }),
     };
@@ -314,7 +321,7 @@ describe('requireBearerAuth when the zone is unavailable (real TokenVerifier)', 
     return new JWTSigner(keyring).sign({
       iss: ISSUER,
       sub: 'user-1',
-      aud: AUDIENCE,
+      aud,
       client_id: 'svc-x',
       iat: now,
       exp: now + 3600,
@@ -325,6 +332,25 @@ describe('requireBearerAuth when the zone is unavailable (real TokenVerifier)', 
     const verifier = new TokenVerifier({ issuer: ISSUER, audience: AUDIENCE, keyring: new JWKSOAuthKeyring() });
     return makeApp(verifier);
   }
+
+  it.each<{ row: string; aud: string | string[]; status: number }>([
+    { row: '8a: scalar match', aud: 'resource-b', status: 200 },
+    { row: '8b: scalar mismatch', aud: 'resource-c', status: 401 },
+    { row: '8c: array match', aud: ['resource-c', 'resource-b'], status: 200 },
+    { row: '8d: array mismatch', aud: ['resource-c', 'resource-d'], status: 401 },
+  ])('row $row', async ({ aud, status }) => {
+    stubZone((url) => (url === DISCOVERY_URL ? json(metadata) : json(publicJwks)));
+    const app = express();
+    app.use(requireBearerAuth({ zoneUrl: ISSUER, audience: ['resource-a', 'resource-b'] }));
+    app.get('/resource', (_req, res) => res.sendStatus(200));
+    const res = await request(app).get('/resource').set('Authorization', `Bearer ${await signToken(KID, aud)}`);
+    expect(res.status).toBe(status);
+    if (status === 401) expect(res.headers['www-authenticate']).toMatch(/error="invalid_token"/);
+  });
+
+  it('row 8e: rejects an explicitly empty audience list at construction', () => {
+    expect(() => requireBearerAuth({ zoneUrl: ISSUER, audience: [] })).toThrow(ConfigurationError);
+  });
 
   it('answers 503 temporarily_unavailable with no challenge when the JWKS fetch fails', async () => {
     stubZone((url) => (url === DISCOVERY_URL ? json(metadata) : json({ error: 'down' }, 503)));
