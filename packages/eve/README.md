@@ -213,13 +213,14 @@ export default defineMcpClientConnection({
 });
 ```
 
-**Without `clientId`, a client is registered per attempt.** eve mints a
+**Without an explicit or derived `clientId`, a client is registered per attempt.** eve mints a
 fresh callback URL for every attempt
 (`/eve/v1/connections/:name/callback/:attemptId/:token`) while
 [RFC 9700][rfc9700] requires the authorization server to match `redirect_uri`
 against the client's registered list by exact string comparison, so no client
 registered ahead of time can name eve's callback. Leaving `clientId` unset
-registers a client per attempt instead (RFC 7591), whose single redirect URI is
+without a `WorkloadIdentity` credential registers a client per attempt instead
+(RFC 7591), whose single redirect URI is
 the callback that attempt will return to. Each client is public and PKCE-bound,
 so nothing secret enters eve's durable resume state; if the server issues a
 confidential client anyway, the attempt is abandoned rather than journaling a
@@ -229,9 +230,10 @@ durable grant store can refresh it with no secret.
 
 ### Signing users in as the agent's Application
 
-With a `clientId` and `clientSecret` or `applicationCredential`, the agent
-signs users in as its own Keycard Application, a confidential client, through
-one stable callback URL this package serves. Three pieces:
+With a `clientId` (or a `WorkloadIdentity` that supplies it) and
+`clientSecret` or `applicationCredential`, the agent signs users in as its own
+Keycard Application, a confidential client, through one stable callback URL
+this package serves. Three pieces:
 
 1. Mount the route from a channel file. `defineChannel` is eve runtime code,
    so this package exports the route object, not the channel:
@@ -249,7 +251,7 @@ one stable callback URL this package serves. Three pieces:
 2. On the Application in your zone, add `<origin>/keycard/callback` to its
    redirect URIs (`protocols.oauth2.redirect_uris`). Redirect URIs match
    exactly, so a preview deployment whose URL is not registered keeps the
-   per-attempt path: leave `clientId` unset there.
+   per-attempt path: leave `clientId` and `applicationCredential` unset there.
 
 3. Use a password credential of that Application: its identifier is the
    `clientId` and its secret the `clientSecret`. The Application's own
@@ -266,9 +268,11 @@ one stable callback URL this package serves. Three pieces:
    ```
 
    On Vercel, an Application whose only credential is a v2 token credential
-   for the deployment's OIDC token needs no secret: the credential's public ID
-   is the `clientId`, and a `WorkloadIdentity` built with the same ID
-   authenticates the redemption and every refresh with a fresh assertion.
+   for the deployment's OIDC token needs no secret: pass a `WorkloadIdentity`
+   built with that credential's public ID, and `Keycard.interactive` derives
+   `clientId` from it and authenticates the redemption and every refresh with a
+   fresh assertion. Passing an explicit `clientId` is optional and must match
+   the credential's ID if set.
 
    ```ts
    import { getVercelOidcToken } from "@vercel/oidc";
@@ -280,7 +284,6 @@ one stable callback URL this package serves. Three pieces:
    auth: Keycard.interactive({
      zoneUrl,
      resource: "https://docs.example.com",
-     clientId,
      applicationCredential: new WorkloadIdentity(
        () => getVercelOidcToken({ audience: zoneUrl }),
        { clientId },
@@ -304,11 +307,12 @@ check runs against the public origin eve's callback URLs carry. The code is
 redeemed and every refresh runs as `clientId` with the secret or the
 credential, and the stored grant records `clientId`, so a grant on this path
 cannot be refreshed by a reader of a durable store that lacks the secret or
-credential. Rejected at definition time: `clientSecret` or
-`applicationCredential` without `clientId`, both together, and an
-`applicationCredential` that cannot authenticate the client (a
-`WorkloadIdentity` without `clientId`, or a credential with no client
-authentication).
+credential. Rejected at definition time: `clientSecret` without `clientId`,
+`applicationCredential` and `clientSecret` together, an `applicationCredential`
+other than `WorkloadIdentity` without `clientId`, an explicit `clientId` that
+differs from a `WorkloadIdentity`'s `clientId`, and an `applicationCredential`
+that cannot authenticate the client (a `WorkloadIdentity` without `clientId`,
+or a credential with no client authentication).
 
 [rfc9700]: https://datatracker.ietf.org/doc/html/rfc9700
 
@@ -323,7 +327,8 @@ The definition implements the same three-method form as eve's
   `authorization.required`, runs `startAuthorization` in a durable step, and
   parks the turn on a framework-owned callback.
 - `startAuthorization` registers this attempt's client (unless `clientId` is
-  set), calls `beginAuthorization` for the connection's resource list against
+  set or derived from `WorkloadIdentity`), calls `beginAuthorization` for the
+  connection's resource list against
   eve's minted callback URL, and returns the challenge URL plus the `state`,
   PKCE verifier and client id as JSON resume state.
 - `completeAuthorization` calls `completeAuthorization` with eve's callback

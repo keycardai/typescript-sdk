@@ -21,6 +21,7 @@ import {
   type TokenResponse,
   type UserInfoResponse,
 } from "@keycardai/oauth";
+import { WorkloadIdentity } from "@keycardai/oauth/server";
 import type {
   ConnectionPrincipal,
   InteractiveAuthorizationDefinition,
@@ -129,7 +130,8 @@ export interface WebAppFlow {
   ): Promise<TokenResponse>;
   /**
    * Registers the client for one attempt (RFC 7591). Required when no static
-   * `clientId` is configured, and unused when one is.
+   * `clientId` is configured or derived from `WorkloadIdentity`, and unused
+   * when one is.
    */
   register?(options: RegisterAttemptClientOptions): Promise<RegisteredClient>;
   /**
@@ -174,11 +176,13 @@ export interface KeycardInteractiveOptions {
    * redemption and every refresh. The Application must register
    * `<origin><callbackPath>` as a redirect URI.
    *
-   * Unset, the client is registered per attempt instead: eve mints a fresh
-   * callback URL per attempt and RFC 9700 requires `redirect_uri` to match a
-   * registered value exactly, so without the stable route no fixed client can
-   * name it. That path stays for an agent with no Application credential and
-   * for a preview deployment whose URL is not registered on the Application.
+   * Omitted with a `WorkloadIdentity`, this defaults to the credential's
+   * `clientId`. Without a credential, the client is registered per attempt
+   * instead: eve mints a fresh callback URL per attempt and RFC 9700 requires
+   * `redirect_uri` to match a registered value exactly, so without the stable
+   * route no fixed client can name it. That path stays for an agent with no
+   * Application credential and for a preview deployment whose URL is not
+   * registered on the Application.
    *
    * A Keycard application `identifier` is not a client id: the zone rejects a
    * value like `urn:app:my-agent` at `/authorize`.
@@ -190,19 +194,20 @@ export interface KeycardInteractiveOptions {
    */
   clientSecret?: string;
   /**
-   * Authenticates the code redemption and every refresh of the `clientId`
-   * client with the credential's `clientAuthentication`, as an alternative to
-   * `clientSecret`. A `WorkloadIdentity` (Vercel OIDC, for one) must be built
-   * with `clientId` set to the same v2 token credential's public ID, which it
-   * sends beside its assertion. Requires `clientId`; mutually exclusive with
-   * `clientSecret`. The credential stays in this definition: it is never
+   * Authenticates the code redemption and every refresh of the static client
+   * with the credential's `clientAuthentication`, as an alternative to
+   * `clientSecret`. Requires an explicit `clientId` unless supplied by
+   * `WorkloadIdentity`; mutually exclusive with `clientSecret`. A
+   * `WorkloadIdentity` (Vercel OIDC, for one) must carry `clientId` naming a
+   * v2 token credential of the same Application, and any explicit `clientId`
+   * must match it. The credential stays in this definition: it is never
    * journaled or stored with a grant, so a stored grant refreshes only through
    * a definition that holds it.
    */
   applicationCredential?: ApplicationCredential;
   /**
    * Path of the stable callback route (`keycardCallbackRoute({ path })`).
-   * Read only when `clientId` is set. Defaults to `/keycard/callback`.
+   * Read only when `clientId` is set or derived. Defaults to `/keycard/callback`.
    */
   callbackPath?: string;
   /**
@@ -298,15 +303,17 @@ export function resetInteractiveDefinitions(): void {
  * `registration_client_uri` and `registration_access_token` allows RFC 7592
  * deletion once a grant settles.
  *
- * With `clientId` and `clientSecret` or `applicationCredential`, the agent
- * signs users in as its own Keycard Application instead: `redirect_uri` is the
- * stable `keycardCallbackRoute` on the attempt callback's origin, `state` is
- * the flow's random value followed by the base64url attempt callback URL, the
+ * With `clientId` (or a `WorkloadIdentity` that supplies it) and
+ * `clientSecret` or `applicationCredential`, the agent signs users in as its
+ * own Keycard Application instead: `redirect_uri` is the stable
+ * `keycardCallbackRoute` on the attempt callback's origin, `state` is the
+ * flow's random value followed by the base64url attempt callback URL, the
  * route forwards the zone's redirect to that URL, and the redemption and every
  * refresh authenticate with the secret or the credential's client
  * authentication. No client is registered. A `WorkloadIdentity` over a
- * Vercel OIDC token signs users in this way with no secret at all, as long as
- * its `clientId` and this one name the same v2 token credential.
+ * Vercel OIDC token signs users in this way with no secret at all; when
+ * `clientId` is omitted it defaults to the credential's `clientId`, and an
+ * explicit `clientId` must match it.
  *
  * Grants are keyed by principal, never by `connectionName`, so two connections
  * never share a token through a shared name and `evict` on one cannot clear the
@@ -346,7 +353,7 @@ export function interactive(
         ? { initialAccessToken: options.initialAccessToken }
         : {}),
     });
-  const staticClientId = options.clientId ?? "";
+  let staticClientId = options.clientId ?? "";
   const credential = options.applicationCredential;
   if (credential !== undefined && options.clientSecret !== undefined) {
     throw new AuthProviderConfigurationError(
@@ -360,7 +367,7 @@ export function interactive(
     );
   }
   if (credential !== undefined) {
-    if (!staticClientId) {
+    if (!(credential instanceof WorkloadIdentity) && !staticClientId) {
       throw new AuthProviderConfigurationError(
         "interactive applicationCredential requires clientId: the authorize request " +
           "names the client the credential authenticates as",
@@ -380,6 +387,17 @@ export function interactive(
           cause instanceof Error ? cause.message : String(cause)
         }`,
       );
+    }
+    if (credential instanceof WorkloadIdentity) {
+      // checkClientAuthentication() above guarantees a non-empty clientId.
+      const credentialClientId = credential.clientId!;
+      if (options.clientId === undefined) {
+        staticClientId = credentialClientId;
+      } else if (options.clientId !== credentialClientId) {
+        throw new AuthProviderConfigurationError(
+          "interactive clientId does not match the WorkloadIdentity credential's clientId",
+        );
+      }
     }
   }
   const callbackPath = options.callbackPath ?? DEFAULT_CALLBACK_PATH;
