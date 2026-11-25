@@ -35,6 +35,32 @@ export class OAuthError extends Error {
   }
 }
 
+/** Maximum decoded bytes read from an authorization-server response (1 MiB). */
+export const MAX_RESPONSE_BODY_BYTES = 1_048_576;
+
+/**
+ * The authorization server returned a response whose decoded body exceeded the
+ * 1 MiB transport limit. Carries `errorCode === "invalid_response"` and the
+ * HTTP `status`. `retryable` is `true` for 2xx, 429, and 5xx, and `false` for
+ * other non-2xx statuses.
+ */
+export class ResponseBodyTooLargeError extends OAuthError {
+  readonly status: number;
+  readonly retryable: boolean;
+  readonly limit: number;
+
+  constructor(status: number, limit: number = MAX_RESPONSE_BODY_BYTES) {
+    super(
+      "invalid_response",
+      `Response body exceeded the ${limit}-byte decoded size limit (HTTP ${status})`,
+    );
+    this.name = "ResponseBodyTooLargeError";
+    this.status = status;
+    this.limit = limit;
+    this.retryable = (status >= 200 && status < 300) || status === 429 || status >= 500;
+  }
+}
+
 export class InvalidTokenError extends OAuthError {
   constructor(message: string, errorUri?: string) {
     super("invalid_token", message, errorUri);

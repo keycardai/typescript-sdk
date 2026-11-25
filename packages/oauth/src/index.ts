@@ -8,6 +8,8 @@ export {
   BadRequestError,
   UnauthorizedError,
   OAuthError,
+  MAX_RESPONSE_BODY_BYTES,
+  ResponseBodyTooLargeError,
   InvalidTokenError,
   InsufficientScopeError,
   ResourceAccessError,

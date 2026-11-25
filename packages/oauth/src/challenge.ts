@@ -1,4 +1,5 @@
-import { ConfigurationError } from "./errors.js";
+import { ConfigurationError, ResponseBodyTooLargeError } from "./errors.js";
+import { discardResponseBody, readResponseText } from "./responseBody.js";
 import { ClientSecret } from "./server/clientSecret.js";
 import { requestSignal } from "./requestSignal.js";
 import { authenticate, type AuthenticateOptions } from "./pkce.js";
@@ -66,14 +67,24 @@ export async function resolveIssuerFromChallenge(
     signal: requestSignal(options.signal, options.timeoutMs),
   });
   if (!response.ok) {
+    discardResponseBody(response);
     throw new Error(
       `Failed to fetch protected resource metadata from "${metadataUrl}" (HTTP ${response.status})`,
     );
   }
 
+  let text: string;
+  try {
+    text = await readResponseText(response);
+  } catch (e) {
+    if (e instanceof ResponseBodyTooLargeError) throw e;
+    throw new Error(
+      `Failed to read protected resource metadata from "${metadataUrl}"`,
+    );
+  }
   let json: unknown;
   try {
-    json = await response.json() as unknown;
+    json = JSON.parse(text) as unknown;
   } catch {
     throw new Error(
       `Protected resource metadata at "${metadataUrl}" is not valid JSON`,

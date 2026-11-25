@@ -1,7 +1,15 @@
 import { requestSignal } from "./requestSignal.js";
 import { requireClientAuthentication, type ApplicationCredential, type ClientAuthenticator } from "./credentials.js";
 import { assertMetadataIssuer, fetchAuthorizationServerMetadata, type OAuthAuthorizationServerMetadata } from "./discovery.js";
-import { ConfigurationError, DeviceGrantError, DevicePollError, HTTPError, OAuthError } from "./errors.js";
+import {
+  ConfigurationError,
+  DeviceGrantError,
+  DevicePollError,
+  HTTPError,
+  OAuthError,
+  ResponseBodyTooLargeError,
+} from "./errors.js";
+import { readResponseText } from "./responseBody.js";
 import { deserializeTokenResponse, type TokenResponse } from "./tokenExchange.js";
 
 // =============================================================================
@@ -402,7 +410,10 @@ async function resolveMetadata(
     const detail = cause instanceof Error ? cause.message : String(cause);
     let retryable = !(cause instanceof OAuthError);
     let status: number | undefined;
-    if (cause instanceof HTTPError) {
+    if (cause instanceof ResponseBodyTooLargeError) {
+      status = cause.status;
+      retryable = cause.retryable;
+    } else if (cause instanceof HTTPError) {
       status = cause.status;
       retryable = isTransientStatus(status);
     }
@@ -512,8 +523,16 @@ async function post(
 async function readJson(response: Response): Promise<unknown> {
   let text: string;
   try {
-    text = await response.text();
+    text = await readResponseText(response);
   } catch (cause) {
+    if (cause instanceof ResponseBodyTooLargeError) {
+      throw new DeviceGrantError("invalid_response", {
+        errorDescription: cause.message,
+        status: cause.status,
+        retryable: cause.retryable,
+        cause,
+      });
+    }
     throw new TransportFailure(cause);
   }
   try {

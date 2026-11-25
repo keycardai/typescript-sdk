@@ -1,6 +1,7 @@
 import { requestSignal } from "./requestSignal.js";
 import { fetchAuthorizationServerMetadata } from "./discovery.js";
-import { ConfigurationError, OAuthError } from "./errors.js";
+import { ConfigurationError, OAuthError, ResponseBodyTooLargeError } from "./errors.js";
+import { readResponseText } from "./responseBody.js";
 
 /**
  * RFC 7591 Dynamic Client Registration request metadata.
@@ -114,14 +115,21 @@ export async function registerClient(
   });
 
   if (!response.ok) {
+    let errorText: string;
+    try {
+      errorText = await readResponseText(response);
+    } catch (e) {
+      if (e instanceof ResponseBodyTooLargeError) throw e;
+      throw new OAuthError("invalid_response", `Client registration failed (HTTP ${response.status})`);
+    }
     let errorBody: Record<string, unknown> | null = null;
     try {
-      const json = await response.json() as unknown;
+      const json = JSON.parse(errorText) as unknown;
       if (json && typeof json === "object" && !Array.isArray(json)) {
         errorBody = json as Record<string, unknown>;
       }
     } catch {
-      // non-JSON error body — fall through to generic error
+      // non-JSON error body: fall through to generic error
     }
     if (errorBody && typeof errorBody.error === "string") {
       const description = typeof errorBody.error_description === "string"
@@ -133,9 +141,10 @@ export async function registerClient(
     throw new OAuthError("invalid_response", `Client registration failed (HTTP ${response.status})`);
   }
 
+  const text = await readResponseText(response);
   let json: unknown;
   try {
-    json = await response.json();
+    json = JSON.parse(text);
   } catch {
     throw new OAuthError("invalid_response", "Client registration response is not valid JSON");
   }
