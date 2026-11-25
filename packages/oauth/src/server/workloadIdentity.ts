@@ -3,6 +3,7 @@ import type { ApplicationCredential, ClientAuthentication } from "../credentials
 import { ConfigurationError } from "../errors.js";
 import {
   fetchIdentityToken,
+  validateIdentityTokenSource,
   WorkloadIdentityConfigurationError,
   WorkloadIdentityRuntimeError,
   type IdentityTokenFetcher,
@@ -324,17 +325,7 @@ export class WorkloadIdentity implements ApplicationCredential {
     source: IdentityTokenSource | IdentityTokenFetcher,
     options?: WorkloadIdentityOptions,
   ) {
-    if (source == null) {
-      throw new WorkloadIdentityConfigurationError("identity token source must not be null");
-    }
-    if (
-      typeof source !== "function" &&
-      typeof (source as IdentityTokenSource).identityToken !== "function"
-    ) {
-      throw new WorkloadIdentityConfigurationError(
-        "identity token source must provide identityToken() or be a function",
-      );
-    }
+    validateIdentityTokenSource(source);
     this.#source = source;
     this.#clientId = options?.clientId;
   }

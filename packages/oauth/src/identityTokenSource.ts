@@ -48,6 +48,17 @@ export interface IdentityTokenSource {
 /** A bare function accepted anywhere an IdentityTokenSource is. */
 export type IdentityTokenFetcher = () => Promise<string> | string;
 
+export function validateIdentityTokenSource(source: unknown): void {
+  if (source == null) {
+    throw new WorkloadIdentityConfigurationError("identity token source must not be null");
+  }
+  if (typeof source !== "function" && typeof (source as IdentityTokenSource).identityToken !== "function") {
+    throw new WorkloadIdentityConfigurationError(
+      "identity token source must provide identityToken() or be a function",
+    );
+  }
+}
+
 const transportErrorCodes = new Set([
   "EAI_AGAIN", "ECONNABORTED", "ECONNREFUSED", "ECONNRESET", "EHOSTUNREACH",
   "ENETDOWN", "ENETUNREACH", "ENOTFOUND", "EPIPE", "ETIMEDOUT",

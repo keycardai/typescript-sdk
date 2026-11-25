@@ -5,7 +5,12 @@ import type { ApplicationCredential } from "./credentials.js";
 import { basicAuthorization } from "./basicAuthorization.js";
 import { buildSubstituteUserToken } from "./jwt/substituteUser.js";
 import { DEFAULT_FETCH_TIMEOUT_MS, TokenEndpointResolver, type TokenEndpointCacheOptions } from "./tokenEndpoint.js";
-import { fetchIdentityToken, type IdentityTokenFetcher, type IdentityTokenSource } from "./identityTokenSource.js";
+import {
+  fetchIdentityToken,
+  validateIdentityTokenSource,
+  type IdentityTokenFetcher,
+  type IdentityTokenSource,
+} from "./identityTokenSource.js";
 
 // =============================================================================
 // Token Exchange Types (RFC 8693)
@@ -157,7 +162,11 @@ export class TokenExchangeClient {
     this.#clientId = options?.clientId;
     this.#clientSecret = options?.clientSecret;
     this.#credential = options?.credential;
-    this.#actor = options?.actor;
+    const actor = options?.actor;
+    if (actor !== undefined) {
+      validateIdentityTokenSource(actor);
+    }
+    this.#actor = actor;
     this.#fetchTimeoutMs = options?.fetchTimeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS;
     this.#tokenEndpoint = new TokenEndpointResolver(issuer, options);
   }

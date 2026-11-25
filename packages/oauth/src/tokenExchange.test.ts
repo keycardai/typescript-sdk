@@ -472,6 +472,15 @@ describe('TokenExchangeClient', () => {
       .map(([, init]) => new URLSearchParams((init as RequestInit).body as string));
   }
 
+  it.each([null, {}, { identityToken: 'not callable' }])(
+    'rejects an invalid actor source at construction: %j',
+    (actor) => {
+      expect(() => new TokenExchangeClient(ISSUER, { actor: actor as never }))
+        .toThrow(WorkloadIdentityConfigurationError);
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+
   it('row 23: reads the current actor JWT once per exchange', async () => {
     const actor = {
       identityToken: jest.fn(async () => 'rotated-jwt').mockResolvedValueOnce('first-jwt'),
