@@ -176,4 +176,25 @@ describe("resolveCredential", () => {
       resolveCredential({ KEYCARD_ISSUER: "https://auth.keycard.ai" }),
     ).toThrow("Missing Keycard credentials");
   });
+
+  it.each(["web_identity", "unknown"])("ignores KEYCARD_APPLICATION_CREDENTIAL_TYPE=%s", (selector) => {
+    const credential = resolveCredential({
+      ...mockEnv,
+      KEYCARD_APPLICATION_CREDENTIAL_TYPE: selector,
+    });
+
+    expect(credential.getAuth()).toEqual({ clientId: "app-123", clientSecret: "secret-456" });
+  });
+
+  it.each([
+    { KEYCARD_CLIENT_ID: "app-123" },
+    { KEYCARD_CLIENT_SECRET: "secret-456" },
+  ])("throws the missing credentials error for incomplete bindings %j", (bindings) => {
+    expect(() => resolveCredential({ KEYCARD_ISSUER: "https://auth.keycard.ai", ...bindings }))
+      .toThrow(expect.objectContaining({
+        constructor: Error,
+        message: "Missing Keycard credentials in env. Set either KEYCARD_PRIVATE_KEY (WebIdentity) " +
+          "or KEYCARD_CLIENT_ID + KEYCARD_CLIENT_SECRET (ClientSecret).",
+      }));
+  });
 });

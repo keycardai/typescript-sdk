@@ -181,6 +181,9 @@ Per-user token exchange cache for Workers. See above for usage.
 ### `resolveCredential(env)`
 
 Resolves `WorkersClientSecret` or `WorkersWebIdentity` from env bindings.
+`KEYCARD_PRIVATE_KEY` takes precedence. Otherwise, both `KEYCARD_CLIENT_ID` and
+`KEYCARD_CLIENT_SECRET` must be set. Workers do not use a credential selector
+or workload identity token files.
 
 ### `AuthInfo`
 

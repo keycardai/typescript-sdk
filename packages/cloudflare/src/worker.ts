@@ -1,3 +1,8 @@
+import {
+  CLIENT_SECRET_TYPE,
+  resolveCredentialType,
+} from "@keycardai/oauth/credentialDiscovery";
+import { CredentialDiscoveryError } from "@keycardai/oauth/errors";
 import { verifyRequest, isAuthError } from "./auth.js";
 import { handleMetadata } from "./metadata.js";
 import { WorkersClientSecret, WorkersWebIdentity } from "./credentials.js";
@@ -109,8 +114,16 @@ export function resolveCredential<Env extends KeycardEnv>(
     return new WorkersWebIdentity(env.KEYCARD_PRIVATE_KEY, { clientId: env.KEYCARD_CLIENT_ID });
   }
 
-  if (env.KEYCARD_CLIENT_ID && env.KEYCARD_CLIENT_SECRET) {
-    return new WorkersClientSecret(env.KEYCARD_CLIENT_ID, env.KEYCARD_CLIENT_SECRET);
+  const { KEYCARD_CLIENT_ID, KEYCARD_CLIENT_SECRET } = env;
+  try {
+    const resolved = resolveCredentialType({ KEYCARD_CLIENT_ID, KEYCARD_CLIENT_SECRET }, { tokenFileEnvVars: [] });
+    if (resolved.type === CLIENT_SECRET_TYPE) {
+      return new WorkersClientSecret(resolved.clientId, resolved.clientSecret);
+    }
+  } catch (error) {
+    if (!(error instanceof CredentialDiscoveryError)) {
+      throw error;
+    }
   }
 
   throw new Error(
