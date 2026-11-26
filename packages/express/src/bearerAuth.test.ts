@@ -398,6 +398,17 @@ describe('requireBearerAuth when the zone is unavailable (real TokenVerifier)', 
       }]);
     });
 
+    it('bearer row 18: introspects using the verified issuer in legacy mode without an audience', async () => {
+      const calls = introspectionStub();
+      const route = protectedRoute({ zoneUrl: ISSUER, introspect: true, credential });
+      const token = await signToken();
+      await route.send(token).expect(200, { clientId: 'svc-x' });
+      expect(calls).toEqual([{
+        issuer: ISSUER, token, authorization: `Basic ${btoa('resource-owner:resource-secret')}`,
+      }]);
+      expect(route.handler).toHaveBeenCalledTimes(1);
+    });
+
     it('bearer row 19, express row 3 and bearer integration row 5: rejects an inactive token whose matching audience is later', async () => {
       const calls = introspectionStub([() => json({ active: false })]);
       const route = protectedRoute({ zoneUrl: ISSUER, resourceIdentifier: AUDIENCE, introspect: true, credential });
