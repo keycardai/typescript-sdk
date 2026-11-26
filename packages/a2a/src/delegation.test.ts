@@ -488,12 +488,19 @@ describe('DelegationClient invocation endpoint origins', () => {
           ? new Response(null, { status, headers: { Location: location } })
           : jsonResponse(document),
       });
-      const peerFetch = jest.fn(harness.fetch);
+      const redirected = new URL(location, TARGET_JSONRPC_URL).href;
+      const followed: Array<{ headers: Record<string, string>; body: unknown }> = [];
+      const peerFetch = jest.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        if (String(input) !== redirected) return harness.fetch(input, init);
+        const body = JSON.parse(String(init?.body));
+        followed.push({ headers: headersOf(init), body });
+        return jsonResponse({ ...RECORDED_1_0_MESSAGE_RESPONSE, id: body.id });
+      });
       const client = makeClient(harness, {
         trustedEndpointOrigins,
-        fetchImpl: transport === 'custom fetch' ? peerFetch : undefined,
+        fetchImpl: transport === 'custom fetch' ? (peerFetch as unknown as typeof fetch) : undefined,
       });
-      if (transport === 'default fetch') globalThis.fetch = peerFetch;
+      if (transport === 'default fetch') globalThis.fetch = peerFetch as unknown as typeof fetch;
 
       const call = client.invokeService(TARGET_URL, 'ping', options);
       if (deniedOrigin) {
@@ -502,18 +509,45 @@ describe('DelegationClient invocation endpoint origins', () => {
           retryable: false,
           message: `Redirect origin ${deniedOrigin} is not trusted for target "${TARGET_URL}"`,
         });
+        expect(followed).toEqual([]);
       } else {
-        await expect(call).rejects.toThrow('Status: 307');
+        await expect(call).resolves.toBeDefined();
+        expect(followed).toEqual([{
+          headers: expect.objectContaining({ authorization: 'Bearer delegated-token' }),
+          body: harness.rpcCalls[0].body,
+        }]);
       }
       expect(peerFetch.mock.calls.filter(([url]) => url === TARGET_JSONRPC_URL))
         .toEqual([[TARGET_JSONRPC_URL, expect.objectContaining({ redirect: 'manual' })]]);
-      expect(peerFetch.mock.calls.some(([url]) => url === new URL(location, TARGET_JSONRPC_URL).href))
-        .toBe(false);
       expect(harness.exchangeCount()).toBe(1);
       expect(harness.rpcCalls).toEqual([
         expect.objectContaining({ headers: expect.objectContaining({ authorization: 'Bearer delegated-token' }) }),
       ]);
     });
+  });
+
+  it.each([301, 302, 303])('returns a same-origin %d without following it', async (status) => {
+    const harness = makeHarness({
+      peerResponse: (document, invocation) => invocation
+        ? new Response(null, { status, headers: { Location: '/next' } })
+        : jsonResponse(document),
+    });
+    const client = makeClient(harness);
+
+    await expect(client.invokeService(TARGET_URL, 'ping', options)).rejects.toThrow(`Status: ${status}`);
+    expect(harness.rpcCalls).toHaveLength(1);
+  });
+
+  it('stops following a same-origin 307 loop', async () => {
+    const harness = makeHarness({
+      peerResponse: (document, invocation) => invocation
+        ? new Response(null, { status: 307, headers: { Location: TARGET_JSONRPC_URL } })
+        : jsonResponse(document),
+    });
+    const client = makeClient(harness);
+
+    await expect(client.invokeService(TARGET_URL, 'ping', options)).rejects.toThrow('Status: 307');
+    expect(harness.rpcCalls).toHaveLength(11);
   });
 
   it.each([

@@ -15,6 +15,8 @@ import { boundedPeerFetch, peerResponseLimit } from "./peer-response.js";
 import type { AgentServiceConfig } from "./config.js";
 import { getAuthServerUrl } from "./config.js";
 
+const MAX_INVOCATION_REDIRECTS = 10;
+
 export interface DelegationResult {
   /**
    * The agent's direct response, when it answered with a message. A2A 1.0
@@ -154,19 +156,28 @@ export class DelegationClient {
     const targetOrigin = httpOrigin(target, "delegation target");
     const transportFactory = new JsonRpcTransportFactory({
       legacyCompat: this.#legacyCompat,
+      // Redirects are followed here, one hop at a time, so each hop's origin is
+      // checked before any request reaches it. A 307 or 308 to the target's
+      // origin or a trusted origin is re-sent with the same method, body and
+      // token; a 301, 302 or 303 is returned as is, since following it would
+      // drop the JSON-RPC body.
       fetchImpl: async (input, init) => {
-        const response = await this.#fetch(input, { ...init, redirect: "manual" });
-        const location = response.headers.get("location");
-        if (location && [301, 302, 303, 307, 308].includes(response.status)) {
-          const base = typeof input === "string" || input instanceof URL ? input : input.url;
-          const redirect = new URL(location, base);
+        let url = typeof input === "string" || input instanceof URL ? String(input) : input.url;
+        for (let hops = 0; ; hops++) {
+          const response = await this.#fetch(url, { ...init, redirect: "manual" });
+          const location = response.headers.get("location");
+          if (!location || ![301, 302, 303, 307, 308].includes(response.status)) return response;
+          const redirect = new URL(location, url);
           const origin = httpOrigin(redirect.href, `redirect for target "${target}"`);
           if (origin !== targetOrigin && !this.#trustedOrigins.has(origin)) {
             void response.body?.cancel().catch(() => {});
             throw new A2ADiscoveryError(`Redirect origin ${origin} is not trusted for target "${target}"`);
           }
+          if (response.status !== 307 && response.status !== 308) return response;
+          if (hops >= MAX_INVOCATION_REDIRECTS) return response;
+          void response.body?.cancel().catch(() => {});
+          url = redirect.href;
         }
-        return response;
       },
     });
     const factory = new ClientFactory({
