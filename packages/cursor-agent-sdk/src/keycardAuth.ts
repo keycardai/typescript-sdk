@@ -33,7 +33,11 @@ export const KEYCARD_AUTHENTICATOR = "keycard";
  * - `"host-kv"`: same process-local retention as `"memory"`, plus an opt-in
  *   copy in Cursor's `HostKvApi` scoped by session ID and verified principal,
  *   usable only before its verified `exp`. Requires `subjectTokens` from
- *   `hostKvSubjectTokenStore()`.
+ *   `hostKvSubjectTokenStore()`. Cursor publishes no confidentiality
+ *   guarantee for `ctx.host.kv` beyond deployment scoping, so this mode puts
+ *   a short-lived bearer at rest in storage Keycard does not control. KV has
+ *   no TTL: an expired copy is deleted on the next read or write for its
+ *   session and principal, not on a schedule.
  *
  * No retention mode writes the bearer to `session.auth` or any persisted
  * session field.
