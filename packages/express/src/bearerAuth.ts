@@ -260,6 +260,9 @@ function configureVerifier(
   binding: ResourceBinding,
 ): (token: string, zone?: string) => Promise<AccessToken | null> {
   if ("verifier" in options) {
+    if (binding.mode === "perZone") {
+      throw new ConfigurationError("Per-zone resource binding requires zoneUrl or zoneId instead of a pre-built verifier");
+    }
     return (token, zone) => zone
       ? options.verifier.verifyTokenForZone(token, zone)
       : options.verifier.verifyToken(token);

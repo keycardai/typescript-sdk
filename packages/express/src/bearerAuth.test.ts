@@ -469,6 +469,14 @@ describe('requireBearerAuth when the zone is unavailable (real TokenVerifier)', 
     }
   });
 
+  it('rejects a pre-built verifier whose issuer cannot be bound to the resolved zone', () => {
+    const resourceIdentifier = AUDIENCE + '/b/mcp';
+    const verifier = new TokenVerifier({ issuer: 'https://a.keycard.cloud', audience: resourceIdentifier });
+    expect(() => requireBearerAuth({
+      verifier, resourceIdentifiersByZone: { b: resourceIdentifier }, zoneResolver: () => 'b',
+    })).toThrow(ConfigurationError);
+  });
+
   it('row 17: uses the configured issuers for a shared discovery URL', async () => {
     stubZone(url => url.endsWith('/oauth-authorization-server')
       ? json({ ...metadata, issuer: new URL(url).origin, jwks_uri: new URL('/jwks', url).href })

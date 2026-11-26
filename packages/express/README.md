@@ -97,7 +97,8 @@ An HTTP(S) identifier publishes discovery at its RFC 9728 URL. A URN,
 `multiResource: true` with an `audience` list, and
 `allowAnyAudience: true` are verifier-only modes. Configure
 `resourceIdentifiersByZone` with a base issuer and a `zoneResolver` that
-selects a zone from the request without inspecting a token. With
+selects a zone from the request without inspecting a token. Supply the base
+issuer through `zoneUrl` or `zoneId`, not a pre-built verifier. With
 `multiResource: true` and the same HTTP(S) identifier in every zone and
 as the sole list audience, discovery is shared and verification selects
 from the configured zone issuers.
