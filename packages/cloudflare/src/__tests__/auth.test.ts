@@ -99,6 +99,7 @@ describe("verifyBearerToken", () => {
       { multiResource: true, audiences: [] },
       { multiResource: true, audiences: a },
       { resourceIdentifiersByZone: { a } },
+      { resourceIdentifiersByZone: { z_abc123: a }, zoneResolver: () => 'z_abc123' },
       { multiResource: true, audiences: [a], resourceIdentifiersByZone: { a, b } },
     ]) {
       await expect(verifyBearerToken(makeRequest(), { issuers: "https://keycard.cloud", ...options }))
