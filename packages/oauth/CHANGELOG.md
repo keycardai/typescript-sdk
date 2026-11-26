@@ -1,3 +1,23 @@
+## 0.37.0-keycardai-oauth (2026-11-26)
+
+
+- feat(oauth): actor token source on the token exchange client (SDK-99) (#426)
+- * feat(oauth): actor token source on the token exchange client (SDK-99)
+- Implements keycardai/keycard-sdk-spec token-exchange.md rows 23-26
+- Refs SDK-99
+- * fix(oauth): preserve workload token source receiver (SDK-99)
+- Refs SDK-99
+- * fix(oauth): resolve missing actor tokens from the source (SDK-99)
+- Refs SDK-99
+- * fix(oauth): classify GCP metadata failures by cause (SDK-99)
+- Refs SDK-99
+- * fix(oauth): validate configured actor token sources (SDK-99)
+- Refs SDK-99
+- * fix(oauth): classify expired GCP metadata aborts as retryable (SDK-99)
+- Refs SDK-99
+- ---------
+- Co-authored-by: devin-ai-keycard <devin-ai@keycard.ai>
+
 ## 0.36.0-keycardai-oauth (2026-11-25)
 
 
