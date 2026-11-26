@@ -28,6 +28,65 @@ describe("bearer introspection plumbing", () => {
     expect(transport.mock.calls.map(([input]) => String(input))).toEqual([
       issuer + "/.well-known/oauth-authorization-server",
       issuer + "/introspect",
+      issuer + "/introspect",
+    ]);
+  });
+
+  it.each([[issuer + "/", issuer], [issuer, issuer + "/"]])(
+    "bearer row 18: matches issuer-keyed credentials with or without a trailing slash (%s, %s)",
+    async (key, verifiedIssuer) => {
+      const transport = jest.fn<typeof fetch>(async (input) =>
+        String(input).endsWith("/oauth-authorization-server")
+          ? Response.json({ issuer, introspection_endpoint: issuer + "/introspect" })
+          : Response.json({ active: true }),
+      );
+      const check = configureBearerIntrospection({
+        introspect: true, credential: { [key]: credential }, introspectionFetch: transport,
+      }, true)!;
+      await expect(check(verifiedIssuer, "caller-token")).resolves.toBe(true);
+      expect(transport).toHaveBeenLastCalledWith(issuer + "/introspect", expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: `Basic ${btoa("server:secret")}` }),
+      }));
+    },
+  );
+
+  it("bearer row 22: shares in-flight discovery per issuer but never caches token status", async () => {
+    const other = "https://other.keycard.cloud";
+    const post = jest.fn()
+      .mockReturnValueOnce(Response.json({ active: true }))
+      .mockReturnValueOnce(Response.json({ active: false }))
+      .mockReturnValueOnce(Response.json({ active: true }));
+    const discover = jest.fn((iss: string) => Response.json({ issuer: iss, introspection_endpoint: iss + "/introspect" }));
+    const transport = jest.fn<typeof fetch>(async (input) => {
+      const url = new URL(String(input));
+      return url.pathname === "/introspect" ? post() as Response : discover(url.origin);
+    });
+    const check = configureBearerIntrospection({
+      introspect: true, credential: { [issuer]: credential, [other]: credential }, introspectionFetch: transport,
+    }, true)!;
+    await expect(Promise.all([check(issuer, "caller-token"), check(issuer, "caller-token")])).resolves.toEqual([true, false]);
+    await expect(check(other, "caller-token")).resolves.toBe(true);
+    expect(discover.mock.calls).toEqual([[issuer], [other]]);
+    expect(post).toHaveBeenCalledTimes(3);
+  });
+
+  it("bearer row 20: drops failed discovery and retries only on a later request after the retry delay", async () => {
+    jest.spyOn(console, "warn").mockImplementation(() => {});
+    const now = jest.spyOn(performance, "now").mockReturnValue(0);
+    const transport = jest.fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(null, { status: 503, headers: { "Retry-After": "1" } }))
+      .mockResolvedValueOnce(Response.json({ issuer, introspection_endpoint: issuer + "/introspect" }))
+      .mockResolvedValueOnce(Response.json({ active: true }));
+    const check = configureBearerIntrospection({
+      introspect: true, credential, introspectionFetch: transport,
+    }, false)!;
+    await expect(check(issuer, "caller-token")).rejects.toMatchObject({ status: 503 });
+    await expect(check(issuer, "caller-token")).rejects.toMatchObject({ status: 503 });
+    expect(transport).toHaveBeenCalledTimes(1);
+    now.mockReturnValue(1_001);
+    await expect(check(issuer, "caller-token")).resolves.toBe(true);
+    expect(transport.mock.calls.map(([input]) => String(input))).toEqual([
+      issuer + "/.well-known/oauth-authorization-server",
       issuer + "/.well-known/oauth-authorization-server",
       issuer + "/introspect",
     ]);

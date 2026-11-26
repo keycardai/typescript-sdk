@@ -1,12 +1,15 @@
 import { requireClientAuthentication, type ApplicationCredential } from "./credentials.js";
+import { fetchAuthorizationServerMetadata, type OAuthAuthorizationServerMetadata } from "./discovery.js";
 import { ConfigurationError, HTTPError, OAuthError } from "./errors.js";
+import { isTransientMetadataFailure, MetadataRetryCache } from "./metadataRetry.js";
 import { DEFAULT_REQUEST_TIMEOUT_MS } from "./requestSignal.js";
-import { introspectToken } from "./tokenIntrospection.js";
+import { DEFAULT_DISCOVERY_TTL_MS } from "./tokenEndpoint.js";
+import { introspectToken, isUrlWithProtocol, resolveIntrospectionEndpoint } from "./tokenIntrospection.js";
 
 export interface BearerIntrospectionOptions {
   /** Checks the current status of locally verified tokens. Defaults to false. */
   introspect?: boolean;
-  /** Resource owner's credential, or credentials keyed by the exact verified zone issuer URL. */
+  /** Resource owner's credential, or credentials keyed by the verified zone issuer URL. */
   credential?: ApplicationCredential | Readonly<Record<string, ApplicationCredential>>;
   /** Introspection request timeout in milliseconds, up to the default of 10 seconds. */
   introspectionTimeoutMs?: number;
@@ -14,10 +17,18 @@ export interface BearerIntrospectionOptions {
   introspectionFetch?: typeof globalThis.fetch;
 }
 
+export function createBearerIntrospectionState() {
+  return {
+    loggedCauses: new Set<string>(),
+    metadata: new Map<string, { pending: Promise<OAuthAuthorizationServerMetadata>; expiresAt: number }>(),
+    retry: new MetadataRetryCache(),
+  };
+}
+
 export function configureBearerIntrospection(
   options: BearerIntrospectionOptions,
   multiZone: boolean,
-  loggedCauses = new Set<string>(),
+  state = createBearerIntrospectionState(),
 ): ((issuer: string | undefined, token: string) => Promise<boolean>) | undefined {
   if (!options.introspect) return undefined;
 
@@ -36,24 +47,60 @@ export function configureBearerIntrospection(
     const authenticator = requireClientAuthentication(credential, "Bearer introspection");
     forIssuer = issuer => !allowedIssuers || allowedIssuers.includes(normalizeIssuer(issuer)) ? authenticator : undefined;
   } else {
-    const credentials = new Map(Object.entries(credential));
-    if (credentials.size === 0) throw new ConfigurationError("Bearer introspection requires a credential");
-    for (const value of credentials.values()) {
+    const entries = Object.entries(credential);
+    if (entries.length === 0) throw new ConfigurationError("Bearer introspection requires a credential");
+    const credentials = new Map<string, ApplicationCredential>();
+    for (const [issuer, value] of entries) {
       if (!value || !isApplicationCredential(value)) {
         throw new ConfigurationError("Bearer introspection requires an application credential for each issuer");
       }
       requireClientAuthentication(value, "Bearer introspection");
+      const normalizedIssuer = normalizeIssuer(issuer);
+      if (credentials.has(normalizedIssuer)) {
+        throw new ConfigurationError("Bearer introspection requires a single credential per issuer");
+      }
+      credentials.set(normalizedIssuer, value);
     }
-    forIssuer = issuer => credentials.get(issuer);
+    forIssuer = issuer => credentials.get(normalizeIssuer(issuer));
   }
 
   const timeoutMs = Math.min(introspectionTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS, DEFAULT_REQUEST_TIMEOUT_MS);
   function unavailable(cause: string): never {
-    if (!loggedCauses.has(cause)) {
-      loggedCauses.add(cause);
+    if (!state.loggedCauses.has(cause)) {
+      state.loggedCauses.add(cause);
       console.warn("Bearer token introspection failed:", cause);
     }
     throw new HTTPError("Bearer token introspection failed", 503);
+  }
+
+  function resolveMetadata(issuer: string): Promise<OAuthAuthorizationServerMetadata> {
+    if (!isUrlWithProtocol(issuer, "https:")) {
+      throw new ConfigurationError("Bearer introspection requires an HTTPS issuer URL for discovery");
+    }
+    const cached = state.metadata.get(issuer);
+    if (cached && Date.now() < cached.expiresAt) return cached.pending;
+    state.retry.check(issuer, performance.now());
+    const entry = {
+      expiresAt: Infinity,
+      pending: fetchAuthorizationServerMetadata(issuer, { timeoutMs, fetch: introspectionFetch })
+        .then(metadata => {
+          resolveIntrospectionEndpoint(metadata);
+          entry.expiresAt = Date.now() + DEFAULT_DISCOVERY_TTL_MS;
+          state.retry.delete(issuer);
+          return metadata;
+        })
+        .catch(error => {
+          state.metadata.delete(issuer);
+          if (!(error instanceof ConfigurationError) &&
+              (!(error instanceof OAuthError) || error.status !== undefined) &&
+              isTransientMetadataFailure(error)) {
+            state.retry.record(issuer, error, error, performance.now());
+          }
+          throw error;
+        }),
+    };
+    state.metadata.set(issuer, entry);
+    return entry.pending;
   }
 
   return async (issuer, token) => {
@@ -63,6 +110,7 @@ export function configureBearerIntrospection(
     try {
       const result = await introspectToken(issuer, token, {
         credential: authenticator,
+        metadata: await resolveMetadata(issuer),
         timeoutMs,
         fetch: introspectionFetch,
       });
@@ -97,5 +145,6 @@ function describeFailure(error: unknown): string {
     return "Transport error";
   }
   if (error instanceof ConfigurationError) return "Invalid introspection configuration or metadata";
+  if (error instanceof Error && error.name === "TimeoutError") return "Request timed out";
   return "Introspection credential or request failed";
 }
