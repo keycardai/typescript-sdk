@@ -173,7 +173,11 @@ export class DeviceAuthorizationClient {
 
   #requestOptions<T extends object>(options: T): T & DeviceClientOptions {
     const configured = this.#options;
-    const common = { ...configured, ...options };
+    const overrides = { ...options };
+    for (const key of Reflect.ownKeys(overrides)) {
+      if (Reflect.get(overrides, key) === undefined) Reflect.deleteProperty(overrides, key);
+    }
+    const common = { ...configured, ...overrides };
     return configured.credential !== undefined
       ? { ...common, credential: configured.credential, clientId: undefined }
       : { ...common, credential: undefined, clientId: configured.clientId };

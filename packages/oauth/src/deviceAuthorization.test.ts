@@ -1082,6 +1082,26 @@ describe('device authorization grant', () => {
     });
   });
 
+  it('keeps device client defaults when per-call values are undefined', async () => {
+    const { signal } = new AbortController();
+    const calls = mockFetch({ device: json(200, DEVICE_RESPONSE) });
+    const client = new DeviceAuthorizationClient(ISSUER, {
+      clientId: 'device-client',
+      metadata: METADATA,
+      signal,
+      timeoutMs: 0,
+    });
+
+    await client.requestDeviceAuthorization({
+      metadata: undefined,
+      signal: undefined,
+      timeoutMs: undefined,
+    });
+
+    expect(calls.map((call) => call.url)).toEqual([DEVICE_ENDPOINT]);
+    expect(calls[0].init.signal).toBe(signal);
+  });
+
   describe('one flow with a WebIdentity credential', () => {
     let storageDir: string;
 
