@@ -12,6 +12,21 @@ export interface AuthenticatedRequest extends Request {
   auth: AuthInfo;
 }
 
+function withBoundResource(authInfo: AuthInfo, identifier: string): AuthInfo {
+  const inspectCustom = Symbol.for("nodejs.util.inspect.custom");
+  const descriptors: PropertyDescriptorMap = Object.getOwnPropertyDescriptors(authInfo);
+  const { resource: _resource, [inspectCustom]: _inspect, ...fields } = descriptors;
+  const bound: AuthInfo = Object.create(Object.getPrototypeOf(authInfo), fields);
+  Object.defineProperty(bound, "resource", { value: toResourceUrl(identifier), enumerable: true });
+  const result = new Proxy(bound, {
+    get(target, property) {
+      if (property === "resource" || property === inspectCustom) return Reflect.get(target, property);
+      return Reflect.get(authInfo, property);
+    },
+  });
+  return omitWhenPrinted(result, "AuthInfo", ["token"]);
+}
+
 export type BearerAuthMiddlewareOptions = ResourceBindingOptions & {
   /**
    * Token verifier implementation. If omitted, a `JWTOAuthTokenVerifier` is
@@ -142,7 +157,7 @@ export function requireBearerAuth(options: BearerAuthMiddlewareOptions): Request
       }
 
       (req as Request & { auth?: AuthInfo }).auth = identifier
-        ? omitWhenPrinted({ ...authInfo, resource: toResourceUrl(identifier.value) }, "AuthInfo", ["token"])
+        ? withBoundResource(authInfo, identifier.value)
         : authInfo;
       next();
     } catch (error) {

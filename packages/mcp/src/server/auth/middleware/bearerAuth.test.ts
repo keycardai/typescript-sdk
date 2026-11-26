@@ -437,9 +437,15 @@ describe("requireBearerAuth middleware", () => {
 
     it("reports the bound resource when it is not the first audience", async () => {
       const other = new URL("https://api.example.com/other");
-      const authInfo = Object.freeze({
-        token: "test-token", clientId: "client", scopes: [], aud: [other.href, resourceIdentifier], resource: other,
-      });
+      class VerifierAuth {
+        #token = "test-token";
+        get token() { return this.#token; }
+        clientId = "client";
+        scopes: string[] = [];
+        aud = [other.href, resourceIdentifier];
+        resource = other;
+      }
+      const authInfo = Object.freeze(new VerifierAuth());
       mockVerifyAccessToken.mockResolvedValue(authInfo);
       mockRequest.headers = { authorization: "Bearer test-token" };
       mockRequest.originalUrl = "/mcp?q=1";
@@ -448,6 +454,7 @@ describe("requireBearerAuth middleware", () => {
       expect(nextFunction).toHaveBeenCalledTimes(1);
       expect(auth.resource?.href).toBe(resourceIdentifier);
       expect(auth.aud).toEqual(authInfo.aud);
+      expect(auth.token).toBe(authInfo.token);
       expect(inspect(auth)).not.toContain(authInfo.token);
     });
 
