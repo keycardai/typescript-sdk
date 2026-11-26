@@ -1,4 +1,5 @@
 import { basicAuthorization as publicBasicAuthorization } from './index.js';
+import { basicAuthorization as credentialBasicAuthorization } from './credentials.js';
 import { basicAuthorization } from './basicAuthorization.js';
 
 function decode(header: string): string {
@@ -9,6 +10,10 @@ function decode(header: string): string {
 describe('basicAuthorization', () => {
   it('exports the helper from the package root', () => {
     expect(publicBasicAuthorization).toBe(basicAuthorization);
+  });
+
+  it('exports the helper from the credentials entry point', () => {
+    expect(credentialBasicAuthorization).toBe(basicAuthorization);
   });
 
   // The decoded value is what the server sees before it decodes each half.
