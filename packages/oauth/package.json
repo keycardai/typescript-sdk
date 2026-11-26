@@ -115,6 +115,11 @@
       "require": "./dist/cjs/deviceAuthorization.js",
       "types": "./dist/esm/deviceAuthorization.d.ts"
     },
+    "./agent": {
+      "import": "./dist/esm/agent.js",
+      "require": "./dist/cjs/agent.js",
+      "types": "./dist/esm/agent.d.ts"
+    },
     "./userinfo": {
       "import": "./dist/esm/userinfo.js",
       "require": "./dist/cjs/userinfo.js",

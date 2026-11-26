@@ -345,6 +345,36 @@ user.claims.email;   // full claims document, unfiltered
 Zone access tokens are authorization-only, so identity claims live behind the
 issuer's `userinfo_endpoint`. Pass `{ metadata }` to skip discovery.
 
+### Local Agent Token Source (Node.js only)
+
+```typescript
+import { AgentTokenSource, isDeclined, resourceTransport } from "@keycardai/oauth/agent";
+
+// No socket: KEYCARD_SOCKET (set by `keycard run`), else the `keycard agent`
+// daemon's default socket, which needs org and zone.
+const source = new AgentTokenSource({ workload: "nightly-digest", org: "org_1", zone: "zone_1" });
+
+const token = await source.resourceToken("https://api.github.com", { scopes: ["repo"] });
+
+const githubFetch = resourceTransport({ source, resource: "https://api.github.com", scopes: ["repo"] });
+const response = await githubFetch("https://api.github.com/user");
+```
+
+The local Keycard agent issues the token with the developer's own zone
+session, asking them to approve each new request, so the program holds no
+credential. Nothing times out the call: the first request waits for the
+approval, so pass `signal` to bound it. `isDeclined(error)` and the other
+predicates find an `AgentError` on the `cause` chain; a code can have more
+than one cause, and the error's `message`, which comes from the agent and
+should be neutralized before it reaches a terminal, tells them apart. The
+agent caches tokens; every call sends one request to it.
+
+`resourceTransport` attaches the token to whatever URL it is called with,
+without checking it against `resource`, so never call it with a URL an
+untrusted party chose. Redirects are left to the `fetch` in use: Node's global
+`fetch` drops `Authorization` on a cross-origin redirect, a replacement may
+not.
+
 ## API Overview
 
 ### JWKS Key Management
@@ -407,6 +437,14 @@ issuer's `userinfo_endpoint`. Pass `{ metadata }` to skip discovery.
 | `fetchUserInfo` | `@keycardai/oauth/userinfo` | Fetches the signed-in user's claims from the discovered `userinfo_endpoint` |
 | `UserInfoResponse` (type) | `@keycardai/oauth/userinfo` | `{ sub, claims }` — all returned claims, unfiltered |
 
+### Local Agent Token Source
+
+| Export | Import Path | Description |
+|---|---|---|
+| `AgentTokenSource` | `@keycardai/oauth/agent` | Gets a resource token from the local Keycard agent over its Unix socket. **Node.js only** |
+| `ResourceTokenSource` (type) | `@keycardai/oauth/agent` | `resourceToken(resource, { scopes, signal })`, the interface `AgentTokenSource` implements |
+| `resourceTransport` | `@keycardai/oauth/agent` | Returns a `fetch` that sets `Authorization: Bearer` from a source for one resource |
+
 ### Server-tier Primitives
 
 | Export | Import Path | Description |
@@ -442,6 +480,10 @@ issuer's `userinfo_endpoint`. Pass `{ metadata }` to skip discovery.
 | `DeviceGrantError` | `@keycardai/oauth/errors` | Device grant failure, with `errorCode`, `errorDescription`, `status`, and `retryable` |
 | `DevicePollError` | `@keycardai/oauth/errors` | `waitForDeviceToken` stopped on a network error, 5xx, or 429; has `interval` and the original failure as `cause` |
 | `PERMANENT_ERROR_CODES`, `isPermanentErrorCode` | `@keycardai/oauth/errors` | OAuth error codes that are not retryable, except on HTTP 429 or 5xx; classifies a bare error code |
+| `NetworkError` | `@keycardai/oauth/errors` | A server could not be reached or the connection failed mid-response; `retryable` is `true`, the transport error is `cause` |
+| `AgentError` | `@keycardai/oauth/errors` | The local Keycard agent refused; `code` is the Connect code, usually one of `AgentErrorCode`, `retryable` for `resource_exhausted` and `unavailable` |
+| `AgentResponseError` | `@keycardai/oauth/errors` | The local Keycard agent answered 200 with an unusable response, including one over 1 MiB |
+| `isDeclined`, `isRateLimited`, `isPrompterUnavailable`, `isAuthorizationRequired`, `isApplicationNotFound`, `isUnavailable` | `@keycardai/oauth/errors` | Match an `AgentError` code anywhere on an error's `cause` chain |
 
 ### Utilities
 

@@ -30,6 +30,16 @@ export {
   isPermanentErrorCode,
   DeviceGrantError,
   DevicePollError,
+  NetworkError,
+  AgentError,
+  AgentErrorCode,
+  AgentResponseError,
+  isDeclined,
+  isRateLimited,
+  isPrompterUnavailable,
+  isAuthorizationRequired,
+  isApplicationNotFound,
+  isUnavailable,
 } from "./errors.js";
 export type { CredentialDiscoveryReason } from "./errors.js";
 export {
