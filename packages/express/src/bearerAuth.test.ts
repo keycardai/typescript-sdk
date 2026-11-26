@@ -1,7 +1,8 @@
 import { jest } from '@jest/globals';
+import { inspect } from 'node:util';
 import express from 'express';
 import request from 'supertest';
-import { requireBearerAuth, subdomainZoneResolver } from './bearerAuth.js';
+import { requireBearerAuth, subdomainZoneResolver, type AuthenticatedRequest } from './bearerAuth.js';
 import { createKeycardMiddleware } from './middleware.js';
 import { TokenVerifier } from '@keycardai/oauth/server';
 import type { AccessToken } from '@keycardai/oauth/server';
@@ -492,6 +493,21 @@ describe('requireBearerAuth when the zone is unavailable (real TokenVerifier)', 
     } finally {
       verify.mockRestore();
     }
+  });
+
+  it('omits the bearer token when printing auth from the inline verifier', async () => {
+    stubZone(url => url === DISCOVERY_URL ? json(metadata) : json(publicJwks));
+    const token = await signToken();
+    const app = express();
+    app.use(requireBearerAuth({ zoneUrl: ISSUER, allowAnyAudience: true }));
+    app.get('/', (req, res) => {
+      const auth = (req as AuthenticatedRequest).auth;
+      expect(auth.token).toBe(token);
+      res.send(inspect(auth));
+    });
+    const response = await request(app).get('/').set('Authorization', `Bearer ${token}`).expect(200);
+    expect(response.text).toContain('AccessToken');
+    expect(response.text).not.toContain(token);
   });
 
   it('row 17: uses the configured issuers for a shared discovery URL', async () => {

@@ -1,4 +1,5 @@
 import type { Request, Response, NextFunction, RequestHandler } from "express";
+import { inspect } from "node:util";
 import { TokenVerifier } from "@keycardai/oauth/server/tokenVerifier";
 import type { TokenVerifierOptions } from "@keycardai/oauth/server/tokenVerifier";
 import type { AccessToken } from "@keycardai/oauth/server/accessToken";
@@ -308,7 +309,7 @@ function configureVerifier(
       }
       throw error;
     }
-    return {
+    const accessToken: AccessToken = {
       token,
       clientId: claims.client_id as string,
       scopes: typeof claims.scope === "string" ? claims.scope.split(" ").filter(Boolean) : [],
@@ -322,6 +323,12 @@ function configureVerifier(
         ? { act: claims.act as Record<string, unknown> }
         : {}),
     };
+    return Object.defineProperty(accessToken, inspect.custom, {
+      value(this: AccessToken, _depth: number, options: Parameters<typeof inspect>[1]) {
+        const { token: _token, ...fields } = this;
+        return "AccessToken " + inspect(fields, options);
+      },
+    });
   };
 }
 
