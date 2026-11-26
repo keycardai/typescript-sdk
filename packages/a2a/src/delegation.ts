@@ -2,7 +2,7 @@ import { TokenExchangeClient } from "@keycardai/oauth/tokenExchange";
 import { ResponseBodyTooLargeError } from "@keycardai/oauth";
 import { ClientSecret } from "@keycardai/oauth/server/clientSecret";
 import type { AgentCard, Message, Task } from "@a2a-js/sdk";
-import { Role } from "@a2a-js/sdk";
+import { A2A_PROTOCOL_VERSION, Role } from "@a2a-js/sdk";
 import {
   ClientFactory,
   DefaultAgentCardResolver,
@@ -10,6 +10,7 @@ import {
   type Client,
 } from "@a2a-js/sdk/client";
 import { ServiceDiscovery } from "./discovery.js";
+import { A2ADiscoveryError } from "./errors.js";
 import { boundedPeerFetch, peerResponseLimit } from "./peer-response.js";
 import type { AgentServiceConfig } from "./config.js";
 import { getAuthServerUrl } from "./config.js";
@@ -60,6 +61,8 @@ export interface DelegationClientOptions {
   fetchImpl?: typeof fetch;
   /** Maximum decoded bytes per peer reply on the default fetch (64 MiB). */
   maxPeerResponseBytes?: number;
+  /** Trusted invocation origins other than the target's own. Defaults to empty. */
+  trustedEndpointOrigins?: readonly string[];
 }
 
 /**
@@ -88,7 +91,9 @@ export class DelegationClient {
   #config: AgentServiceConfig;
   #tokenClient: TokenExchangeClient;
   #discovery: ServiceDiscovery;
-  #clientFactory: ClientFactory;
+  #transportFactory: JsonRpcTransportFactory;
+  #cardResolver: DefaultAgentCardResolver;
+  #trustedOrigins: ReadonlySet<string>;
 
   constructor(config: AgentServiceConfig, options?: DelegationClientOptions) {
     this.#config = config;
@@ -101,10 +106,11 @@ export class DelegationClient {
       fetchImpl: options?.fetchImpl ?? boundedPeerFetch(limit, true),
       legacyCompat: options?.legacyCompat,
     };
-    this.#clientFactory = new ClientFactory({
-      transports: [new JsonRpcTransportFactory(transportOptions)],
-      cardResolver: new DefaultAgentCardResolver(transportOptions),
-    });
+    this.#transportFactory = new JsonRpcTransportFactory(transportOptions);
+    this.#cardResolver = new DefaultAgentCardResolver(transportOptions);
+    this.#trustedOrigins = new Set(
+      (options?.trustedEndpointOrigins ?? []).map((origin) => httpOrigin(origin, "trusted endpoint origin")),
+    );
   }
 
   /**
@@ -116,8 +122,8 @@ export class DelegationClient {
     options: InvokeOptions,
   ): Promise<DelegationResult> {
     const agentCard = await this.#discovery.getServiceCard(serviceUrl);
+    const client = await this.#createClient(agentCard, serviceUrl);
     const delegationToken = await this.#getDelegationToken(serviceUrl, options.subjectToken);
-    const client = await this.#createClient(agentCard);
     const message = buildUserMessage(task, options.metadata);
 
     let result: Message | Task;
@@ -143,10 +149,28 @@ export class DelegationClient {
       : { task: result, agentCard };
   }
 
-  async #createClient(agentCard: AgentCard): Promise<Client> {
+  async #createClient(agentCard: AgentCard, target: string): Promise<Client> {
+    const targetOrigin = httpOrigin(target, "delegation target");
+    const factory = new ClientFactory({
+      transports: [{
+        protocolName: this.#transportFactory.protocolName,
+        create: (endpoint, card) => {
+          const origin = httpOrigin(endpoint, `invocation endpoint for target "${target}"`);
+          if (origin !== targetOrigin && !this.#trustedOrigins.has(origin)) {
+            throw new A2ADiscoveryError(`Endpoint origin ${origin} is not trusted for target "${target}"`);
+          }
+          return this.#transportFactory.create(endpoint, card);
+        },
+      }],
+      cardResolver: {
+        resolve: (url, path) => this.#cardResolver.resolve(url, path),
+        normalizeAgentCard: (card) => withConventionEndpoint(this.#cardResolver.normalizeAgentCard(card), target),
+      },
+    });
     try {
-      return await this.#clientFactory.createFromAgentCard(agentCard);
+      return await factory.createFromAgentCard(agentCard);
     } catch (error) {
+      if (error instanceof A2ADiscoveryError) throw error;
       throw new Error(
         `DelegationClient: agent card for "${agentCard.name}" exposes no usable JSON-RPC interface: ${
           error instanceof Error ? error.message : String(error)
@@ -163,6 +187,38 @@ export class DelegationClient {
     });
     return response.accessToken;
   }
+}
+
+function withConventionEndpoint(card: AgentCard, target: string): AgentCard {
+  if (card.supportedInterfaces?.some((iface) => iface.protocolBinding.toUpperCase() === "JSONRPC")) {
+    return card;
+  }
+  if ("url" in card && typeof card.url === "string") return card;
+  return {
+    ...card,
+    supportedInterfaces: [
+      ...(card.supportedInterfaces ?? []),
+      {
+        url: `${target.replace(/\/+$/, "")}/a2a/jsonrpc`,
+        protocolBinding: "JSONRPC",
+        protocolVersion: A2A_PROTOCOL_VERSION,
+        tenant: "",
+      },
+    ],
+  };
+}
+
+function httpOrigin(value: string, label: string): string {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new A2ADiscoveryError(`Invalid ${label}: expected an absolute HTTP or HTTPS URL`);
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new A2ADiscoveryError(`Invalid ${label}: expected an absolute HTTP or HTTPS URL`);
+  }
+  return `${url.protocol}//${url.hostname}:${url.port || (url.protocol === "https:" ? "443" : "80")}`;
 }
 
 function isMessage(result: Message | Task): result is Message {
