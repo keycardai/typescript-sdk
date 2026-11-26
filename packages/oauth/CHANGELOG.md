@@ -1,3 +1,85 @@
+## 0.38.1-keycardai-oauth (2026-11-26)
+
+
+- fix(oauth): leave tokens, client secrets, and verifiers out of printed values (#353)
+- * fix(oauth): leave secrets out of printed ClientAuthentication and DeviceAuthorization
+- createClientAuthentication builds a ClientAuthentication that
+console.log and util.inspect print with header and form field names
+only. ClientSecret, WebIdentity, and WorkloadIdentity use it. It is
+exported so credentials in other packages can use it.
+- requestDeviceAuthorization returns a DeviceAuthorization that prints
+every field except deviceCode. A public client redeems a device code
+with client_id alone (RFC 8628 section 3.4).
+- The hook is a non-enumerable Symbol.for("nodejs.util.inspect.custom")
+property. JSON.stringify, object spread, and Object.keys do not see
+it, so a persisted DeviceAuthorization keeps deviceCode.
+- ECO-529
+- Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+- * fix(oauth): leave tokens, verifiers, and client secrets out of printed values
+- util.inspect and console.log print these values without their secrets.
+JSON.stringify still writes every field.
+- - TokenResponse from deserializeTokenResponse: accessToken,
+  refreshToken, idToken.
+- AccessToken from TokenVerifier: token.
+- TokenExchangeRequest from the ClientSecret, WebIdentity, and
+  WorkloadIdentity credentials: subjectToken, actorToken,
+  clientAssertion. omitTokenExchangeSecrets is exported for other
+  credentials.
+- Pkce from generatePkcePair, and AuthorizationRedirect from
+  beginAuthorization: codeVerifier.
+- ClientRegistrationResponse from registerClient: clientSecret,
+  registrationAccessToken, and the same fields in raw.
+- ECO-529
+- Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+- * fix(mcp): leave the bearer token out of printed AuthInfo
+- JWTOAuthTokenVerifier returns an AuthInfo that util.inspect and
+console.log print without token. JSON.stringify still writes it.
+- ECO-529
+- Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+- * fix(oauth): leave clientSecret out of printed ClientSecret.getAuth
+- ClientSecret.getAuth returns { clientId, clientSecret } that
+util.inspect and console.log print without clientSecret.
+- ECO-529
+- Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+- * fix(eve): leave tokens out of printed grants and token results
+- An AuthorizedGrant this package builds prints without accessToken and
+refreshToken, and a TokenResult from the connection auths and
+interactive prints without token. JSON.stringify still writes them.
+- ECO-529
+- Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+- * fix(cursor-agent-sdk): leave the bearer token out of printed connection auth results
+- A ConnectionAuthResult from impersonate, asSelf, and onBehalfOf prints
+the header names only.
+- ECO-529
+- Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+- * fix(cloudflare): leave secrets out of printed Workers credential results
+- WorkersClientSecret.getAuth prints without clientSecret. The
+TokenExchangeRequest from WorkersClientSecret and WorkersWebIdentity
+prints without subjectToken, actorToken, and clientAssertion.
+- ECO-529
+- Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+- * test(oauth): name printed tests by spec row, show aud, and print an actor token request
+- The printed AccessToken and mcp AuthInfo now carry aud from main, so the
+expected forms include it. Tests name spec rows 9, 38, and 27, and a row 27
+case prints a TokenExchangeRequest with subjectToken and actorToken.
+- ECO-529
+- * fix(eve): leave codeVerifier out of the printed resume state
+- interactive's KeycardResumeState prints without codeVerifier. The hook is
+non-enumerable, so the journaled JSON keeps the verifier.
+- ECO-529
+- * fix(cloudflare): leave the bearer token out of the printed AuthInfo
+- verifyBearerToken returns an AuthInfo that util.inspect prints without
+token.
+- ECO-529
+- * fix(langchain): leave the subject token out of the printed ServedCaller
+- callerFromRuntime returns a ServedCaller that util.inspect prints without
+subjectToken. The package has its own copy of the helper, so it does not
+need an @keycardai/oauth floor bump.
+- ECO-529
+- ---------
+- Co-authored-by: Claude Opus 5.5 <noreply@anthropic.com>
+Co-authored-by: Larry Osakwe <23560354+Larry-Osakwe@users.noreply.github.com>
+
 ## 0.38.0-keycardai-oauth (2026-11-26)
 
 
