@@ -3,6 +3,7 @@ import { inspect } from "node:util";
 import { TokenVerifier } from "@keycardai/oauth/server/tokenVerifier";
 import type { TokenVerifierOptions } from "@keycardai/oauth/server/tokenVerifier";
 import type { AccessToken } from "@keycardai/oauth/server/accessToken";
+import { configureBearerIntrospection, type BearerIntrospectionOptions } from "@keycardai/oauth/bearerIntrospection";
 import { JWTVerifier } from "@keycardai/oauth/jwt/verifier";
 import { JWKSOAuthKeyring } from "@keycardai/oauth/keyring";
 import {
@@ -64,7 +65,7 @@ export interface AuthenticatedRequest extends Request {
   auth: AccessToken;
 }
 
-export type BearerAuthOptions = ResourceBindingOptions & { audience?: Audience } & (
+export type BearerAuthOptions = ResourceBindingOptions & BearerIntrospectionOptions & { audience?: Audience } & (
   | {
       verifier: TokenVerifier;
       requiredScopes?: readonly string[];
@@ -108,8 +109,8 @@ export type BearerAuthOptions = ResourceBindingOptions & { audience?: Audience }
  *   including a `kid` absent from a JWKS that loaded.
  * - 403 `insufficient_scope` when `requiredScopes` are not all present.
  * - 503 `{"error":"temporarily_unavailable"}` with no `WWW-Authenticate` when
- *   the zone's signing keys or authorization-server metadata could not be
- *   fetched: the token was never judged, so the client keeps it and retries.
+ *   the zone's signing keys or metadata could not be fetched or the status
+ *   could not be checked by introspection.
  *
  * Usage with a zone URL:
  * ```ts
@@ -148,6 +149,10 @@ export function bearerAuthHandler(
     throw new ConfigurationError("enableMultiZone requires resourceIdentifiersByZone for an HTTP(S) resourceIdentifier");
   }
   const verify = configureVerifier(options, binding);
+  const multiZone = binding.mode === "perZone" || binding.mode === "shared"
+    ? binding.entries.size > 1
+    : "verifier" in options ? options.verifier.isMultiZone : options.enableMultiZone ?? false;
+  const introspect = configureBearerIntrospection(options, multiZone);
   if (binding.mode === "legacy" && warn) warnLegacy("requireBearerAuth", audience);
 
   return async (req: Request, res: Response, next: NextFunction) => {
@@ -206,6 +211,10 @@ export function bearerAuthHandler(
         if (!hasAllScopes) {
           throw new InsufficientScopeError("Insufficient scope");
         }
+      }
+
+      if (introspect && !await introspect(accessToken.issuer, token)) {
+        throw new InvalidTokenError("Token is inactive");
       }
 
       (req as AuthenticatedRequest).auth = accessToken;
@@ -317,6 +326,7 @@ function configureVerifier(
     }
     const accessToken: AccessToken = {
       token,
+      issuer: claims.iss,
       clientId: claims.client_id as string,
       scopes: typeof claims.scope === "string" ? claims.scope.split(" ").filter(Boolean) : [],
       expiresAt: claims.exp,

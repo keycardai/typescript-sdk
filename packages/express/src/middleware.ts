@@ -3,10 +3,11 @@ import { bearerAuthHandler } from "./bearerAuth.js";
 import { grant } from "./grant.js";
 import type { GrantOptions } from "./grant.js";
 import type { ApplicationCredential } from "@keycardai/oauth/credentials";
+import type { BearerIntrospectionOptions } from "@keycardai/oauth/bearerIntrospection";
 import { resolveResourceBinding, warnLegacy, type Audience, type ResourceBindingOptions } from "./resourceBinding.js";
 import { metadataRouter, type KeycardRouterOptions } from "./wellKnown.js";
 
-export interface KeycardMiddlewareOptions extends ResourceBindingOptions {
+export interface KeycardMiddlewareOptions extends ResourceBindingOptions, BearerIntrospectionOptions {
   /**
    * Keycard zone URL, e.g. "https://zone-id.keycard.cloud".
    * Either `zoneUrl` or `zoneId` is required.
@@ -17,7 +18,8 @@ export interface KeycardMiddlewareOptions extends ResourceBindingOptions {
    */
   zoneId?: string;
   /**
-   * Application credential for token exchange in `grant()`.
+   * Application credential for token exchange in `grant()`, and the default
+   * credential for bearer introspection if `credential` is omitted.
    * Typically a `ClientSecret` from `@keycardai/oauth/server`.
    */
   applicationCredential?: ApplicationCredential;
@@ -110,15 +112,15 @@ export function createKeycardMiddleware(options: KeycardMiddlewareOptions): Keyc
   }
 
   const binding = resolveResourceBinding(options);
-  const verify = bearerAuthHandler({ ...options, zoneUrl }, binding, false);
+  const bearerOptions = { ...options, zoneUrl, credential: options.credential ?? options.applicationCredential };
+  const verify = bearerAuthHandler(bearerOptions, binding, false);
   if (binding.mode === "legacy") warnLegacy("createKeycardMiddleware", options.audience);
 
   return {
     requireBearerAuth(localOptions?: { requiredScopes?: readonly string[] }) {
       if (!localOptions?.requiredScopes?.length) return verify;
       return bearerAuthHandler({
-        ...options,
-        zoneUrl,
+        ...bearerOptions,
         requiredScopes: localOptions?.requiredScopes,
       }, binding, false);
     },

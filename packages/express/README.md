@@ -32,6 +32,8 @@ app.get("/api/data", (req, res) => {
 
 Handlers behind `requireBearerAuth` cast to `AuthenticatedRequest` to type `req.auth`. If you prefer `req.auth` without casting across your entire app, adopt Express module augmentation instead; see the `AuthenticatedRequest` docs for the trade-off.
 
+Set `introspect: true` and pass the resource owner's application credential as `credential` to check whether each locally verified token is still active. If the verifier trusts multiple zones, use a credential keyed by zone issuer URL or pass a map of issuer URLs to credentials. The `createKeycardMiddleware` factory uses its existing `applicationCredential` unless you provide `credential`. Introspection is off by default.
+
 ### Delegate tokens with `grant`
 
 ```typescript
