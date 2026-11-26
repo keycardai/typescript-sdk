@@ -1,3 +1,5 @@
+## 0.6.0-keycardai-cloudflare (2026-11-26)
+
 ## 0.5.2-keycardai-cloudflare (2026-11-26)
 
 
