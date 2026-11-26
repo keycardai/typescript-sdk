@@ -288,7 +288,7 @@ until the person approves or denies.
 
 ```typescript
 import { fetchAuthorizationServerMetadata } from "@keycardai/oauth/discovery";
-import { requestDeviceAuthorization, waitForDeviceToken } from "@keycardai/oauth/deviceAuthorization";
+import { DeviceAuthorizationClient } from "@keycardai/oauth/deviceAuthorization";
 import { DevicePollError } from "@keycardai/oauth/errors";
 import { WorkloadIdentity, FileTokenSource } from "@keycardai/oauth/server";
 import type { TokenResponse } from "@keycardai/oauth/tokenExchange";
@@ -297,9 +297,11 @@ const issuer = "https://your-zone.keycard.cloud";
 const credential = new WorkloadIdentity(new FileTokenSource(), { clientId: "my-client" });
 const metadata = await fetchAuthorizationServerMetadata(issuer);
 
-const authorization = await requestDeviceAuthorization(issuer, {
+const client = new DeviceAuthorizationClient(issuer, {
   credential, // or `clientId` for a public client
   metadata,
+});
+const authorization = await client.requestDeviceAuthorization({
   scopes: ["openid"],
   resources: ["https://api.example.com"],
 });
@@ -310,7 +312,7 @@ let tokens: TokenResponse | undefined;
 let interval: number | undefined;
 while (!tokens) {
   try {
-    tokens = await waitForDeviceToken(issuer, { credential, metadata, authorization, interval });
+    tokens = await client.waitForDeviceToken({ authorization, interval });
   } catch (error) {
     if (!(error instanceof DevicePollError)) throw error;
     interval = error.interval;
@@ -392,6 +394,7 @@ issuer's `userinfo_endpoint`. Pass `{ metadata }` to skip discovery.
 | Export | Import Path | Description |
 |---|---|---|
 | `requestDeviceAuthorization` | `@keycardai/oauth/deviceAuthorization` | Asks the zone for a device code and a user code |
+| `DeviceAuthorizationClient` | `@keycardai/oauth/deviceAuthorization` | Binds the credential for device authorization, polling, and waiting |
 | `pollDeviceToken` | `@keycardai/oauth/deviceAuthorization` | Polls the token endpoint once |
 | `waitForDeviceToken` | `@keycardai/oauth/deviceAuthorization` | Polls until the person approves or denies, per RFC 8628 §3.5 |
 | `DeviceAuthorization` (type) | `@keycardai/oauth/deviceAuthorization` | The device authorization response, with `expiresAt` computed from the clock |
