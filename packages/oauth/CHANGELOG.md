@@ -1,3 +1,17 @@
+## 0.42.0-keycardai-oauth (2026-11-26)
+
+
+- feat(oauth): add token introspection (ID-881) (#466)
+- * feat(oauth): add token introspection (ID-881)
+- Co-Authored-By: Devin AI <158243242+devin-ai-integration[bot]@users.noreply.github.com>
+- * fix(oauth): require HTTPS for introspection discovery
+- Co-Authored-By: Devin AI <158243242+devin-ai-integration[bot]@users.noreply.github.com>
+- * fix(oauth): tolerate malformed optional introspection claims
+- Co-Authored-By: Devin AI <158243242+devin-ai-integration[bot]@users.noreply.github.com>
+- ---------
+- Co-authored-by: devin-ai-keycard <devin-ai@keycard.ai>
+Co-authored-by: Devin AI <158243242+devin-ai-integration[bot]@users.noreply.github.com>
+
 ## 0.41.1-keycardai-oauth (2026-11-26)
 
 
