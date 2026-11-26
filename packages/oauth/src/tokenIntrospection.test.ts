@@ -190,6 +190,23 @@ describe('introspectToken', () => {
     expect(request().url).toBe(ENDPOINT);
   });
 
+  it.each(['http://zone.example.com', 'http://localhost:8080'])(
+    'rejects plaintext issuer %s before discovery',
+    async (issuer) => {
+      await expect(introspectToken(issuer, TOKEN, { ...options, metadata: undefined })).rejects.toThrow(ConfigurationError);
+      expect(transport).not.toHaveBeenCalled();
+    },
+  );
+
+  it('accepts caller-supplied metadata with an HTTP issuer and HTTPS endpoint', async () => {
+    const metadata = { ...METADATA, issuer: 'http://zone.example.com' };
+
+    await introspectToken(undefined, TOKEN, { ...options, metadata });
+
+    expect(transport).toHaveBeenCalledTimes(1);
+    expect(request().url).toBe(ENDPOINT);
+  });
+
   it('token introspection row 11: rejects credentials without client authentication before discovery', async () => {
     const credential: ApplicationCredential = {
       getAuth: () => null,

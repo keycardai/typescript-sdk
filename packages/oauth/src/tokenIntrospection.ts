@@ -56,6 +56,9 @@ export async function introspectToken(
   if (!isUrlWithProtocol(zoneIssuer, "http:", "https:")) {
     throw new ConfigurationError("introspectToken requires an HTTP or HTTPS issuer URL");
   }
+  if (!metadata && !isUrlWithProtocol(zoneIssuer, "https:")) {
+    throw new ConfigurationError("introspectToken requires an HTTPS issuer URL for discovery");
+  }
   if (metadata) assertMetadataIssuer(zoneIssuer, metadata, "introspectToken");
 
   const transport = options.fetch ?? globalThis.fetch;
