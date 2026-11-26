@@ -24,7 +24,18 @@ import {
 // fresh `JWTVerifier` around this keyring; that construction is a handful
 // of Set literals and is sub-millisecond.
 const sharedKeyring = new JWKSOAuthKeyring();
-const introspectionState = createBearerIntrospectionState();
+const defaultIntrospectionState = createBearerIntrospectionState();
+const introspectionStates = new WeakMap<typeof globalThis.fetch, ReturnType<typeof createBearerIntrospectionState>>();
+
+function introspectionStateFor(transport: BearerAuthOptions["introspectionFetch"]) {
+  if (!transport) return defaultIntrospectionState;
+  let state = introspectionStates.get(transport);
+  if (!state) {
+    state = { ...createBearerIntrospectionState(), loggedCauses: defaultIntrospectionState.loggedCauses };
+    introspectionStates.set(transport, state);
+  }
+  return state;
+}
 
 /**
  * Constructs the OAuth Protected Resource Metadata URL for WWW-Authenticate headers.
@@ -85,7 +96,7 @@ export async function verifyRequest(
     const multiZone = binding.mode === "perZone" || binding.mode === "shared"
       ? binding.entries.size > 1
       : Array.isArray(options.issuers) && new Set(options.issuers).size > 1;
-    introspect = configureBearerIntrospection(options, multiZone, introspectionState);
+    introspect = configureBearerIntrospection(options, multiZone, introspectionStateFor(options.introspectionFetch));
   }
   const url = new URL(request.url);
   let resourceMetadataUrl: string | undefined;

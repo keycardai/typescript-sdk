@@ -153,6 +153,22 @@ describe("Workers bearer introspection", () => {
     expect(post).toHaveBeenCalledTimes(2);
   });
 
+  it("bearer row 18: direct calls discover the issuer's endpoint independently for each transport", async () => {
+    stubZone();
+    const request = await bearerRequest();
+    const discovery = issuer + "/.well-known/oauth-authorization-server";
+    for (const route of ["first", "second"]) {
+      const introspectionEndpoint = issuer + "/" + route + "/introspect";
+      const fetch = jest.fn<typeof globalThis.fetch>()
+        .mockResolvedValueOnce(Response.json({ issuer, introspection_endpoint: introspectionEndpoint }))
+        .mockResolvedValueOnce(Response.json({ active: true }));
+      expect(await verifyBearerToken(request, {
+        issuers: issuer, resourceIdentifier: resource, introspect: true, credential, introspectionFetch: fetch,
+      })).not.toBeInstanceOf(Response);
+      expect(fetch.mock.calls.map(([url]) => String(url))).toEqual([discovery, introspectionEndpoint]);
+    }
+  });
+
   it("cloudflare-workers row 5 and bearer row 23: rejects an unauthenticating credential at construction", () => {
     expect(() => worker({ introspect: true, credential: new WorkersWebIdentity("key-without-client-id") }))
       .toThrow(ConfigurationError);
