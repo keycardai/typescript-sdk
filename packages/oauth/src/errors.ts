@@ -1,3 +1,5 @@
+import type { CredentialType } from "./credentialDiscovery.js";
+
 export class HTTPError extends Error {
   constructor(
     message: string,
@@ -285,6 +287,19 @@ export class ConfigurationError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "ConfigurationError";
+  }
+}
+
+export type CredentialDiscoveryReason = "absent" | "ambiguous" | "incomplete" | "unknown_type" | "not_satisfiable";
+
+/** The environment does not describe a single usable application credential. */
+export class CredentialDiscoveryError extends ConfigurationError {
+  readonly resolvable: readonly CredentialType[];
+
+  constructor(message: string, readonly reason: CredentialDiscoveryReason, resolvable: readonly CredentialType[]) {
+    super(message);
+    this.name = "CredentialDiscoveryError";
+    this.resolvable = Object.freeze([...resolvable]);
   }
 }
 

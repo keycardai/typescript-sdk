@@ -15,6 +15,7 @@ export {
   InsufficientScopeError,
   ResourceAccessError,
   ConfigurationError,
+  CredentialDiscoveryError,
   AuthProviderConfigurationError,
   JWKSError,
   JWKSDiscoveryError,
@@ -30,6 +31,19 @@ export {
   DeviceGrantError,
   DevicePollError,
 } from "./errors.js";
+export type { CredentialDiscoveryReason } from "./errors.js";
+export {
+  CLIENT_ID_ENV_VAR,
+  CLIENT_SECRET_ENV_VAR,
+  WEB_IDENTITY_KEY_STORAGE_DIR_ENV_VAR,
+  CREDENTIAL_TYPE_ENV_VAR,
+  CLIENT_SECRET_TYPE,
+  WORKLOAD_IDENTITY_TYPE,
+  WEB_IDENTITY_TYPE,
+  LEGACY_WORKLOAD_IDENTITY_TYPE,
+  resolveCredentialType,
+} from "./credentialDiscovery.js";
+export type { CredentialEnvironment, CredentialType, ResolvedCredential } from "./credentialDiscovery.js";
 export type { TokenEndpointCacheOptions } from "./tokenEndpoint.js";
 export { JWTSigner } from "./jwt/signer.js";
 export type { JWTClaims } from "./jwt/signer.js";
@@ -58,13 +72,14 @@ export type {
   ClientRegistrationResponse,
   RegisterClientOptions,
 } from "./registration.js";
-export { AccessContext, TokenVerifier, ClientSecret } from "./server/index.js";
+export { AccessContext, TokenVerifier, ClientSecret, discoverCredential } from "./server/index.js";
 export type {
   ErrorDetail,
   AccessContextStatus,
   AccessToken,
   TokenVerifierOptions,
   ClientSecretCredentials,
+  DiscoverCredentialOptions,
 } from "./server/index.js";
 export {
   generateCodeVerifier,

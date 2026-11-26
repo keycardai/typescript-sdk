@@ -5,6 +5,8 @@ export { TokenVerifier } from "./tokenVerifier.js";
 export type { TokenVerifierOptions } from "./tokenVerifier.js";
 export { ClientSecret } from "./clientSecret.js";
 export type { ClientSecretCredentials } from "./clientSecret.js";
+export { discoverCredential } from "./credentialDiscovery.js";
+export type { DiscoverCredentialOptions } from "./credentialDiscovery.js";
 export { FilePrivateKeyStorage, PrivateKeyManager } from "./privateKey.js";
 export type { PrivateKeyStorage, JsonWebKey } from "./privateKey.js";
 export { WebIdentity } from "./webIdentity.js";

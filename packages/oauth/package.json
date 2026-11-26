@@ -35,6 +35,11 @@
       "require": "./dist/cjs/errors.js",
       "types": "./dist/esm/errors.d.ts"
     },
+    "./credentialDiscovery": {
+      "import": "./dist/esm/credentialDiscovery.js",
+      "require": "./dist/cjs/credentialDiscovery.js",
+      "types": "./dist/esm/credentialDiscovery.d.ts"
+    },
     "./jwt/signer": {
       "import": "./dist/esm/jwt/signer.js",
       "require": "./dist/cjs/jwt/signer.js",
@@ -89,6 +94,11 @@
       "import": "./dist/esm/server/clientSecret.js",
       "require": "./dist/cjs/server/clientSecret.js",
       "types": "./dist/esm/server/clientSecret.d.ts"
+    },
+    "./server/credentialDiscovery": {
+      "import": "./dist/esm/server/credentialDiscovery.js",
+      "require": "./dist/cjs/server/credentialDiscovery.js",
+      "types": "./dist/esm/server/credentialDiscovery.d.ts"
     },
     "./pkce": {
       "import": "./dist/esm/pkce.js",
