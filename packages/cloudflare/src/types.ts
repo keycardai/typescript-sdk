@@ -41,7 +41,10 @@ export interface KeycardEnv {
  * token from another issuer.
  */
 export interface AuthInfo {
-  /** The raw bearer token from the request. */
+  /**
+   * The raw bearer token from the request. `verifyBearerToken` returns a value
+   * that `util.inspect` and `console.log` print without it.
+   */
   token: string;
   /** The client_id claim from the JWT. */
   clientId: string;

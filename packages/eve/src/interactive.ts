@@ -36,6 +36,7 @@ import {
   AuthorizationRequiredError,
   FailureReason,
 } from "./errors.js";
+import { omitWhenPrinted } from "./printed.js";
 import { principalKey } from "./subjectTokens.js";
 
 /** A grant is refreshed once it is this close to its advisory expiry. */
@@ -50,6 +51,10 @@ const REFRESH_SKEW_MS = 60_000;
  * client can redeem the code. Nothing secret is journaled: registered clients
  * are public and PKCE-bound, and a static client's secret or credential stays
  * in the definition (see {@link interactive}).
+ *
+ * The state `interactive` returns prints without `codeVerifier` in
+ * `util.inspect` and `console.log`. JSON keeps it, so the journaled state
+ * still redeems the code.
  */
 export interface KeycardResumeState {
   readonly state: string;
@@ -69,6 +74,11 @@ export interface KeycardResumeState {
  * to, and the client a refresh runs as. `id` is stable across refreshes, so a
  * store can replace the rotated pair in place. `subject` is the zone user the
  * sign-in was verified as, set only by a definition with `expectedSubject`.
+ */
+/**
+ * A grant this package builds prints without `accessToken` and
+ * `refreshToken` through `util.inspect` and `console.log`. `JSON.stringify`
+ * writes them.
  */
 export interface AuthorizedGrant {
   readonly id: string;
@@ -715,13 +725,17 @@ export function interactive(
       }
       return {
         challenge: { url, displayName: connectionName },
-        resume: {
-          state,
-          codeVerifier: redirect.codeVerifier,
-          resources: redirect.resources,
-          callbackUrl: redirectUri,
-          clientId: attemptClientId,
-        },
+        resume: omitWhenPrinted(
+          {
+            state,
+            codeVerifier: redirect.codeVerifier,
+            resources: redirect.resources,
+            callbackUrl: redirectUri,
+            clientId: attemptClientId,
+          },
+          "KeycardResumeState",
+          ["codeVerifier"],
+        ),
       };
     },
     async completeAuthorization({ principal, callbackUrl, resume, callback }) {
@@ -916,7 +930,7 @@ function grantFromResponse(
 ): AuthorizedGrant {
   const expiry = expiresAt(response.expiresIn);
   const refreshToken = response.refreshToken ?? issued.refreshToken;
-  return {
+  const grant: AuthorizedGrant = {
     id: issued.id,
     accessToken: response.accessToken,
     ...(expiry !== undefined ? { expiresAt: expiry } : {}),
@@ -926,6 +940,7 @@ function grantFromResponse(
     scopes: response.scope ? splitScopes(response.scope) : [...issued.scopes],
     ...(issued.subject !== undefined ? { subject: issued.subject } : {}),
   };
+  return omitWhenPrinted(grant, "AuthorizedGrant", ["accessToken", "refreshToken"]);
 }
 
 function expired(grant: AuthorizedGrant, now: number): boolean {
@@ -949,10 +964,11 @@ function storeKey(principal: ConnectionPrincipal): string {
 }
 
 function toTokenResult(grant: AuthorizedGrant): TokenResult {
-  return {
-    token: grant.accessToken,
-    ...(grant.expiresAt !== undefined ? { expiresAt: grant.expiresAt } : {}),
-  };
+  return omitWhenPrinted(
+    { token: grant.accessToken, ...(grant.expiresAt !== undefined ? { expiresAt: grant.expiresAt } : {}) },
+    "TokenResult",
+    ["token"],
+  );
 }
 
 function requireUser(

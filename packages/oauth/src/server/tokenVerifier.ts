@@ -2,6 +2,7 @@ import { JWTVerifier } from "../jwt/verifier.js";
 import { ConfigurationError, InvalidTokenError, JWKSKeyNotFoundError } from "../errors.js";
 import { JWKSOAuthKeyring, type OAuthKeyring } from "../keyring.js";
 import type { JWTClaims } from "../jwt/signer.js";
+import { omitWhenPrinted } from "../printed.js";
 import type { AccessToken } from "./accessToken.js";
 
 const DEFAULT_ALLOWED_ALGORITHMS = ["RS256"] as const;
@@ -180,7 +181,7 @@ function toAccessToken(token: string, claims: JWTClaims): AccessToken {
   const keycardAppId = optionalStringClaim(claims, "keycard_app_id");
   // JWTVerifier validates client_id is present and a non-empty string before
   // returning, so this assertion is load-bearing only at the type boundary.
-  return {
+  const accessToken: AccessToken = {
     token,
     clientId: claims.client_id as string,
     scopes,
@@ -194,6 +195,7 @@ function toAccessToken(token: string, claims: JWTClaims): AccessToken {
       ? { act: claims.act as Record<string, unknown> }
       : {}),
   };
+  return omitWhenPrinted(accessToken, "AccessToken", ["token"]);
 }
 
 function optionalStringClaim(claims: JWTClaims, name: string): string | undefined {

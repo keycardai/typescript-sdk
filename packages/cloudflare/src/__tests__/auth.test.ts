@@ -1,4 +1,5 @@
 import { describe, it, expect, jest, beforeEach } from "@jest/globals";
+import { inspect } from "node:util";
 import {
   JWKSKeyNotFoundError,
   JWKSFetchError,
@@ -72,6 +73,24 @@ describe("verifyBearerToken", () => {
     expect(result.clientId).toBe("app-456");
     expect(result.scopes).toEqual(["mcp:tools", "read"]);
     expect(result.token).toBe("valid-token");
+  });
+
+  it("prints the AuthInfo without the bearer token", async () => {
+    const exp = Math.floor(Date.now() / 1000) + 3600;
+    mockVerify.mockResolvedValue({ sub: "user-123", client_id: "app-456", scope: "read", exp, iss: "https://auth.keycard.ai" });
+
+    const result = await verifyBearerToken(makeRequest("Bearer valid-token"), { issuers: "https://auth.keycard.ai" });
+
+    if (isAuthError(result)) {
+      throw new Error(`Expected AuthInfo, got Response with status ${result.status}`);
+    }
+    // util.inspect is what console.log uses. The printed form leaves out the
+    // bearer token and keeps every other field.
+    const { token: _token, ...shown } = result;
+    const printed = inspect(result, { breakLength: Infinity });
+    expect(printed).toBe(`AuthInfo ${inspect(shown, { breakLength: Infinity })}`);
+    expect(printed).not.toContain("valid-token");
+    expect(JSON.parse(JSON.stringify(result)).token).toBe("valid-token");
   });
 
   it.each([

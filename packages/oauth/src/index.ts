@@ -50,7 +50,7 @@ export type {
   RequestTokenOptions,
 } from "./clientCredentials.js";
 export type { ApplicationCredential, ClientAuthentication, ClientAuthenticator } from "./credentials.js";
-export { providesClientAuthentication } from "./credentials.js";
+export { createClientAuthentication, providesClientAuthentication } from "./credentials.js";
 export { basicAuthorization } from "./basicAuthorization.js";
 export { registerClient } from "./registration.js";
 export type {
