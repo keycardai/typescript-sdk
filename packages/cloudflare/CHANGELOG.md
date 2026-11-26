@@ -1,3 +1,14 @@
+## 0.5.2-keycardai-cloudflare (2026-11-26)
+
+
+- fix(cloudflare): sign Workers client assertions as the client and add client authentication (SDK-112, SDK-132) (#434)
+- * fix(cloudflare): sign Workers client assertions as the client and add client authentication (SDK-112, SDK-132)
+- * fix(cloudflare): treat an empty Workers client ID as missing
+- * docs(cloudflare): document Workers token exchange identity
+- * fix(cloudflare): redact printed Workers client authentication
+- ---------
+- Co-authored-by: devin-ai-keycard <devin-ai@keycard.ai>
+
 ## 0.5.1-keycardai-cloudflare (2026-11-25)
 
 ## 0.5.0-keycardai-cloudflare (2026-11-25)
