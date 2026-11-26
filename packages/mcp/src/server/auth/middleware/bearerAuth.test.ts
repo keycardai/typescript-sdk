@@ -435,6 +435,24 @@ describe("requireBearerAuth middleware", () => {
       }
     });
 
+    it.each([
+      { aud: undefined, resource: resourceIdentifier, allowed: true },
+      { aud: undefined, resource: "https://api.example.com/other", allowed: false },
+      { aud: ["https://api.example.com/other"], resource: resourceIdentifier, allowed: false },
+      { aud: [], resource: resourceIdentifier, allowed: false },
+    ])("uses the custom verifier resource only when aud is absent: %j", async ({ aud, resource, allowed }) => {
+      mockVerifyAccessToken.mockResolvedValue({ token: "token", clientId: "client", scopes: [], aud, resource: new URL(resource) });
+      mockRequest.headers = { authorization: "Bearer token" };
+      mockRequest.originalUrl = "/mcp?q=1";
+      await requireBearerAuth({ verifier: mockVerifier, resourceIdentifier })(mockRequest as Request, mockResponse as Response, nextFunction);
+      if (allowed) {
+        expect(nextFunction).toHaveBeenCalledTimes(1);
+      } else {
+        expect(nextFunction).not.toHaveBeenCalled();
+        expect(mockResponse.status).toHaveBeenCalledWith(401);
+      }
+    });
+
     it("reports the bound resource when it is not the first audience", async () => {
       const other = new URL("https://api.example.com/other");
       class VerifierAuth {
