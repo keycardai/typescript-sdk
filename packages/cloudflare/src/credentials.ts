@@ -1,9 +1,13 @@
+import { basicAuthorization } from "@keycardai/oauth/credentials";
+import type { ApplicationCredential, ClientAuthentication } from "@keycardai/oauth/credentials";
+import { ConfigurationError } from "@keycardai/oauth/errors";
 import type { PrivateKeyring, IdentifiableKey } from "@keycardai/oauth/keyring";
 import { JWTSigner } from "@keycardai/oauth/jwt/signer";
 import type { TokenExchangeRequest } from "@keycardai/oauth/tokenExchange";
-import type { ApplicationCredential } from "@keycardai/oauth/credentials";
 
 export type { ApplicationCredential } from "@keycardai/oauth/credentials";
+
+const JWT_BEARER_ASSERTION_TYPE = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer";
 
 // =============================================================================
 // WorkersClientSecret — Basic auth credential for Workers
@@ -20,6 +24,13 @@ export class WorkersClientSecret implements ApplicationCredential {
 
   getAuth(): { clientId: string; clientSecret: string } {
     return { clientId: this.#clientId, clientSecret: this.#clientSecret };
+  }
+
+  async clientAuthentication(_issuer: string, _endpoint: string): Promise<ClientAuthentication> {
+    return {
+      headers: { Authorization: basicAuthorization(this.#clientId, this.#clientSecret) },
+      form: {},
+    };
   }
 
   async prepareTokenExchangeRequest(
@@ -41,13 +52,15 @@ export class WorkersClientSecret implements ApplicationCredential {
 export class WorkersWebIdentity implements ApplicationCredential {
   #privateKeyPem: string;
   #keyId: string;
+  #clientId?: string;
   #cryptoKey?: CryptoKey;
   #publicJwk?: Record<string, unknown>;
   #importPromise?: Promise<void>;
 
-  constructor(privateKeyPem: string, keyId?: string) {
+  constructor(privateKeyPem: string, options?: string | { keyId?: string; clientId?: string }) {
     this.#privateKeyPem = privateKeyPem;
-    this.#keyId = keyId ?? "worker-key";
+    this.#keyId = (typeof options === "string" ? options : options?.keyId) ?? "worker-key";
+    this.#clientId = typeof options === "string" ? undefined : options?.clientId;
   }
 
   getAuth(): null {
@@ -60,15 +73,55 @@ export class WorkersWebIdentity implements ApplicationCredential {
     options?: { tokenEndpoint?: string; authInfo?: Record<string, string> },
   ): Promise<TokenExchangeRequest> {
     await this.#ensureImported();
+    const issuer = options?.authInfo?.resource_client_id ?? this.#clientId ?? this.#keyId;
+    const audience = options?.tokenEndpoint;
+    if (!audience) {
+      throw new ConfigurationError("WorkersWebIdentity: token endpoint is required for the assertion audience (aud)");
+    }
 
-    const issuer = options?.authInfo?.resource_client_id ?? this.#keyId;
-    const audience = options?.tokenEndpoint ?? issuer;
+    return {
+      subjectToken,
+      resource,
+      subjectTokenType: "urn:ietf:params:oauth:token-type:access_token",
+      clientAssertionType: JWT_BEARER_ASSERTION_TYPE,
+      clientAssertion: await this.#signAssertion(issuer, audience),
+    };
+  }
 
+  async clientAuthentication(_issuer: string, endpoint: string): Promise<ClientAuthentication> {
+    const clientId = this.#requireClientId();
+    if (!endpoint) {
+      throw new ConfigurationError("WorkersWebIdentity: endpoint is required for the assertion audience (aud)");
+    }
+    await this.#ensureImported();
+    return {
+      headers: {},
+      form: {
+        client_assertion_type: JWT_BEARER_ASSERTION_TYPE,
+        client_assertion: await this.#signAssertion(clientId, endpoint),
+      },
+    };
+  }
+
+  checkClientAuthentication(): void {
+    this.#requireClientId();
+  }
+
+  #requireClientId(): string {
+    if (!this.#clientId) {
+      throw new ConfigurationError(
+        "WorkersWebIdentity: clientId is required for client authentication (the assertion iss and sub)",
+      );
+    }
+    return this.#clientId;
+  }
+
+  #signAssertion(issuer: string, audience: string): Promise<string> {
     const keyring = new WorkersPrivateKeyring(this.#cryptoKey!, this.#keyId, issuer);
     const signer = new JWTSigner(keyring);
 
     const now = Math.floor(Date.now() / 1000);
-    const clientAssertion = await signer.sign({
+    return signer.sign({
       iss: issuer,
       sub: issuer,
       aud: audience,
@@ -76,14 +129,6 @@ export class WorkersWebIdentity implements ApplicationCredential {
       iat: now,
       exp: now + 300,
     });
-
-    return {
-      subjectToken,
-      resource,
-      subjectTokenType: "urn:ietf:params:oauth:token-type:access_token",
-      clientAssertionType: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
-      clientAssertion,
-    };
   }
 
   /**
