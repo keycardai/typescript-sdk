@@ -1,4 +1,5 @@
 import type { ResourceBindingOptions } from "./resourceBinding.js";
+import type { BearerIntrospectionOptions } from "@keycardai/oauth/bearerIntrospection";
 // =============================================================================
 // Environment Bindings
 // =============================================================================
@@ -78,7 +79,7 @@ export type AuthenticatedFetchHandler<Env extends KeycardEnv = KeycardEnv> = (
   auth: AuthInfo,
 ) => Response | Promise<Response>;
 
-export interface KeycardWorkerOptions<Env extends KeycardEnv = KeycardEnv> extends ResourceBindingOptions {
+export interface KeycardWorkerOptions<Env extends KeycardEnv = KeycardEnv> extends ResourceBindingOptions, BearerIntrospectionOptions {
   /**
    * Audience(s) verified tokens must be intended for. Bind this to the
    * Worker's public URL (the resource identifier registered in Keycard) so
@@ -123,7 +124,7 @@ export interface MetadataOptions extends ResourceBindingOptions {
 // Bearer Auth Options
 // =============================================================================
 
-export interface BearerAuthOptions extends ResourceBindingOptions {
+export interface BearerAuthOptions extends ResourceBindingOptions, BearerIntrospectionOptions {
   /**
    * Issuer(s) to trust. Required — tokens whose `iss` is not in this set are
    * rejected before any JWKS lookup. Pass the same Keycard zone URL you

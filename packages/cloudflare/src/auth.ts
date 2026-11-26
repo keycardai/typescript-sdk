@@ -1,5 +1,6 @@
 import { JWKSOAuthKeyring } from "@keycardai/oauth/keyring";
 import { JWTVerifier } from "@keycardai/oauth/jwt/verifier";
+import { configureBearerIntrospection } from "@keycardai/oauth/bearerIntrospection";
 import {
   BadRequestError,
   ConfigurationError,
@@ -24,6 +25,7 @@ import {
 // fresh `JWTVerifier` around this keyring; that construction is a handful
 // of Set literals and is sub-millisecond.
 const sharedKeyring = new JWKSOAuthKeyring();
+const introspectionLogs = new WeakMap<BearerAuthOptions, Set<string>>();
 
 /**
  * Constructs the OAuth Protected Resource Metadata URL for WWW-Authenticate headers.
@@ -61,14 +63,24 @@ function normalizeIdentifier(identifier: string): string {
 /**
  * Verifies a Bearer token from a Workers request.
  *
- * Returns `AuthInfo` on success, or a `Response` (400/401/403) on failure.
+ * Returns `AuthInfo` on success, or an error `Response` on failure.
  * This is the Workers equivalent of `requireBearerAuth` Express middleware.
  */
 export async function verifyBearerToken(
   request: Request,
   options: BearerAuthOptions,
 ): Promise<AuthInfo | Response> {
-  return verifyRequest(request, options);
+  const binding = resolveResourceBinding(options);
+  let introspect: ReturnType<typeof configureBearerIntrospection>;
+  if (options.introspect) {
+    const multiZone = binding.mode === "perZone" || binding.mode === "shared"
+      ? binding.entries.size > 1
+      : Array.isArray(options.issuers) && new Set(options.issuers).size > 1;
+    const loggedCauses = introspectionLogs.get(options) ?? new Set<string>();
+    introspect = configureBearerIntrospection(options, multiZone, loggedCauses);
+    introspectionLogs.set(options, loggedCauses);
+  }
+  return verifyRequest(request, options, binding, true, introspect);
 }
 
 export async function verifyRequest(
@@ -76,6 +88,7 @@ export async function verifyRequest(
   options: BearerAuthOptions,
   binding = resolveResourceBinding(options),
   warn = true,
+  introspect?: ReturnType<typeof configureBearerIntrospection>,
 ): Promise<AuthInfo | Response> {
   validateAudience(binding, options.audiences);
   validateZoneResolver(binding, options.zoneResolver);
@@ -184,6 +197,10 @@ export async function verifyRequest(
     // Check expiration
     if (authInfo.expiresAt && authInfo.expiresAt < Date.now() / 1000) {
       throw new InvalidTokenError("Token has expired");
+    }
+
+    if (introspect && !await introspect(claims.iss, token)) {
+      throw new InvalidTokenError("Token is inactive");
     }
 
     return omitWhenPrinted(authInfo, "AuthInfo", ["token"]);

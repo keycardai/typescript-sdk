@@ -3,6 +3,7 @@ import {
   resolveCredentialType,
 } from "@keycardai/oauth/credentialDiscovery";
 import { CredentialDiscoveryError } from "@keycardai/oauth/errors";
+import { configureBearerIntrospection } from "@keycardai/oauth/bearerIntrospection";
 import { verifyRequest, isAuthError } from "./auth.js";
 import { handleMetadata } from "./metadata.js";
 import { WorkersClientSecret, WorkersWebIdentity } from "./credentials.js";
@@ -28,6 +29,8 @@ export function createKeycardWorker<Env extends KeycardEnv = KeycardEnv>(
   const binding = resolveResourceBinding(options);
   validateAudience(binding, options.audiences);
   validateZoneResolver(binding, options.zoneResolver);
+  const introspect = configureBearerIntrospection(options,
+    (binding.mode === "perZone" || binding.mode === "shared") && binding.entries.size > 1);
   if (binding.mode === "legacy") warnLegacy("createKeycardWorker");
 
   // Cache the WebIdentity instance across requests (module-level is safe —
@@ -64,12 +67,15 @@ export function createKeycardWorker<Env extends KeycardEnv = KeycardEnv>(
 
       // Verify bearer token. `KEYCARD_ISSUER` from env is the trust anchor:
       // tokens with any other `iss` are rejected before any JWKS lookup.
-      const authResult = await verifyRequest(request, {
+      const authOptions = {
         issuers: env.KEYCARD_ISSUER,
         audiences: options.audiences,
         requiredScopes: options.requiredScopes,
         zoneResolver: options.zoneResolver,
-      }, binding, false);
+      };
+      const authResult = introspect
+        ? await verifyRequest(request, authOptions, binding, false, introspect)
+        : await verifyRequest(request, authOptions, binding, false);
 
       if (isAuthError(authResult)) {
         return authResult;
