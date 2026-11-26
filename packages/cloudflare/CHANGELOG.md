@@ -1,3 +1,18 @@
+## 0.6.1-keycardai-cloudflare (2026-11-26)
+
+
+- refactor(cloudflare): resolve the credential through oauth credential discovery (SDK-6) (#450)
+- * refactor(cloudflare): resolve credentials through @keycardai/oauth discovery (SDK-6)
+- Refs SDK-6
+- Co-Authored-By: Larry Osakwe <larry@keycard.ai>
+- * refactor(cloudflare): re-export CredentialDiscoveryError
+- * refactor(cloudflare): preserve the public credential API
+- * refactor(cloudflare): preserve credential resolution behavior
+- ---------
+- Co-authored-by: devin-ai-keycard <devin-ai@keycard.ai>
+Co-authored-by: Larry Osakwe <larry@keycard.ai>
+Co-authored-by: Larry Osakwe <23560354+Larry-Osakwe@users.noreply.github.com>
+
 ## 0.6.0-keycardai-cloudflare (2026-11-26)
 
 ## 0.5.2-keycardai-cloudflare (2026-11-26)
