@@ -496,6 +496,22 @@ describe('DelegationClient and 0.3-generation agents', () => {
     expect(harness.rpcCalls).toHaveLength(0);
   });
 
+  it('rejects a protobuf-shaped 0.3 card before exchange when compatibility is disabled', async () => {
+    const card = {
+      ...LEGACY_TARGET_CARD_JSON,
+      url: 'https://legacy.example.com/rpc',
+      security: [{ schemes: { bearer: { list: [] } } }],
+    };
+    const harness = makeHarness({ card });
+    const client = makeClient(harness, { legacyCompat: { enabled: false } });
+
+    await expect(
+      client.invokeService(TARGET_URL, 'ping', { subjectToken: 'user-token' }),
+    ).rejects.toThrow(/no usable JSON-RPC interface/);
+    expect(harness.exchangeCount()).toBe(0);
+    expect(harness.rpcCalls).toHaveLength(0);
+  });
+
   it('speaks 0.3 to a 0.3 agent only when legacyCompat is enabled (upstream compat layer)', async () => {
     const harness = makeHarness({
       card: LEGACY_TARGET_CARD_JSON,

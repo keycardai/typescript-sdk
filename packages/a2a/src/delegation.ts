@@ -164,7 +164,14 @@ export class DelegationClient {
       }],
       cardResolver: {
         resolve: (url, path) => this.#cardResolver.resolve(url, path),
-        normalizeAgentCard: (card) => withConventionEndpoint(this.#cardResolver.normalizeAgentCard(card), target),
+        normalizeAgentCard: (card) => {
+          const hasLegacyFields = typeof card === "object" && card !== null && (
+            ("url" in card && typeof card.url === "string") ||
+            ("protocolVersion" in card && typeof card.protocolVersion === "string")
+          );
+          const normalized = this.#cardResolver.normalizeAgentCard(card);
+          return hasLegacyFields ? normalized : withConventionEndpoint(normalized, target);
+        },
       },
     });
     try {
@@ -193,7 +200,6 @@ function withConventionEndpoint(card: AgentCard, target: string): AgentCard {
   if (card.supportedInterfaces?.some((iface) => iface.protocolBinding.toUpperCase() === "JSONRPC")) {
     return card;
   }
-  if ("url" in card && typeof card.url === "string") return card;
   return {
     ...card,
     supportedInterfaces: [
