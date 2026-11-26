@@ -121,6 +121,20 @@ describe("Workers bearer introspection", () => {
     expect(post).toHaveBeenCalledTimes(1);
   });
 
+  it("bearer row 22: direct verifyRequest reuses discovery but checks token status on every call", async () => {
+    const post = stubZone([() => Response.json({ active: true }), () => Response.json({ active: false })]);
+    const fetch = jest.fn(globalThis.fetch);
+    const options = {
+      issuers: issuer, resourceIdentifier: resource, introspect: true, credential, introspectionFetch: fetch,
+    };
+    const request = await bearerRequest();
+    expect(await verifyRequest(request, options)).not.toBeInstanceOf(Response);
+    expect(await verifyRequest(request, options)).toMatchObject({ status: 401 });
+    expect(fetch.mock.calls.filter(([url]) =>
+      String(url).endsWith("/.well-known/oauth-authorization-server"))).toHaveLength(1);
+    expect(post).toHaveBeenCalledTimes(2);
+  });
+
   it("cloudflare-workers row 5 and bearer row 23: rejects an unauthenticating credential at construction", () => {
     expect(() => worker({ introspect: true, credential: new WorkersWebIdentity("key-without-client-id") }))
       .toThrow(ConfigurationError);
