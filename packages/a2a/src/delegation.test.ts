@@ -475,6 +475,81 @@ describe('DelegationClient invocation endpoint origins', () => {
     expect(harness.rpcCalls).toHaveLength(0);
   });
 
+  describe.each(['default fetch', 'custom fetch'])('invocation redirects with %s', (transport) => {
+    it.each([
+      ['16 (307)', 307, 'https://other.example.com/rpc', [], 'https://other.example.com:443'],
+      ['16 (302)', 302, 'https://agent.example.com:8443/rpc', [], 'https://agent.example.com:8443'],
+      ['17', 307, '/next', [], null],
+      ['18', 307, 'https://other.example.com/rpc', ['https://other.example.com'], null],
+      ['19', 307, 'http://agent.example.com/rpc', [], 'http://agent.example.com:80'],
+    ] as const)('row %s', async (_row, status, location, trustedEndpointOrigins, deniedOrigin) => {
+      const harness = makeHarness({
+        peerResponse: (document, invocation) => invocation
+          ? new Response(null, { status, headers: { Location: location } })
+          : jsonResponse(document),
+      });
+      const redirected = new URL(location, TARGET_JSONRPC_URL).href;
+      const followed: Array<{ headers: Record<string, string>; body: unknown }> = [];
+      const peerFetch = jest.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        if (String(input) !== redirected) return harness.fetch(input, init);
+        const body = JSON.parse(String(init?.body));
+        followed.push({ headers: headersOf(init), body });
+        return jsonResponse({ ...RECORDED_1_0_MESSAGE_RESPONSE, id: body.id });
+      });
+      const client = makeClient(harness, {
+        trustedEndpointOrigins,
+        fetchImpl: transport === 'custom fetch' ? (peerFetch as unknown as typeof fetch) : undefined,
+      });
+      if (transport === 'default fetch') globalThis.fetch = peerFetch as unknown as typeof fetch;
+
+      const call = client.invokeService(TARGET_URL, 'ping', options);
+      if (deniedOrigin) {
+        await expect(call).rejects.toBeInstanceOf(A2ADiscoveryError);
+        await expect(call).rejects.toMatchObject({
+          retryable: false,
+          message: `Redirect origin ${deniedOrigin} is not trusted for target "${TARGET_URL}"`,
+        });
+        expect(followed).toEqual([]);
+      } else {
+        await expect(call).resolves.toBeDefined();
+        expect(followed).toEqual([{
+          headers: expect.objectContaining({ authorization: 'Bearer delegated-token' }),
+          body: harness.rpcCalls[0].body,
+        }]);
+      }
+      expect(peerFetch.mock.calls.filter(([url]) => url === TARGET_JSONRPC_URL))
+        .toEqual([[TARGET_JSONRPC_URL, expect.objectContaining({ redirect: 'manual' })]]);
+      expect(harness.exchangeCount()).toBe(1);
+      expect(harness.rpcCalls).toEqual([
+        expect.objectContaining({ headers: expect.objectContaining({ authorization: 'Bearer delegated-token' }) }),
+      ]);
+    });
+  });
+
+  it.each([301, 302, 303])('returns a same-origin %d without following it', async (status) => {
+    const harness = makeHarness({
+      peerResponse: (document, invocation) => invocation
+        ? new Response(null, { status, headers: { Location: '/next' } })
+        : jsonResponse(document),
+    });
+    const client = makeClient(harness);
+
+    await expect(client.invokeService(TARGET_URL, 'ping', options)).rejects.toThrow(`Status: ${status}`);
+    expect(harness.rpcCalls).toHaveLength(1);
+  });
+
+  it('stops following a same-origin 307 loop', async () => {
+    const harness = makeHarness({
+      peerResponse: (document, invocation) => invocation
+        ? new Response(null, { status: 307, headers: { Location: TARGET_JSONRPC_URL } })
+        : jsonResponse(document),
+    });
+    const client = makeClient(harness);
+
+    await expect(client.invokeService(TARGET_URL, 'ping', options)).rejects.toThrow('Status: 307');
+    expect(harness.rpcCalls).toHaveLength(11);
+  });
+
   it.each([
     'https://gateway.example.com/rpc',
     'https://gateway.example.com/rpc/..',
