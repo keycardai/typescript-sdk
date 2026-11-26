@@ -453,20 +453,20 @@ describe('requireBearerAuth when the zone is unavailable (real TokenVerifier)', 
 
   it('rows 16, 16a and 16c: selects request zones before reading a bearer token', async () => {
     stubZone(url => url.endsWith('/oauth-authorization-server')
-      ? json({ ...metadata, issuer: 'https://z_abc123.keycard.cloud', jwks_uri: 'https://z_abc123.keycard.cloud/jwks' })
+      ? json({ ...metadata, issuer: 'https://zabc123.keycard.cloud', jwks_uri: 'https://zabc123.keycard.cloud/jwks' })
       : json(publicJwks));
-    const resourceIdentifiersByZone = { z_abc123: AUDIENCE + '/z_abc123/mcp', b: AUDIENCE + '/b/mcp' };
+    const resourceIdentifiersByZone = { zabc123: AUDIENCE + '/zabc123/mcp', b: AUDIENCE + '/b/mcp' };
     const app = express();
     app.use(requireBearerAuth({
       zoneUrl: 'https://keycard.cloud', resourceIdentifiersByZone, zoneResolver: req => req.path.split('/')[1],
     }));
     app.use((_req, res) => { res.sendStatus(200); });
-    const discovery = /oauth-protected-resource\/z_abc123\/mcp/;
-    await request(app).get('/z_abc123/mcp').expect(401).expect('WWW-Authenticate', discovery);
+    const discovery = /oauth-protected-resource\/zabc123\/mcp/;
+    await request(app).get('/zabc123/mcp').expect(401).expect('WWW-Authenticate', discovery);
     await request(app).get('/').expect(401).expect('WWW-Authenticate', 'Bearer');
     await request(app).get('/c/mcp').expect(401).expect('WWW-Authenticate', 'Bearer');
-    for (const [aud, status] of [[resourceIdentifiersByZone.z_abc123, 200], [resourceIdentifiersByZone.b, 401]] as const) {
-      const result = await request(app).get('/z_abc123/mcp').set('Authorization', `Bearer ${await signToken(KID, aud, 'https://z_abc123.keycard.cloud')}`).expect(status);
+    for (const [aud, status] of [[resourceIdentifiersByZone.zabc123, 200], [resourceIdentifiersByZone.b, 401]] as const) {
+      const result = await request(app).get('/zabc123/mcp').set('Authorization', `Bearer ${await signToken(KID, aud, 'https://zabc123.keycard.cloud')}`).expect(status);
       if (status === 401) expect(result.headers['www-authenticate']).toMatch(discovery);
     }
   });

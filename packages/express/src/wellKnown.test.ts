@@ -124,7 +124,7 @@ describe('keycardMetadataRouter', () => {
     const upstream = '{\n  "authorization_endpoint": "https://auth.example.com/authorize?resource=stale&keep=1"\n}\n';
     fetchMock.mockImplementation(async () => new Response(upstream));
     const app = express();
-    const resourceIdentifiersByZone = { z_abc123: 'https://api.example.com/a/mcp', b: 'https://api.example.com/b/mcp' };
+    const resourceIdentifiersByZone = { a: 'https://api.example.com/a/mcp', b: 'https://api.example.com/b/mcp' };
     app.use(keycardMetadataRouter({ issuer: 'http://keycard.cloud:8443', resourceIdentifiersByZone }));
     for (const [zone, resource] of Object.entries(resourceIdentifiersByZone)) {
       const issuer = `http://${zone}.keycard.cloud:8443`;
@@ -176,6 +176,7 @@ describe('keycardMetadataRouter', () => {
       { resourceIdentifiersByZone: zones, multiResource: true },
       { resourceIdentifiersByZone: zones, issuer: '' },
       { resourceIdentifiersByZone: { a: resource, b: resource + '/' } },
+      { resourceIdentifiersByZone: { z_abc123: resource } },
     ]) expect(() => keycardMetadataRouter({ issuer: ISSUER, ...invalid })).toThrow();
   });
 
