@@ -141,6 +141,12 @@ export function bearerAuthHandler(
   if (binding.mode === "shared" && zoneResolver) {
     throw new ConfigurationError("Shared discovery selects a trusted issuer from the token, not a zoneResolver");
   }
+  // A multi-zone zoneUrl is the base domain, not a zone, so a single-issuer
+  // binding would advertise it as the authorization server.
+  if ("enableMultiZone" in options && options.enableMultiZone &&
+      (binding.mode === "single" || binding.mode === "multi" || binding.mode === "any")) {
+    throw new ConfigurationError("enableMultiZone requires resourceIdentifiersByZone for explicit resource bindings");
+  }
   const verify = configureVerifier(options, binding);
   if (binding.mode === "legacy" && warn) warnLegacy("requireBearerAuth", audience);
 
