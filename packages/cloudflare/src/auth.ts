@@ -70,17 +70,7 @@ export async function verifyBearerToken(
   request: Request,
   options: BearerAuthOptions,
 ): Promise<AuthInfo | Response> {
-  const binding = resolveResourceBinding(options);
-  let introspect: ReturnType<typeof configureBearerIntrospection>;
-  if (options.introspect) {
-    const multiZone = binding.mode === "perZone" || binding.mode === "shared"
-      ? binding.entries.size > 1
-      : Array.isArray(options.issuers) && new Set(options.issuers).size > 1;
-    const loggedCauses = introspectionLogs.get(options) ?? new Set<string>();
-    introspect = configureBearerIntrospection(options, multiZone, loggedCauses);
-    introspectionLogs.set(options, loggedCauses);
-  }
-  return verifyRequest(request, options, binding, true, introspect);
+  return verifyRequest(request, options);
 }
 
 export async function verifyRequest(
@@ -92,6 +82,14 @@ export async function verifyRequest(
 ): Promise<AuthInfo | Response> {
   validateAudience(binding, options.audiences);
   validateZoneResolver(binding, options.zoneResolver);
+  if (!introspect && options.introspect) {
+    const multiZone = binding.mode === "perZone" || binding.mode === "shared"
+      ? binding.entries.size > 1
+      : Array.isArray(options.issuers) && new Set(options.issuers).size > 1;
+    const loggedCauses = introspectionLogs.get(options) ?? new Set<string>();
+    introspect = configureBearerIntrospection(options, multiZone, loggedCauses);
+    introspectionLogs.set(options, loggedCauses);
+  }
   const url = new URL(request.url);
   let resourceMetadataUrl: string | undefined;
   let issuers = options.issuers;

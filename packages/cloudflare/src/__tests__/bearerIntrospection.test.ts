@@ -1,7 +1,7 @@
 import { describe, expect, it, jest, beforeAll, afterEach } from "@jest/globals";
 import { JWTSigner } from "@keycardai/oauth/jwt/signer";
 import { ConfigurationError } from "@keycardai/oauth/errors";
-import { verifyBearerToken } from "../auth.js";
+import { verifyBearerToken, verifyRequest } from "../auth.js";
 import { WorkersClientSecret, WorkersWebIdentity } from "../credentials.js";
 import type { BearerAuthOptions, KeycardWorkerOptions } from "../types.js";
 import { createKeycardWorker } from "../worker.js";
@@ -107,6 +107,18 @@ describe("Workers bearer introspection", () => {
     expect(response.headers.has("WWW-Authenticate")).toBe(false);
     expect(post).toHaveBeenCalledTimes(1);
     expect(app.handler).not.toHaveBeenCalled();
+  });
+
+  it("cloudflare-workers row 3: direct verifyRequest rejects an inactive token when introspection is enabled", async () => {
+    const post = stubZone([() => Response.json({ active: false })]);
+    const response = await verifyRequest(await bearerRequest(), {
+      issuers: issuer, resourceIdentifier: resource, introspect: true, credential,
+    });
+    expect(response).toBeInstanceOf(Response);
+    if (!(response instanceof Response)) throw new Error("Expected an authentication response");
+    expect(response.status).toBe(401);
+    expect(response.headers.get("WWW-Authenticate")).toContain('error="invalid_token"');
+    expect(post).toHaveBeenCalledTimes(1);
   });
 
   it("cloudflare-workers row 5 and bearer row 23: rejects an unauthenticating credential at construction", () => {
