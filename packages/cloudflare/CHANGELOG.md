@@ -1,3 +1,9 @@
+## 0.7.0-keycardai-cloudflare (2026-11-26)
+
+
+- feat(cloudflare): token introspection in the bearer middleware (#470)
+- Passes introspect and the owning Application's credential to the bearer middleware per cloudflare-workers spec-version 2 and bearer-token-verification-middleware spec-version 8 (spec#101, ID-882).
+
 ## 0.6.1-keycardai-cloudflare (2026-11-26)
 
 
