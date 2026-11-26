@@ -190,8 +190,9 @@ interface AuthInfo {
 | Type | Env vars | Auth method |
 |---|---|---|
 | `WorkersClientSecret` | `KEYCARD_CLIENT_ID` + `KEYCARD_CLIENT_SECRET` | Basic auth |
-| `WorkersWebIdentity` | `KEYCARD_PRIVATE_KEY`; `KEYCARD_CLIENT_ID` for client authentication | Private key JWT (RFC 7523) |
+| `WorkersWebIdentity` | `KEYCARD_PRIVATE_KEY`; `KEYCARD_CLIENT_ID` (registered client ID) for client authentication and token exchange `iss` and `sub` | Private key JWT (RFC 7523) |
 
-`WorkersWebIdentity` accepts `(privateKeyPem, { clientId, keyId })` with both options optional.
-The `(privateKeyPem, keyId?)` form also works. Use the registered client ID for the
-device grant and credential-based refresh.
+`WorkersWebIdentity` accepts `(privateKeyPem, { clientId, keyId })` or
+`(privateKeyPem, keyId?)`. Token exchange uses `KEYCARD_CLIENT_ID` for `iss` and
+`sub` unless `resource_client_id` overrides it. If neither is set, it uses the
+key ID (`worker-key` by default).
