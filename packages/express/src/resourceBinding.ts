@@ -143,7 +143,8 @@ export function requestTarget(url: string): string {
 }
 
 export function bearerChallenge(metadataUrl?: string, error?: string, description?: string): string {
-  const params = error ? [`error="${error}"`, `error_description="${description}"`] : [];
+  const safeDescription = description?.replace(/[^\x20-\x21\x23-\x5b\x5d-\x7e]/g, " ");
+  const params = error ? [`error="${error}"`, `error_description="${safeDescription}"`] : [];
   if (metadataUrl) params.push(`resource_metadata="${metadataUrl}"`);
   return params.length ? `Bearer ${params.join(", ")}` : "Bearer";
 }

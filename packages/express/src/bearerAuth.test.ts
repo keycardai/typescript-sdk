@@ -5,7 +5,8 @@ import { requireBearerAuth, subdomainZoneResolver } from './bearerAuth.js';
 import { createKeycardMiddleware } from './middleware.js';
 import { TokenVerifier } from '@keycardai/oauth/server';
 import type { AccessToken } from '@keycardai/oauth/server';
-import { ConfigurationError, JWKSKeyNotFoundError } from '@keycardai/oauth/errors';
+import { ConfigurationError, InvalidTokenError, JWKSKeyNotFoundError } from '@keycardai/oauth/errors';
+import { JWTVerifier } from '@keycardai/oauth/jwt/verifier';
 import { JWKSOAuthKeyring, JWTSigner, type PrivateKeyring } from '@keycardai/oauth';
 
 const VALID_TOKEN: AccessToken = {
@@ -475,6 +476,22 @@ describe('requireBearerAuth when the zone is unavailable (real TokenVerifier)', 
     expect(() => requireBearerAuth({
       verifier, resourceIdentifiersByZone: { b: resourceIdentifier }, zoneResolver: () => 'b',
     })).toThrow(ConfigurationError);
+  });
+
+  it.each([
+    { allowAnyAudience: true },
+    { multiResource: true, audience: [AUDIENCE], resourceIdentifiersByZone: { a: AUDIENCE } },
+  ])('returns a valid bearer challenge when the verifier error contains invalid header characters: %j', async mode => {
+    const verify = jest.spyOn(JWTVerifier.prototype, 'verify')
+      .mockRejectedValue(new InvalidTokenError('Unsupported JWT algorithm: "\u0100"'));
+    try {
+      const app = express();
+      app.use(requireBearerAuth({ zoneUrl: 'https://keycard.cloud', ...mode }));
+      const result = await request(app).get('/').set('Authorization', 'Bearer token').expect(401);
+      expect(result.headers['www-authenticate']).toContain('error="invalid_token", error_description="Unsupported JWT algorithm:    "');
+    } finally {
+      verify.mockRestore();
+    }
   });
 
   it('row 17: uses the configured issuers for a shared discovery URL', async () => {
