@@ -39,12 +39,12 @@ export function boundedPeerFetch(limit: number, invocation = false): typeof fetc
       reader.releaseLock();
     }
 
-    const body = new Uint8Array(size);
-    let offset = 0;
-    for (const chunk of chunks) {
-      body.set(chunk, offset);
-      offset += chunk.byteLength;
-    }
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const chunk of chunks) controller.enqueue(chunk);
+        controller.close();
+      },
+    });
     return new Response(body, {
       status: response.status,
       statusText: response.statusText,

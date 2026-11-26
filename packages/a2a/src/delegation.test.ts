@@ -2,6 +2,7 @@ import { jest } from '@jest/globals';
 import { DelegationClient } from './delegation.js';
 import { buildAgentCard } from './server.js';
 import { ServiceDiscovery } from './discovery.js';
+import { boundedPeerFetch } from './peer-response.js';
 import type { AgentCard } from '@a2a-js/sdk';
 import { ResponseBodyTooLargeError } from '@keycardai/oauth';
 import { createServer } from 'node:http';
@@ -195,6 +196,22 @@ function paddedResponse(document: unknown, mib: number, status = 200): Response 
 
 describe('A2A delegation v3 peer response limit', () => {
   const options = { subjectToken: 'user-token' };
+
+  it('replays accepted response chunks without copying them', async () => {
+    const chunks = [new Uint8Array([1, 2]), new Uint8Array([3, 4])];
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const chunk of chunks) controller.enqueue(chunk);
+        controller.close();
+      },
+    });
+    globalThis.fetch = async () => new Response(body);
+
+    const response = await boundedPeerFetch(4)(TARGET_URL);
+    const reader = response.body!.getReader();
+    for (const chunk of chunks) expect((await reader.read()).value).toBe(chunk);
+    expect((await reader.read()).done).toBe(true);
+  });
 
   it('row 9: accepts agent cards and invocation replies above 1 MiB by default', async () => {
     globalThis.fetch = makeHarness({ peerResponse: (doc) => paddedResponse(doc, 1) }).fetch;
