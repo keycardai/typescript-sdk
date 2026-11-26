@@ -475,6 +475,47 @@ describe('DelegationClient invocation endpoint origins', () => {
     expect(harness.rpcCalls).toHaveLength(0);
   });
 
+  describe.each(['default fetch', 'custom fetch'])('invocation redirects with %s', (transport) => {
+    it.each([
+      ['16 (307)', 307, 'https://other.example.com/rpc', [], 'https://other.example.com:443'],
+      ['16 (302)', 302, 'https://agent.example.com:8443/rpc', [], 'https://agent.example.com:8443'],
+      ['17', 307, '/next', [], null],
+      ['18', 307, 'https://other.example.com/rpc', ['https://other.example.com'], null],
+      ['19', 307, 'http://agent.example.com/rpc', [], 'http://agent.example.com:80'],
+    ] as const)('row %s', async (_row, status, location, trustedEndpointOrigins, deniedOrigin) => {
+      const harness = makeHarness({
+        peerResponse: (document, invocation) => invocation
+          ? new Response(null, { status, headers: { Location: location } })
+          : jsonResponse(document),
+      });
+      const peerFetch = jest.fn(harness.fetch);
+      const client = makeClient(harness, {
+        trustedEndpointOrigins,
+        fetchImpl: transport === 'custom fetch' ? peerFetch : undefined,
+      });
+      if (transport === 'default fetch') globalThis.fetch = peerFetch;
+
+      const call = client.invokeService(TARGET_URL, 'ping', options);
+      if (deniedOrigin) {
+        await expect(call).rejects.toBeInstanceOf(A2ADiscoveryError);
+        await expect(call).rejects.toMatchObject({
+          retryable: false,
+          message: `Redirect origin ${deniedOrigin} is not trusted for target "${TARGET_URL}"`,
+        });
+      } else {
+        await expect(call).rejects.toThrow('Status: 307');
+      }
+      expect(peerFetch.mock.calls.filter(([url]) => url === TARGET_JSONRPC_URL))
+        .toEqual([[TARGET_JSONRPC_URL, expect.objectContaining({ redirect: 'manual' })]]);
+      expect(peerFetch.mock.calls.some(([url]) => url === new URL(location, TARGET_JSONRPC_URL).href))
+        .toBe(false);
+      expect(harness.exchangeCount()).toBe(1);
+      expect(harness.rpcCalls).toEqual([
+        expect.objectContaining({ headers: expect.objectContaining({ authorization: 'Bearer delegated-token' }) }),
+      ]);
+    });
+  });
+
   it.each([
     'https://gateway.example.com/rpc',
     'https://gateway.example.com/rpc/..',

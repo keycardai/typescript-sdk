@@ -91,7 +91,8 @@ export class DelegationClient {
   #config: AgentServiceConfig;
   #tokenClient: TokenExchangeClient;
   #discovery: ServiceDiscovery;
-  #transportFactory: JsonRpcTransportFactory;
+  #fetch: typeof fetch;
+  #legacyCompat: DelegationClientOptions["legacyCompat"];
   #cardResolver: DefaultAgentCardResolver;
   #trustedOrigins: ReadonlySet<string>;
 
@@ -102,12 +103,12 @@ export class DelegationClient {
     this.#tokenClient = new TokenExchangeClient(getAuthServerUrl(config), {
       credential: new ClientSecret(config.clientId, config.clientSecret),
     });
-    const transportOptions = {
-      fetchImpl: options?.fetchImpl ?? boundedPeerFetch(limit, true),
-      legacyCompat: options?.legacyCompat,
-    };
-    this.#transportFactory = new JsonRpcTransportFactory(transportOptions);
-    this.#cardResolver = new DefaultAgentCardResolver(transportOptions);
+    this.#fetch = options?.fetchImpl ?? boundedPeerFetch(limit, true);
+    this.#legacyCompat = options?.legacyCompat;
+    this.#cardResolver = new DefaultAgentCardResolver({
+      fetchImpl: this.#fetch,
+      legacyCompat: this.#legacyCompat,
+    });
     this.#trustedOrigins = new Set(
       (options?.trustedEndpointOrigins ?? []).map(trustedHttpOrigin),
     );
@@ -136,7 +137,7 @@ export class DelegationClient {
         },
       );
     } catch (error) {
-      if (error instanceof ResponseBodyTooLargeError) throw error;
+      if (error instanceof ResponseBodyTooLargeError || error instanceof A2ADiscoveryError) throw error;
       throw new Error(
         `DelegationClient: A2A request to "${serviceUrl}" failed: ${
           error instanceof Error ? error.message : String(error)
@@ -151,15 +152,32 @@ export class DelegationClient {
 
   async #createClient(agentCard: AgentCard, target: string): Promise<Client> {
     const targetOrigin = httpOrigin(target, "delegation target");
+    const transportFactory = new JsonRpcTransportFactory({
+      legacyCompat: this.#legacyCompat,
+      fetchImpl: async (input, init) => {
+        const response = await this.#fetch(input, { ...init, redirect: "manual" });
+        const location = response.headers.get("location");
+        if (location && [301, 302, 303, 307, 308].includes(response.status)) {
+          const base = typeof input === "string" || input instanceof URL ? input : input.url;
+          const redirect = new URL(location, base);
+          const origin = httpOrigin(redirect.href, `redirect for target "${target}"`);
+          if (origin !== targetOrigin && !this.#trustedOrigins.has(origin)) {
+            void response.body?.cancel().catch(() => {});
+            throw new A2ADiscoveryError(`Redirect origin ${origin} is not trusted for target "${target}"`);
+          }
+        }
+        return response;
+      },
+    });
     const factory = new ClientFactory({
       transports: [{
-        protocolName: this.#transportFactory.protocolName,
+        protocolName: transportFactory.protocolName,
         create: (endpoint, card) => {
           const origin = httpOrigin(endpoint, `invocation endpoint for target "${target}"`);
           if (origin !== targetOrigin && !this.#trustedOrigins.has(origin)) {
             throw new A2ADiscoveryError(`Endpoint origin ${origin} is not trusted for target "${target}"`);
           }
-          return this.#transportFactory.create(endpoint, card);
+          return transportFactory.create(endpoint, card);
         },
       }],
       cardResolver: {
