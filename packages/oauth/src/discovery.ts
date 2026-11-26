@@ -11,6 +11,8 @@ const OAuthAuthorizationServerMetadataSchema = z.looseObject({
   registration_endpoint: z.string().optional(),
   revocation_endpoint: z.string().optional().catch(undefined),
   revocation_endpoint_auth_methods_supported: z.array(z.string()).optional().catch(undefined),
+  introspection_endpoint: z.string().optional().catch(undefined),
+  introspection_endpoint_auth_methods_supported: z.array(z.string()).optional().catch(undefined),
   grant_types_supported: z.array(z.string()).optional(),
   response_types_supported: z.array(z.string()).optional(),
   token_endpoint_auth_methods_supported: z.array(z.string()).optional(),

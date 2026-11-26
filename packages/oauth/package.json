@@ -124,6 +124,11 @@
       "import": "./dist/esm/tokenRevocation.js",
       "require": "./dist/cjs/tokenRevocation.js",
       "types": "./dist/esm/tokenRevocation.d.ts"
+    },
+    "./tokenIntrospection": {
+      "import": "./dist/esm/tokenIntrospection.js",
+      "require": "./dist/cjs/tokenIntrospection.js",
+      "types": "./dist/esm/tokenIntrospection.d.ts"
     }
   },
   "files": [
