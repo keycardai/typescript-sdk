@@ -8,7 +8,7 @@ Do not open a public issue, pull request, or discussion for a security problem.
 
 Use either channel:
 
-- **GitHub private vulnerability reporting (preferred).** Go to the Security tab of this repository and open a private advisory. This keeps the report, our triage, and the eventual public advisory in one place.
+- **GitHub private vulnerability reporting (preferred).** Go to the Security tab of this repository and open a private advisory. This keeps the report and our triage in one place.
 - **Email security@keycard.ai.** If you want to encrypt, say so in a first message with no details and we will send you a key.
 
 You do not need a working exploit to report something. A clear description of the flawed logic is enough.
@@ -34,9 +34,8 @@ Please test against a zone you control. Do not probe other tenants' zones or use
 | Acknowledgement | Within 3 business days |
 | Initial assessment and severity | Within 10 business days |
 | Fix or documented mitigation | Target 30 days for high and critical severity |
-| Public advisory | When the fix ships, or 90 days from your report, whichever comes first |
 
-If we need longer than 90 days we will tell you why and agree a date with you rather than let the clock run out silently. If we conclude something is not a vulnerability we will explain the reasoning, and you are welcome to argue with it.
+If we conclude something is not a vulnerability we will explain the reasoning, and you are welcome to argue with it.
 
 ## Scope
 
@@ -77,10 +76,6 @@ Node 18 or greater is supported.
 
 ## Coordinated disclosure
 
-We publish fixed vulnerabilities as GitHub Security Advisories on this repository, and request a CVE where one is warranted.
-
-You get credit in the advisory under whatever name or handle you choose, or no credit if you prefer. Tell us which.
-
 We do not currently run a paid bug bounty.
 
 **Safe harbour.** If you make a good-faith effort to follow this policy, we will not pursue or support legal action against you. Good faith means you do not access, modify, or exfiltrate data belonging to anyone else, you do not degrade the service for other users, you stop at the point where you have demonstrated the problem, and you give us a reasonable chance to fix it before going public.
@@ -95,5 +90,3 @@ Those notifications describe the vulnerability and the affected products. They d
 
 - Security reports: security@keycard.ai
 - Everything else: support@keycard.ai
-
-Please keep security matters out of the public issue tracker until an advisory is published.
