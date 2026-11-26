@@ -100,6 +100,33 @@ describe('fetchAuthorizationServerMetadata', () => {
     expect(metadata.revocation_endpoint_auth_methods_supported).toBeUndefined();
   });
 
+  it('authorization server discovery row 14: types both introspection fields and preserves signing algorithms', async () => {
+    const endpoint = `${ISSUER}/introspect`;
+    const methods = ['client_secret_basic', 'client_secret_post', 'private_key_jwt'];
+    const algorithms = ['RS256', 'ES256', 'ES384', 'ES512'];
+    mockFetch({
+      issuer: ISSUER,
+      introspection_endpoint: endpoint,
+      introspection_endpoint_auth_methods_supported: methods,
+      introspection_endpoint_auth_signing_alg_values_supported: algorithms,
+    });
+
+    const metadata = await fetchAuthorizationServerMetadata(ISSUER);
+    const typedEndpoint: string | undefined = metadata.introspection_endpoint;
+    const typedMethods: string[] | undefined = metadata.introspection_endpoint_auth_methods_supported;
+    expect(typedEndpoint).toBe(endpoint);
+    expect(typedMethods).toEqual(methods);
+    expect(metadata.introspection_endpoint_auth_signing_alg_values_supported).toEqual(algorithms);
+  });
+
+  it('authorization server discovery row 15: leaves both introspection fields undefined when absent', async () => {
+    mockFetch({ issuer: ISSUER });
+
+    const metadata = await fetchAuthorizationServerMetadata(ISSUER);
+    expect(metadata.introspection_endpoint).toBeUndefined();
+    expect(metadata.introspection_endpoint_auth_methods_supported).toBeUndefined();
+  });
+
   it.each([
     ['revocation_endpoint', 42],
     ['revocation_endpoint_auth_methods_supported', 'none'],

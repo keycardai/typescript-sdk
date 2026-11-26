@@ -7,6 +7,7 @@ export {
   HTTPError,
   BadRequestError,
   UnauthorizedError,
+  TokenIntrospectionHTTPError,
   TokenRevocationHTTPError,
   OAuthError,
   MAX_RESPONSE_BODY_BYTES,
@@ -125,6 +126,8 @@ export { fetchUserInfo } from "./userinfo.js";
 export type { UserInfoResponse, FetchUserInfoOptions } from "./userinfo.js";
 export { revokeToken } from "./tokenRevocation.js";
 export type { RevokeTokenOptions } from "./tokenRevocation.js";
+export { introspectToken } from "./tokenIntrospection.js";
+export type { IntrospectTokenOptions, TokenIntrospection } from "./tokenIntrospection.js";
 export { resolveIssuerFromChallenge, authenticateFromChallenge } from "./challenge.js";
 export type {
   AuthenticateFromChallengeOptions,

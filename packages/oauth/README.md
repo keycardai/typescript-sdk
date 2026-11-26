@@ -345,6 +345,25 @@ user.claims.email;   // full claims document, unfiltered
 Zone access tokens are authorization-only, so identity claims live behind the
 issuer's `userinfo_endpoint`. Pass `{ metadata }` to skip discovery.
 
+### Token Introspection (RFC 7662)
+
+```typescript
+import { ClientSecret, introspectToken } from "@keycardai/oauth";
+
+const result = await introspectToken("https://your-zone.keycard.cloud", token, {
+  credential: new ClientSecret(clientId, clientSecret),
+});
+
+if (result.active) {
+  console.log(result.scope);
+}
+```
+
+Use a confidential client credential. The SDK posts to the advertised
+`introspection_endpoint` and does not cache results. Pass pre-discovered
+`metadata` to skip discovery. An inactive token returns `{ active: false }`
+without throwing.
+
 ## API Overview
 
 ### JWKS Key Management
@@ -406,6 +425,14 @@ issuer's `userinfo_endpoint`. Pass `{ metadata }` to skip discovery.
 |---|---|---|
 | `fetchUserInfo` | `@keycardai/oauth/userinfo` | Fetches the signed-in user's claims from the discovered `userinfo_endpoint` |
 | `UserInfoResponse` (type) | `@keycardai/oauth/userinfo` | `{ sub, claims }` — all returned claims, unfiltered |
+
+### Token Introspection
+
+| Export | Import Path | Description |
+|---|---|---|
+| `introspectToken` | `@keycardai/oauth/tokenIntrospection` | Checks a token's current status at the discovered introspection endpoint |
+| `TokenIntrospection` (type) | `@keycardai/oauth/tokenIntrospection` | Active status and, when active, the returned claims with parsed scopes |
+| `TokenIntrospectionHTTPError` | `@keycardai/oauth` | An HTTP or transport failure with a `retryable` classification |
 
 ### Server-tier Primitives
 
