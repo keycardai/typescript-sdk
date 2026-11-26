@@ -50,7 +50,7 @@ describe("bearer introspection plumbing", () => {
     },
   );
 
-  it("bearer row 22: shares in-flight discovery per issuer but never caches token status", async () => {
+  it("bearer row 22: caches resolved discovery per issuer but never caches token status", async () => {
     const other = "https://other.keycard.cloud";
     const post = jest.fn()
       .mockReturnValueOnce(Response.json({ active: true }))
@@ -64,10 +64,28 @@ describe("bearer introspection plumbing", () => {
     const check = configureBearerIntrospection({
       introspect: true, credential: { [issuer]: credential, [other]: credential }, introspectionFetch: transport,
     }, true)!;
-    await expect(Promise.all([check(issuer, "caller-token"), check(issuer, "caller-token")])).resolves.toEqual([true, false]);
+    await expect(check(issuer, "caller-token")).resolves.toBe(true);
+    await expect(check(issuer, "caller-token")).resolves.toBe(false);
     await expect(check(other, "caller-token")).resolves.toBe(true);
     expect(discover.mock.calls).toEqual([[issuer], [other]]);
     expect(post).toHaveBeenCalledTimes(3);
+  });
+
+  it("bearer row 22: a stalled discovery does not block a later check for the same issuer", async () => {
+    const transport = jest.fn<typeof fetch>()
+      .mockImplementationOnce(() => new Promise<Response>(() => {}))
+      .mockResolvedValueOnce(Response.json({ issuer, introspection_endpoint: issuer + "/introspect" }))
+      .mockResolvedValueOnce(Response.json({ active: true }));
+    const check = configureBearerIntrospection({
+      introspect: true, credential, introspectionFetch: transport,
+    }, false)!;
+    void check(issuer, "first-token");
+    const second = check(issuer, "second-token");
+    expect(transport.mock.calls.map(([input]) => String(input))).toEqual([
+      issuer + "/.well-known/oauth-authorization-server",
+      issuer + "/.well-known/oauth-authorization-server",
+    ]);
+    await expect(second).resolves.toBe(true);
   });
 
   it("bearer row 20: drops failed discovery and retries only on a later request after the retry delay", async () => {

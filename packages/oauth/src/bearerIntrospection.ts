@@ -20,7 +20,7 @@ export interface BearerIntrospectionOptions {
 export function createBearerIntrospectionState() {
   return {
     loggedCauses: new Set<string>(),
-    metadata: new Map<string, { pending: Promise<OAuthAuthorizationServerMetadata>; expiresAt: number }>(),
+    metadata: new Map<string, { value: OAuthAuthorizationServerMetadata; expiresAt: number }>(),
     retry: new MetadataRetryCache(),
   };
 }
@@ -73,34 +73,28 @@ export function configureBearerIntrospection(
     throw new HTTPError("Bearer token introspection failed", 503);
   }
 
-  function resolveMetadata(issuer: string): Promise<OAuthAuthorizationServerMetadata> {
+  async function resolveMetadata(issuer: string): Promise<OAuthAuthorizationServerMetadata> {
     if (!isUrlWithProtocol(issuer, "https:")) {
       throw new ConfigurationError("Bearer introspection requires an HTTPS issuer URL for discovery");
     }
     const cached = state.metadata.get(issuer);
-    if (cached && Date.now() < cached.expiresAt) return cached.pending;
+    if (cached && Date.now() < cached.expiresAt) return cached.value;
     state.retry.check(issuer, performance.now());
-    const entry = {
-      expiresAt: Infinity,
-      pending: fetchAuthorizationServerMetadata(issuer, { timeoutMs, fetch: introspectionFetch })
-        .then(metadata => {
-          resolveIntrospectionEndpoint(metadata);
-          entry.expiresAt = Date.now() + DEFAULT_DISCOVERY_TTL_MS;
-          state.retry.delete(issuer);
-          return metadata;
-        })
-        .catch(error => {
-          state.metadata.delete(issuer);
-          if (!(error instanceof ConfigurationError) &&
-              (!(error instanceof OAuthError) || error.status !== undefined) &&
-              isTransientMetadataFailure(error)) {
-            state.retry.record(issuer, error, error, performance.now());
-          }
-          throw error;
-        }),
-    };
-    state.metadata.set(issuer, entry);
-    return entry.pending;
+    try {
+      const metadata = await fetchAuthorizationServerMetadata(issuer, { timeoutMs, fetch: introspectionFetch });
+      resolveIntrospectionEndpoint(metadata);
+      state.metadata.set(issuer, { value: metadata, expiresAt: Date.now() + DEFAULT_DISCOVERY_TTL_MS });
+      state.retry.delete(issuer);
+      return metadata;
+    } catch (error) {
+      if (state.metadata.get(issuer) === cached &&
+          !(error instanceof ConfigurationError) &&
+          (!(error instanceof OAuthError) || error.status !== undefined) &&
+          isTransientMetadataFailure(error)) {
+        state.retry.record(issuer, error, error, performance.now());
+      }
+      throw error;
+    }
   }
 
   return async (issuer, token) => {
