@@ -123,15 +123,25 @@ after a decode-only `exp` check that costs no round trip. A thrown provider
 fails the turn, or skips the connection when it is advertised with
 `optional: true`.
 
-Credentials go in as `clientId` plus `clientSecret` (shorthand for a
-`ClientSecret`) or as `applicationCredential` (any `ApplicationCredential`,
-including assertion-based workload credentials). `clientSecret` also accepts
-the SDK's `SecretRef` (`{ secretName }`), read from `process.env` when the
-provider runs rather than when the module is imported: on Cursor hosting the
-platform binds a deployment's secrets per request, after discovery imported
-the module with none of them present. Declare the name in `secretNames` and
-set it with `agent-sdk secret set <slug> KEYCARD_CLIENT_SECRET`. An unset
-secret is a call-time `credential_unavailable` naming the variable.
+Credentials go in as `cursorWorkloadIdentity` (for Cursor-hosted deployments
+running `@grok/agent-sdk` 0.7.1 or later), `clientId` plus `clientSecret`
+(shorthand for a `ClientSecret`), or `applicationCredential` (any
+`ApplicationCredential`, including assertion-based workload credentials).
+
+For hosted deployments without a stored client secret, pass
+`cursorWorkloadIdentity: { clientId }` (with an optional `audience`, defaulting
+to the zone issuer URL, `zoneUrl` without trailing slashes). Register
+`https://api.cursor.com` as a trusted issuer in the Keycard zone, create a v2
+token credential pinned to `agent_sdk_deployment_id:<deployment-id>`, declare
+the exact audience in `hosting.oidc.audiences`, and add the zone hostname to
+`hosting.egressDomains` before deploying.
+
+`clientSecret` also accepts the SDK's `SecretRef` (`{ secretName }`), read from
+`process.env` when the provider runs rather than when the module is imported:
+on Cursor hosting the platform binds a deployment's secrets per request, after
+discovery imported the module with none of them present. Declare the name in
+`secretNames` and set it with `agent-sdk secret set <slug> KEYCARD_CLIENT_SECRET`.
+An unset secret is a call-time `credential_unavailable` naming the variable.
 
 Every factory caches the minted token per principal (one slot for `asSelf`)
 until `expirySkewSeconds` (default 60) before expiry, keyed by the principal
@@ -174,10 +184,6 @@ with per-resource errors, a contract this seam does not keep.
   Keycard zone unchanged, as one host-level identity for every caller; it is
   the single-identity baseline, not the multi-user path, and cannot be
   combined with `auth` on one connection.
-- **Hosted agents need a stored client secret.** Cursor hosting documents no
-  workload identity, so the agent authenticates with a `ClientSecret` from a
-  deployment secret. Self-hosted agents with a platform OIDC token use
-  `WorkloadIdentity` instead.
 
 ## Parity with `@keycardai/eve`
 

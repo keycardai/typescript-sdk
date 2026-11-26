@@ -11,6 +11,7 @@ import {
   type TokenExchangeRequest,
   type TokenResponse,
 } from "@keycardai/oauth";
+import { WorkloadIdentityConfigurationError } from "@keycardai/oauth/server";
 
 import { resolveConnectionConfig, type KeycardConnectionOptions, type ResolvedConnectionConfig } from "./config.js";
 import { ConnectionAuthError, FailureReason } from "./errors.js";
@@ -268,7 +269,12 @@ async function acquire(
   try {
     return await request();
   } catch (cause) {
-    if (cause instanceof ConnectionAuthError) throw cause;
+    if (
+      cause instanceof ConnectionAuthError ||
+      cause instanceof WorkloadIdentityConfigurationError
+    ) {
+      throw cause;
+    }
     const detail = cause instanceof Error ? cause.message : "token acquisition failed";
     throw new ConnectionAuthError(
       FailureReason.ACQUISITION_FAILED,
