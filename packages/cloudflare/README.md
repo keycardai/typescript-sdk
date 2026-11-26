@@ -174,8 +174,8 @@ Resolves `WorkersClientSecret` or `WorkersWebIdentity` from env bindings.
 `KEYCARD_PRIVATE_KEY` takes precedence. Otherwise, the resolver honors
 `KEYCARD_APPLICATION_CREDENTIAL_TYPE`. Workers use a private key binding for
 web identity and do not support workload identity token files.
-Invalid or missing configuration throws `CredentialDiscoveryError` from
-`@keycardai/oauth/errors`.
+Invalid or missing configuration throws `CredentialDiscoveryError`, exported
+from `@keycardai/cloudflare`.
 
 ### `AuthInfo`
 
