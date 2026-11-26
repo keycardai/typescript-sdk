@@ -4,7 +4,7 @@ import express from 'express';
 import request from 'supertest';
 import { requireBearerAuth, subdomainZoneResolver, type AuthenticatedRequest } from './bearerAuth.js';
 import { createKeycardMiddleware } from './middleware.js';
-import { TokenVerifier } from '@keycardai/oauth/server';
+import { ClientSecret, TokenVerifier } from '@keycardai/oauth/server';
 import type { AccessToken } from '@keycardai/oauth/server';
 import { ConfigurationError, InvalidTokenError, JWKSKeyNotFoundError } from '@keycardai/oauth/errors';
 import { JWTVerifier } from '@keycardai/oauth/jwt/verifier';
@@ -335,6 +335,167 @@ describe('requireBearerAuth when the zone is unavailable (real TokenVerifier)', 
     const verifier = new TokenVerifier({ issuer: ISSUER, audience: AUDIENCE, keyring: new JWKSOAuthKeyring() });
     return makeApp(verifier);
   }
+
+  describe('bearer introspection', () => {
+    const credential = new ClientSecret('resource-owner', 'resource-secret');
+    const introspectionPath = '/oauth/introspect';
+
+    function introspectionStub(replies: Array<() => Response> = []) {
+      const calls: Array<{ issuer: string; token: string | null; authorization: string | null }> = [];
+      fetchSpy.mockImplementation(async (input, init) => {
+        const url = new URL(String(input instanceof Request ? input.url : input));
+        if (url.pathname === '/.well-known/oauth-authorization-server') {
+          return json({
+            ...metadata, issuer: url.origin, jwks_uri: url.origin + '/.well-known/jwks.json',
+            introspection_endpoint: url.origin + introspectionPath,
+          });
+        }
+        if (url.pathname === '/.well-known/jwks.json') return json(publicJwks);
+        if (url.pathname !== introspectionPath) throw new Error('Unexpected outbound request');
+        calls.push({
+          issuer: url.origin,
+          token: new URLSearchParams(String(init?.body)).get('token'),
+          authorization: new Headers(init?.headers).get('authorization'),
+        });
+        expect(init?.method).toBe('POST');
+        expect(init?.signal).toBeInstanceOf(AbortSignal);
+        return replies.shift()?.() ?? json({ active: true });
+      });
+      return calls;
+    }
+
+    function protectedRoute(options: Parameters<typeof requireBearerAuth>[0]) {
+      const app = express();
+      const handler = jest.fn((_req: express.Request, res: express.Response) => {
+        res.json({ clientId: (_req as AuthenticatedRequest).auth.clientId });
+      });
+      app.use(requireBearerAuth(options), handler);
+      return { handler, send: (token: string) => request(app).get('/').set('Authorization', `Bearer ${token}`) };
+    }
+
+    it('bearer row 18 and bearer integration row 3: introspects the presented token with the resource owner credential', async () => {
+      const calls = introspectionStub();
+      const route = protectedRoute({ zoneUrl: ISSUER, resourceIdentifier: AUDIENCE, introspect: true, credential });
+      const token = await signToken();
+      await route.send(token).expect(200, { clientId: 'svc-x' });
+      expect(calls).toEqual([{
+        issuer: ISSUER, token, authorization: `Basic ${btoa('resource-owner:resource-secret')}`,
+      }]);
+      expect(route.handler).toHaveBeenCalledTimes(1);
+    });
+
+    it('express row 2 and express integration row 1: composed middleware uses its existing credential for a different client\'s token', async () => {
+      const calls = introspectionStub();
+      const app = express();
+      const keycard = createKeycardMiddleware({
+        zoneUrl: ISSUER, resourceIdentifier: AUDIENCE, introspect: true, applicationCredential: credential,
+      });
+      app.use(keycard.requireBearerAuth(), (_req, res) => { res.sendStatus(204); });
+      const token = await signToken();
+      await request(app).get('/').set('Authorization', `Bearer ${token}`).expect(204);
+      expect(calls).toEqual([{
+        issuer: ISSUER, token, authorization: `Basic ${btoa('resource-owner:resource-secret')}`,
+      }]);
+    });
+
+    it('bearer row 19, express row 3 and bearer integration row 5: rejects an inactive token whose matching audience is later', async () => {
+      const calls = introspectionStub([() => json({ active: false })]);
+      const route = protectedRoute({ zoneUrl: ISSUER, resourceIdentifier: AUDIENCE, introspect: true, credential });
+      const token = await signToken(KID, ['https://other-app.example.com', AUDIENCE]);
+      await route.send(token).expect(401).expect('WWW-Authenticate',
+        `Bearer error="invalid_token", error_description="Token is inactive", resource_metadata="${AUDIENCE}/.well-known/oauth-protected-resource"`);
+      expect(calls).toHaveLength(1);
+      expect(route.handler).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['transport', () => { throw new Error('zone unavailable'); }],
+      ['HTTP', () => new Response(null, { status: 502 })],
+      ['invalid_client', () => json({ error: 'invalid_client' }, 401)],
+      ['server_error', () => json({ error: 'server_error' }, 500)],
+      ['malformed response', () => json({ active: 'yes' })],
+    ] as const)('bearer row 20 and express row 4: maps %s failure to 503 without a challenge', async (_name, fail) => {
+      const calls = introspectionStub([fail]);
+      const route = protectedRoute({ zoneUrl: ISSUER, resourceIdentifier: AUDIENCE, introspect: true, credential });
+      const response = await route.send(await signToken()).expect(503, { error: 'temporarily_unavailable' });
+      expect(response.headers['www-authenticate']).toBeUndefined();
+      expect(calls).toHaveLength(1);
+      expect(route.handler).not.toHaveBeenCalled();
+    });
+
+    it('bearer row 20: maps discovery without an introspection endpoint to 503', async () => {
+      stubZone(url => url === DISCOVERY_URL ? json(metadata) : json(publicJwks));
+      const route = protectedRoute({ zoneUrl: ISSUER, resourceIdentifier: AUDIENCE, introspect: true, credential });
+      const response = await route.send(await signToken()).expect(503, { error: 'temporarily_unavailable' });
+      expect(response.headers['www-authenticate']).toBeUndefined();
+      expect(fetchSpy.mock.calls.every(([, init]) => init?.method !== 'POST')).toBe(true);
+      expect(route.handler).not.toHaveBeenCalled();
+    });
+
+    it('bearer row 21 and express row 1: skips introspection for an invalid token or when disabled', async () => {
+      const calls = introspectionStub();
+      const options = { zoneUrl: ISSUER, resourceIdentifier: AUDIENCE, credential };
+      const invalid = protectedRoute({ ...options, introspect: true });
+      await invalid.send(await signToken(KID, 'urn:other')).expect(401);
+      expect(invalid.handler).not.toHaveBeenCalled();
+      const token = await signToken();
+      for (const introspect of [undefined, false]) {
+        const route = protectedRoute({ ...options, introspect });
+        await route.send(token).expect(200);
+        expect(route.handler).toHaveBeenCalledTimes(1);
+      }
+      expect(calls).toHaveLength(0);
+    });
+
+    it('bearer row 22 and bearer integration row 4: checks the same token again after session revocation', async () => {
+      const calls = introspectionStub([() => json({ active: true }), () => json({ active: false })]);
+      const route = protectedRoute({ zoneUrl: ISSUER, resourceIdentifier: AUDIENCE, introspect: true, credential });
+      const token = await signToken();
+      await route.send(token).expect(200);
+      await route.send(token).expect(401).expect('WWW-Authenticate', /invalid_token/);
+      expect(calls.map(call => call.token)).toEqual([token, token]);
+      expect(route.handler).toHaveBeenCalledTimes(1);
+    });
+
+    it('bearer row 23 and express row 5: rejects missing, unauthenticating and unkeyed multi-zone credentials', () => {
+      const options = { zoneUrl: ISSUER, resourceIdentifier: AUDIENCE, introspect: true };
+      const withoutAuthentication = {
+        getAuth: () => null,
+        prepareTokenExchangeRequest: credential.prepareTokenExchangeRequest,
+      };
+      expect(() => requireBearerAuth(options)).toThrow(ConfigurationError);
+      expect(() => requireBearerAuth({ ...options, credential: withoutAuthentication })).toThrow(ConfigurationError);
+      const verifier = new TokenVerifier({ issuer: ISSUER, audience: AUDIENCE, enableMultiZone: true });
+      expect(() => requireBearerAuth({ verifier, resourceIdentifier: AUDIENCE, introspect: true, credential })).toThrow(ConfigurationError);
+    });
+
+    it('bearer row 24: selects issuer-keyed credentials and fails closed for an unconfigured zone', async () => {
+      const calls = introspectionStub();
+      const issuer = 'https://a.keycard.cloud';
+      const route = protectedRoute({
+        zoneUrl: 'https://keycard.cloud', resourceIdentifiersByZone: { a: AUDIENCE, b: AUDIENCE },
+        multiResource: true, audience: [AUDIENCE], introspect: true,
+        credential: new ClientSecret({ [issuer]: ['zone-a', 'secret-a'] }),
+      });
+      const token = await signToken(KID, AUDIENCE, issuer);
+      await route.send(token).expect(200);
+      const response = await route.send(await signToken(KID, AUDIENCE, 'https://b.keycard.cloud'))
+        .expect(503, { error: 'temporarily_unavailable' });
+      expect(response.headers['www-authenticate']).toBeUndefined();
+      expect(calls).toEqual([{ issuer, token, authorization: `Basic ${btoa('zone-a:secret-a')}` }]);
+      expect(route.handler).toHaveBeenCalledTimes(1);
+    });
+
+    it('bearer row 25: requires scopes before making the introspection request', async () => {
+      const calls = introspectionStub();
+      const route = protectedRoute({
+        zoneUrl: ISSUER, resourceIdentifier: AUDIENCE, introspect: true, credential, requiredScopes: ['read'],
+      });
+      await route.send(await signToken()).expect(403).expect('WWW-Authenticate', /insufficient_scope/);
+      expect(calls).toHaveLength(0);
+      expect(route.handler).not.toHaveBeenCalled();
+    });
+  });
 
   it.each<{ row: string; aud: string | string[]; status: number }>([
     { row: '8a: scalar match', aud: 'resource-b', status: 200 },
