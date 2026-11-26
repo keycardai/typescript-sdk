@@ -2,6 +2,7 @@ import { ConfigurationError, OAuthError } from "./errors.js";
 import { readResponseText } from "./responseBody.js";
 import { tokenEndpointError } from "./tokenEndpointError.js";
 import { providesClientAuthentication, type ApplicationCredential } from "./credentials.js";
+import { basicAuthorization } from "./basicAuthorization.js";
 import { ClientSecret } from "./server/clientSecret.js";
 import { DEFAULT_FETCH_TIMEOUT_MS, TokenEndpointResolver, type TokenEndpointCacheOptions } from "./tokenEndpoint.js";
 import { deserializeTokenResponse, type TokenResponse } from "./tokenExchange.js";
@@ -90,11 +91,13 @@ export class ClientCredentialsClient {
     options?: RequestTokenOptions,
   ): Promise<TokenResponse> {
     const credential = request?.clientAssertion ? undefined : this.#credential;
+    const issuer = options?.issuer ?? this.#issuer;
     const authenticator = credential && providesClientAuthentication(credential)
       ? credential
       : undefined;
-    if (credential && !authenticator) {
-      throw new ConfigurationError("Client credentials requires a credential that provides clientAuthentication");
+    const basicAuth = authenticator ? undefined : credential?.getAuth(issuer);
+    if (credential && !authenticator && !basicAuth) {
+      throw new ConfigurationError("Client credentials requires a credential that provides clientAuthentication or Basic auth");
     }
     const tokenEndpoint = await this.#tokenEndpoint.resolve();
     const body = serializeRequest(request ?? {});
@@ -104,11 +107,15 @@ export class ClientCredentialsClient {
     };
 
     if (authenticator) {
-      const auth = await authenticator.clientAuthentication(options?.issuer ?? this.#issuer, tokenEndpoint);
+      const auth = await authenticator.clientAuthentication(issuer, tokenEndpoint);
       body.delete("client_id");
       body.delete("client_assertion_type");
       Object.assign(headers, auth.headers);
       for (const [name, value] of Object.entries(auth.form)) body.set(name, value);
+    } else if (basicAuth) {
+      body.delete("client_id");
+      body.delete("client_assertion_type");
+      headers["Authorization"] = basicAuthorization(basicAuth.clientId, basicAuth.clientSecret);
     }
 
     const response = await fetch(tokenEndpoint, {

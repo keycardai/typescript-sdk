@@ -145,6 +145,29 @@ describe('ClientCredentialsClient.requestToken', () => {
     expect(headers['Authorization']).toBe(`Basic ${btoa('id-b:sec-b')}`);
   });
 
+  it('uses Basic auth from a credential that only provides getAuth for client authentication', async () => {
+    const getAuth = jest.fn(() => ({ clientId: 'custom-id', clientSecret: 'custom-secret' }));
+    const credential: ApplicationCredential = {
+      getAuth,
+      prepareTokenExchangeRequest: async (subjectToken, resource) => ({ subjectToken, resource }),
+    };
+    const client = new ClientCredentialsClient(ISSUER, { credential });
+
+    await client.requestToken();
+
+    expect(getAuth).toHaveBeenCalledTimes(1);
+    expect(getAuth).toHaveBeenCalledWith(ISSUER);
+    expect(tokenCallHeaders()['Authorization']).toBe(`Basic ${btoa('custom-id:custom-secret')}`);
+
+    fetchMock.mockClear();
+    await client.requestToken({ clientAssertion: 'caller-jwt', clientId: 'request-id' });
+
+    expect(getAuth).toHaveBeenCalledTimes(1);
+    expect(tokenCallHeaders()['Authorization']).toBeUndefined();
+    expect(tokenCallBody().get('client_assertion')).toBe('caller-jwt');
+    expect(tokenCallBody().get('client_id')).toBe('request-id');
+  });
+
   it.each([
     ['6a', 'custom_denial'],
     ['6b', undefined],
