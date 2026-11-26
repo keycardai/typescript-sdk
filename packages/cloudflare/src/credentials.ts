@@ -1,4 +1,4 @@
-import { basicAuthorization } from "@keycardai/oauth/credentials";
+import { basicAuthorization, createClientAuthentication } from "@keycardai/oauth/credentials";
 import type { ApplicationCredential, ClientAuthentication } from "@keycardai/oauth/credentials";
 import { ConfigurationError } from "@keycardai/oauth/errors";
 import type { PrivateKeyring, IdentifiableKey } from "@keycardai/oauth/keyring";
@@ -33,10 +33,10 @@ export class WorkersClientSecret implements ApplicationCredential {
   }
 
   async clientAuthentication(_issuer: string, _endpoint: string): Promise<ClientAuthentication> {
-    return {
-      headers: { Authorization: basicAuthorization(this.#clientId, this.#clientSecret) },
-      form: {},
-    };
+    return createClientAuthentication(
+      { Authorization: basicAuthorization(this.#clientId, this.#clientSecret) },
+      {},
+    );
   }
 
   async prepareTokenExchangeRequest(
@@ -101,13 +101,10 @@ export class WorkersWebIdentity implements ApplicationCredential {
       throw new ConfigurationError("WorkersWebIdentity: endpoint is required for the assertion audience (aud)");
     }
     await this.#ensureImported();
-    return {
-      headers: {},
-      form: {
-        client_assertion_type: JWT_BEARER_ASSERTION_TYPE,
-        client_assertion: await this.#signAssertion(clientId, endpoint),
-      },
-    };
+    return createClientAuthentication({}, {
+      client_assertion_type: JWT_BEARER_ASSERTION_TYPE,
+      client_assertion: await this.#signAssertion(clientId, endpoint),
+    });
   }
 
   checkClientAuthentication(): void {

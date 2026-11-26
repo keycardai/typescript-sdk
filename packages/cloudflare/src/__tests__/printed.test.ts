@@ -5,6 +5,8 @@ import { WorkersClientSecret, WorkersWebIdentity } from "../credentials.js";
 
 const RESOURCE = "https://api.example.com";
 const ACCESS_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:access_token";
+const ISSUER = "https://zone.example.com";
+const TOKEN_ENDPOINT = `${ISSUER}/oauth/2/token`;
 
 function pkcs8Pem(): string {
   return generateKeyPairSync("rsa", {
@@ -27,6 +29,18 @@ describe("printed forms leave out secrets", () => {
       build: async () => new WorkersClientSecret("client-id", "client-secret").getAuth(),
       secrets: () => ["client-secret"],
       want: "ClientAuth { clientId: 'client-id' }",
+    },
+    {
+      name: "WorkersClientSecret client authentication",
+      build: () => new WorkersClientSecret("client-id", "client-secret").clientAuthentication(ISSUER, TOKEN_ENDPOINT),
+      secrets: (v) => [v.headers.Authorization],
+      want: "ClientAuthentication { headers: [ 'Authorization' ], form: [] }",
+    },
+    {
+      name: "WorkersWebIdentity client authentication",
+      build: () => new WorkersWebIdentity(pkcs8Pem(), { clientId: "client-id" }).clientAuthentication(ISSUER, TOKEN_ENDPOINT),
+      secrets: (v) => [v.form.client_assertion],
+      want: "ClientAuthentication { headers: [], form: [ 'client_assertion_type', 'client_assertion' ] }",
     },
     {
       name: "WorkersClientSecret token exchange request",
