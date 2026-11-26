@@ -45,6 +45,8 @@ export function createClientAuthentication(
  * (single-zone) are accepted by the interface.
  */
 export interface ApplicationCredential {
+  /** Zone issuers for an issuer-keyed credential; undefined for a zone-independent credential. */
+  readonly zoneIssuers?: readonly string[];
   getAuth(issuer?: string): { clientId: string; clientSecret: string } | null;
   prepareTokenExchangeRequest(
     subjectToken: string,

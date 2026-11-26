@@ -21,6 +21,8 @@
  */
 export interface AccessToken {
   token: string;
+  /** Verified JWT issuer. */
+  issuer?: string;
   clientId: string;
   scopes: string[];
   expiresAt?: number;

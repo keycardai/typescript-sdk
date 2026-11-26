@@ -10,6 +10,11 @@
   },
   "type": "module",
   "exports": {
+    "./bearerIntrospection": {
+      "import": "./dist/esm/bearerIntrospection.js",
+      "require": "./dist/cjs/bearerIntrospection.js",
+      "types": "./dist/esm/bearerIntrospection.d.ts"
+    },
     ".": {
       "import": "./dist/esm/index.js",
       "require": "./dist/cjs/index.js",

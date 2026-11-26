@@ -142,7 +142,7 @@ describe('printed forms leave out secrets', () => {
       },
       secrets: (v) => [v.token],
       want: () =>
-        "AccessToken { clientId: 'service-x', scopes: [ 'read' ], expiresAt: 4102444800, resource: undefined, " +
+        "AccessToken { issuer: 'https://zone.example.com', clientId: 'service-x', scopes: [ 'read' ], expiresAt: 4102444800, resource: undefined, " +
         "sub: 'user-1', subProfile: undefined, keycardAppId: undefined, aud: [ 'https://api.example.com' ] }",
     },
     {
