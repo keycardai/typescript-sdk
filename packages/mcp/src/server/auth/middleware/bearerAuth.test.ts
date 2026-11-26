@@ -1,8 +1,9 @@
 import { jest } from '@jest/globals';
 import express, { Request, Response } from "express";
 import * as net from "node:net";
+import { inspect } from "node:util";
 import type { AuthInfo, OAuthTokenVerifier } from "@modelcontextprotocol/server";
-import { requireBearerAuth } from "./bearerAuth.js";
+import { requireBearerAuth, type AuthenticatedRequest } from "./bearerAuth.js";
 import { InvalidTokenError, InsufficientScopeError, JWKSKeyNotFoundError, JWKSFetchError, JWKSDiscoveryError } from "../errors.js";
 
 // Mock verifier
@@ -432,6 +433,22 @@ describe("requireBearerAuth middleware", () => {
       } else {
         expect(nextFunction).toHaveBeenCalledTimes(1);
       }
+    });
+
+    it("reports the bound resource when it is not the first audience", async () => {
+      const other = new URL("https://api.example.com/other");
+      const authInfo = Object.freeze({
+        token: "test-token", clientId: "client", scopes: [], aud: [other.href, resourceIdentifier], resource: other,
+      });
+      mockVerifyAccessToken.mockResolvedValue(authInfo);
+      mockRequest.headers = { authorization: "Bearer test-token" };
+      mockRequest.originalUrl = "/mcp?q=1";
+      await requireBearerAuth({ verifier: mockVerifier, resourceIdentifier })(mockRequest as Request, mockResponse as Response, nextFunction);
+      const auth = (mockRequest as AuthenticatedRequest).auth;
+      expect(nextFunction).toHaveBeenCalledTimes(1);
+      expect(auth.resource?.href).toBe(resourceIdentifier);
+      expect(auth.aud).toEqual(authInfo.aud);
+      expect(inspect(auth)).not.toContain(authInfo.token);
     });
 
     it("gate row 6: does not advertise another route's document on insufficient scope", async () => {

@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction, RequestHandler } from "express";
 import type { AuthInfo, OAuthTokenVerifier } from "../../../shared/auth.js";
-import { makeJWTAccessTokenVerifier } from "../verifiers/jwt.js";
+import { omitWhenPrinted } from "../../../shared/printed.js";
+import { makeJWTAccessTokenVerifier, toResourceUrl } from "../verifiers/jwt.js";
 import { JWKSOAuthKeyring } from "@keycardai/oauth/keyring";
 import { ConfigurationError } from "@keycardai/oauth/errors";
 import { getOAuthProtectedResourceMetadataUrl } from "../router.js"
@@ -140,7 +141,9 @@ export function requireBearerAuth(options: BearerAuthMiddlewareOptions): Request
         throw new InvalidTokenError("Token has expired");
       }
 
-      (req as Request & { auth?: AuthInfo }).auth = authInfo;
+      (req as Request & { auth?: AuthInfo }).auth = identifier
+        ? omitWhenPrinted({ ...authInfo, resource: toResourceUrl(identifier.value) }, "AuthInfo", ["token"])
+        : authInfo;
       next();
     } catch (error) {
       if (error instanceof BadRequestError || (binding.mode === "legacy" && !requestUrl)) {

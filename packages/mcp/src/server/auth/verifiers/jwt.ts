@@ -23,7 +23,7 @@ export class JWTOAuthTokenVerifier implements OAuthTokenVerifier {
         ? [...zoneIssuers(binding, options.issuers as string).values()]
         : options.issuers,
       audiences: binding.mode === "single" ? binding.identifier.value : options.audiences,
-    });
+    }, binding.mode === "single" || binding.mode === "shared" ? binding.identifier.value : undefined);
     if (binding.mode === "legacy") {
       warnLegacy("JWTOAuthTokenVerifier", options.audiences);
     }
@@ -34,7 +34,11 @@ export class JWTOAuthTokenVerifier implements OAuthTokenVerifier {
   }
 }
 
-export function makeJWTAccessTokenVerifier(keyring: OAuthKeyring, options: JWTVerifierOptions): OAuthTokenVerifier {
+export function makeJWTAccessTokenVerifier(
+  keyring: OAuthKeyring,
+  options: JWTVerifierOptions,
+  resourceIdentifier?: string,
+): OAuthTokenVerifier {
   const verifier = new JWTVerifier(keyring, options);
   return { async verifyAccessToken(token) {
     const claims = await verifier.verify(token);
@@ -44,7 +48,7 @@ export function makeJWTAccessTokenVerifier(keyring: OAuthKeyring, options: JWTVe
       // The verifier rejects missing `client_id` before we reach here, so the
       // cast is safe; the guard is gone.
       clientId: claims.client_id as string,
-      resource: toResourceUrl(claims.aud),
+      resource: toResourceUrl(resourceIdentifier ?? claims.aud),
       scopes: claims.scope ? claims.scope.split(" ") : [],
       expiresAt: claims.exp,
       aud: typeof claims.aud === "string" ? [claims.aud] : claims.aud ?? [],
@@ -62,7 +66,7 @@ export function makeJWTAccessTokenVerifier(keyring: OAuthKeyring, options: JWTVe
  * (opaque audience strings like `"my-api"` are valid per RFC 7519 but not
  * representable as a URL — we surface them via `AuthInfo.token` instead).
  */
-function toResourceUrl(aud: string | string[] | undefined): URL | undefined {
+export function toResourceUrl(aud: string | string[] | undefined): URL | undefined {
   if (aud === undefined) return undefined;
   const primary = Array.isArray(aud) ? aud[0] : aud;
   if (!primary) return undefined;
