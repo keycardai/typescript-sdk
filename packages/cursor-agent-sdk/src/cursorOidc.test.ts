@@ -185,4 +185,26 @@ describe("CursorDeploymentTokenSource", () => {
     );
     expect((caught as WorkloadIdentityRuntimeError).cause).toBe(cause);
   });
+
+  it.each([
+    [{ code: "timeout" }, true],
+    [{ code: "failed" }, true],
+    [{ code: "rate_limited", status: 429, reason: "invalid_client" }, true],
+    [{ code: "failed", status: 503 }, true],
+    [{ code: "failed", status: 401 }, false],
+    [{ code: "malformed" }, false],
+  ])("workload-identity row 25: classifies helper error %o", async (details, retryable) => {
+    const cause = Object.assign(new Error("OIDC helper failed"), details);
+    const source = new CursorDeploymentTokenSource({
+      audience: ZONE,
+      getOidcToken: async () => { throw cause; },
+    });
+    const failure = source.identityToken();
+    await expect(failure).rejects.toBeInstanceOf(WorkloadIdentityRuntimeError);
+    await expect(failure).rejects.toMatchObject({
+      source: WORKLOAD_IDENTITY_SOURCE_CURSOR_DEPLOYMENT,
+      cause,
+      retryable,
+    });
+  });
 });

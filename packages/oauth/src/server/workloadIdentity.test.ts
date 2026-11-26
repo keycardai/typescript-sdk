@@ -130,8 +130,11 @@ describe("WorkloadIdentity", () => {
     expect(calls).toBe(2);
   });
 
-  it("wraps a custom source error with the cause preserved", async () => {
+  it.each([undefined, 429, 503])("row 23: wraps an unmarked custom source error with status %s", async (status) => {
     const cause = new Error("socket unavailable");
+    if (status !== undefined) {
+      Object.assign(cause, { cause: { status } });
+    }
     const credential = new WorkloadIdentity(async () => {
       throw cause;
     });
@@ -145,6 +148,7 @@ describe("WorkloadIdentity", () => {
     await attempt.catch((error: WorkloadIdentityRuntimeError) => {
       expect(error.source).toBe("custom");
       expect(error.cause).toBe(cause);
+      expect(error.retryable).toBe(false);
     });
   });
 
@@ -159,6 +163,19 @@ describe("WorkloadIdentity", () => {
     await expect(
       credential.prepareTokenExchangeRequest("subject-token", "https://resource.example.com"),
     ).rejects.toBe(typed);
+  });
+
+  it("row 24: passes through an explicitly marked custom error", async () => {
+    const cause = new Error("source unavailable");
+    const typed = new WorkloadIdentityRuntimeError("transient", {
+      source: "test-source",
+      cause,
+      retryable: true,
+    });
+    const credential = new WorkloadIdentity(() => { throw typed; });
+    const attempt = credential.prepareTokenExchangeRequest("subject-token", "https://resource.example.com");
+    await expect(attempt).rejects.toBe(typed);
+    await expect(attempt).rejects.toMatchObject({ source: "test-source", cause, retryable: true });
   });
 
   it("rejects an empty token from the source", async () => {
@@ -285,17 +302,32 @@ describe("FileTokenSource", () => {
     await expect(source.identityToken()).resolves.toBe("rotated-token");
   });
 
-  it("throws a runtime error when the file disappears after construction", async () => {
+  it.each([
+    [21, (path: string) => fs.writeFileSync(path, "")],
+    [22, (path: string) => fs.rmSync(path)],
+  ] as const)("row %i: invalidated file is retryable after construction", async (_row, invalidate) => {
     const file = makeTokenFile("initial-token");
     const source = new FileTokenSource({ tokenFilePath: file });
 
-    fs.rmSync(file);
+    invalidate(file);
 
-    await expect(source.identityToken()).rejects.toThrow(WorkloadIdentityRuntimeError);
+    const failure = source.identityToken();
+    await expect(failure).rejects.toThrow(WorkloadIdentityRuntimeError);
+    await expect(failure).rejects.toMatchObject({ source: "file", retryable: true });
   });
 });
 
 describe("EKSWorkloadIdentity (deprecated)", () => {
+  it("row 22: distinguishes a missing file at construction from a missing projected token at request time", async () => {
+    const tokenFilePath = makeTokenFile("eks-token");
+    const credential = new EKSWorkloadIdentity({ tokenFilePath });
+    fs.rmSync(tokenFilePath);
+    expect(() => new EKSWorkloadIdentity({ tokenFilePath })).toThrow(WorkloadIdentityConfigurationError);
+    await expect(credential.prepareTokenExchangeRequest("subject-token", "resource")).rejects.toMatchObject({
+      source: "file",
+      retryable: true,
+    });
+  });
   it("is a WorkloadIdentity", () => {
     const file = makeTokenFile("eks-token");
     const credential = new EKSWorkloadIdentity({ tokenFilePath: file });
@@ -395,6 +427,12 @@ describe("GCPMetadataTokenSource", () => {
       expect((error as WorkloadIdentityRuntimeError).source).toBe("gcp-metadata");
       expect((error as WorkloadIdentityRuntimeError).retryable).toBe(false);
     }
+  });
+
+  it.each(["", '{"error":"invalid_client"}'])("row 20: retries a GCP 429 with body %s", async (body) => {
+    handler = (_req, res) => { res.writeHead(429); res.end(body); };
+    const source = new GCPMetadataTokenSource({ audience: "https://zone.example.com", metadataUrl });
+    await expect(source.identityToken()).rejects.toMatchObject({ source: "gcp-metadata", retryable: true });
   });
 
   it("throws a runtime error with the cause when unreachable", async () => {
@@ -534,6 +572,12 @@ describe("FlyTokenSource", () => {
       expect((error as WorkloadIdentityRuntimeError).source).toBe("fly");
       expect((error as WorkloadIdentityRuntimeError).retryable).toBe(false);
     }
+  });
+
+  it.each(["", '{"error":"invalid_client"}'])("row 20: retries a Fly 429 with body %s", async (body) => {
+    handler = (_req, res) => { res.writeHead(429); res.end(body); };
+    const source = new FlyTokenSource({ socketPath });
+    await expect(source.identityToken()).rejects.toMatchObject({ source: "fly", retryable: true });
   });
 
   it("throws a runtime error with the cause when the socket is missing", async () => {
