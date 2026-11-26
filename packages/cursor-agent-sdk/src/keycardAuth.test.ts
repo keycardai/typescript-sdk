@@ -112,7 +112,7 @@ describe("keycardAuth", () => {
       /"attributes" was removed/,
     );
     expect(() => keycardAuth({ zoneUrl: ZONE, verify: async () => CLAIMS, retainSubjectToken: "disk" as never })).toThrow(
-      /must be "memory" or "none"/,
+      /must be "memory", "none", or "host-kv"/,
     );
   });
 

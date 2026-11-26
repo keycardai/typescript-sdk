@@ -12,7 +12,11 @@ import {
   type CursorOidcTokenFetcher,
 } from "./cursorOidc.js";
 import { ConnectionAuthError, FailureReason } from "./errors.js";
-import { defaultSubjectTokenStore, type SubjectTokenStore } from "./subjectTokens.js";
+import {
+  defaultSubjectTokenStore,
+  type HostKvSubjectTokenStore,
+  type SubjectTokenStore,
+} from "./subjectTokens.js";
 import { KeycardZoneClient, type ZoneClient } from "./zoneClient.js";
 
 /** Default skew: a cached token this close to expiry is replaced. */
@@ -75,8 +79,12 @@ export interface KeycardConnectionOptions {
   client?: ZoneClient;
   /** Name used in error messages only. Never a cache key. */
   connectionName?: string;
-  /** Where `onBehalfOf` reads the retained subject token from. Defaults to the shared store. */
-  subjectTokens?: SubjectTokenStore;
+  /**
+   * Where `onBehalfOf` reads the retained subject token from. Pass the host KV
+   * store from `hostKvSubjectTokenStore()` for `"host-kv"` mode; defaults to
+   * the shared process-local store otherwise.
+   */
+  subjectTokens?: SubjectTokenStore | HostKvSubjectTokenStore;
 }
 
 /** One factory's resolved configuration, validated once at definition time. */
@@ -88,7 +96,7 @@ export interface ResolvedConnectionConfig {
   readonly skewMs: number;
   /** The configured zone issuer, without a trailing slash; undefined with an injected client. */
   readonly issuer?: string;
-  readonly subjectTokens: SubjectTokenStore;
+  readonly subjectTokens: SubjectTokenStore | HostKvSubjectTokenStore;
   /** The credential for this call, resolving a `SecretRef` now. Undefined when none is configured. */
   credential(): ApplicationCredential | undefined;
   /** The warm zone client, built on first use and rebuilt only when a `SecretRef` value changes. */

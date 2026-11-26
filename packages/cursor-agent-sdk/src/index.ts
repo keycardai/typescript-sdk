@@ -42,9 +42,16 @@ export { decodeClaims, subjectTokenExpired } from "./expiry.js";
 
 export {
   defaultSubjectTokenStore,
+  hostKvSubjectTokenStore,
+  isHostKvSubjectTokenStore,
   memorySubjectTokenStore,
 } from "./subjectTokens.js";
-export type { SubjectTokenStore } from "./subjectTokens.js";
+export type {
+  HostKvSubjectTokenEntry,
+  HostKvSubjectTokenStore,
+  LocalSubjectTokenEntry,
+  SubjectTokenStore,
+} from "./subjectTokens.js";
 
 export { KeycardZoneClient } from "./zoneClient.js";
 export type { ZoneClient } from "./zoneClient.js";

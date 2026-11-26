@@ -9,8 +9,10 @@ import {
 import { decodeClaims } from "./expiry.js";
 import {
   defaultSubjectTokenStore,
+  isHostKvSubjectTokenStore,
   principalKey,
   SUBJECT_TOKEN_ATTRIBUTE,
+  type HostKvSubjectTokenStore,
   type SubjectTokenStore,
 } from "./subjectTokens.js";
 
@@ -28,14 +30,21 @@ export const KEYCARD_AUTHENTICATOR = "keycard";
  *   process finds no token and fails closed.
  * - `"none"`: nothing is retained. For agents whose connections only run
  *   `asSelf` or `impersonate`.
+ * - `"host-kv"`: same process-local retention as `"memory"`, plus an opt-in
+ *   copy in Cursor's `HostKvApi` scoped by session ID and verified principal,
+ *   usable only before its verified `exp`. Requires `subjectTokens` from
+ *   `hostKvSubjectTokenStore()`.
  *
- * There is no persisted mode. Whatever the verifier returns becomes
- * `session.auth`, which Cursor saves with the session, and Cursor advises
- * against putting the raw token there.
+ * No retention mode writes the bearer to `session.auth` or any persisted
+ * session field.
  */
-export type SubjectTokenRetention = "memory" | "none";
+export type SubjectTokenRetention = "memory" | "none" | "host-kv";
 
-const RETENTIONS: ReadonlySet<string> = new Set<SubjectTokenRetention>(["memory", "none"]);
+const RETENTIONS: ReadonlySet<string> = new Set<SubjectTokenRetention>([
+  "memory",
+  "none",
+  "host-kv",
+]);
 
 export interface KeycardAuthOptions {
   /** Keycard zone URL (issuer). Required unless `verify` is given. */
@@ -59,8 +68,12 @@ export interface KeycardAuthOptions {
   attributes?: (claims: JWTClaims) => Readonly<Record<string, string>>;
   /** Retention mode for the inbound bearer. Defaults to `"memory"`. */
   retainSubjectToken?: SubjectTokenRetention;
-  /** Store for `"memory"` retention. Defaults to the shared store. */
-  subjectTokens?: SubjectTokenStore;
+  /**
+   * Shared store used by the verifier and its on-behalf-of providers.
+   * Required when `retainSubjectToken` is `"host-kv"`; defaults to the shared
+   * process-local store otherwise.
+   */
+  subjectTokens?: SubjectTokenStore | HostKvSubjectTokenStore;
 }
 
 /** The verifier shape `bearerAuth(verify)` accepts. */
@@ -97,9 +110,23 @@ export function keycardAuth(options: KeycardAuthOptions): KeycardTokenVerifier {
       retention === "attributes"
         ? 'retainSubjectToken: "attributes" was removed: it placed the caller\'s bearer on ' +
             "AuthContext.attributes, which the SDK persists in the session record and Cursor " +
-            'advises against. Use "memory" (the default) or "none".'
-        : `retainSubjectToken must be "memory" or "none", got ${JSON.stringify(retention)}`,
+            'advises against. Use "memory" (the default), "none", or "host-kv".'
+        : `retainSubjectToken must be "memory", "none", or "host-kv", got ${JSON.stringify(retention)}`,
     );
+  }
+  const hasHostKvMode =
+    typeof options.subjectTokens === "object" &&
+    options.subjectTokens !== null &&
+    "mode" in options.subjectTokens &&
+    (options.subjectTokens as { mode?: unknown }).mode === "host-kv";
+  if (retention === "host-kv") {
+    if (!options.subjectTokens || !isHostKvSubjectTokenStore(options.subjectTokens)) {
+      throw new Error(
+        'retainSubjectToken: "host-kv" requires a host KV subjectTokens store from hostKvSubjectTokenStore()',
+      );
+    }
+  } else if (hasHostKvMode) {
+    throw new Error('a host KV subjectTokens store requires retainSubjectToken: "host-kv"');
   }
   const store = options.subjectTokens ?? defaultSubjectTokenStore;
   const verify = options.verify ?? jwksVerifier(options, issuer!);
@@ -144,6 +171,10 @@ export function keycardAuth(options: KeycardAuthOptions): KeycardTokenVerifier {
 
     if (retention === "memory") {
       store.set(principalKey(context), token);
+    } else if (retention === "host-kv") {
+      const verifiedExp =
+        typeof claims.exp === "number" && Number.isFinite(claims.exp) ? claims.exp : undefined;
+      (store as HostKvSubjectTokenStore).set(principalKey(context), token, verifiedExp);
     }
 
     return context;

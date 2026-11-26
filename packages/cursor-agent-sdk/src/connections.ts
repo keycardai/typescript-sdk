@@ -18,13 +18,20 @@ import { ConnectionAuthError, FailureReason } from "./errors.js";
 import { subjectTokenExpiresAt, subjectTokenExpired } from "./expiry.js";
 import { setPrinted } from "./printed.js";
 import { KEYCARD_AUTHENTICATOR } from "./keycardAuth.js";
-import { principalKey, readSubjectToken } from "./subjectTokens.js";
+import {
+  isHostKvSubjectTokenStore,
+  principalKey,
+  readSubjectToken,
+  type HostKvSubjectTokenEntry,
+  type HostKvSubjectTokenStore,
+  type LocalSubjectTokenEntry,
+} from "./subjectTokens.js";
 
 /** What a Keycard connection auth factory returns: the SDK's own provider type. */
 export type KeycardConnectionAuth = ConnectionAuthProvider;
 
 /** The part of a session a provider reads. `headersFor` accepts this shape too. */
-export type SessionLike = Pick<SessionInfo, "auth">;
+export type SessionLike = Pick<SessionInfo, "auth"> & Partial<Pick<SessionInfo, "id">>;
 
 /** Options for {@link impersonate}. */
 export interface KeycardImpersonateOptions extends KeycardConnectionOptions {
@@ -42,6 +49,8 @@ interface CachedToken {
   readonly token: string;
   /** Epoch milliseconds, or undefined when the zone sent no `expires_in`. */
   readonly expiresAt?: number;
+  /** Selected subject token this exchange was minted from (used in `"host-kv"` mode). */
+  readonly subjectToken?: string;
 }
 
 /**
@@ -80,6 +89,87 @@ export function onBehalfOf(options: KeycardConnectionOptions): KeycardConnection
   const config = resolveConnectionConfig(options, "onBehalfOf");
   const cache = new Map<string, CachedToken>();
 
+  if (isHostKvSubjectTokenStore(config.subjectTokens)) {
+    const hostStore = config.subjectTokens;
+    return async (session: SessionLike): Promise<ConnectionAuthResult> => {
+      const auth = requireKeycardUser(session.auth, config);
+      const issuer = auth.attributes!.iss!;
+      const subject = auth.principalId;
+      const sessionId =
+        typeof session.id === "string" && session.id.trim().length > 0 ? session.id : undefined;
+
+      const localEntry = readLocalHostKvEntry(hostStore, issuer, subject);
+
+      if (sessionId === undefined) {
+        if (!localEntry) {
+          throw new ConnectionAuthError(
+            FailureReason.SUBJECT_TOKEN_UNAVAILABLE,
+            config.connectionName,
+            "no usable Keycard subject token is available for this principal: " +
+              "the caller's token is missing or expired. The caller can retry with " +
+              "a fresh request; add keycardAuth() to the channel's auth chain if it is missing",
+          );
+        }
+        const response = await exchangeSubjectToken(config, localEntry.token);
+        return headers(config, response.accessToken);
+      }
+
+      const cacheKey = JSON.stringify([sessionId, issuer, subject]);
+      let selectedToken: string;
+      let notAfter: number | undefined;
+
+      if (localEntry) {
+        selectedToken = localEntry.token;
+        notAfter =
+          localEntry.exp !== undefined
+            ? localEntry.exp * 1000
+            : subjectTokenExpiresAt(localEntry.token);
+        if (localEntry.exp !== undefined && hostStore.publishSubjectToken) {
+          await hostStore.publishSubjectToken(
+            sessionId,
+            issuer,
+            subject,
+            localEntry.token,
+            localEntry.exp,
+          );
+        }
+      } else {
+        let kvEntry: HostKvSubjectTokenEntry | undefined;
+        try {
+          kvEntry = await hostStore.readSubjectToken(sessionId, issuer, subject);
+        } catch {
+          kvEntry = undefined;
+        }
+        if (
+          !kvEntry ||
+          !kvEntry.token ||
+          !Number.isFinite(kvEntry.exp) ||
+          kvEntry.exp <= Date.now() / 1000
+        ) {
+          cache.delete(cacheKey);
+          throw new ConnectionAuthError(
+            FailureReason.SUBJECT_TOKEN_UNAVAILABLE,
+            config.connectionName,
+            "no usable Keycard subject token is available for this session's principal: " +
+              "the caller's token is missing, expired, or inaccessible. The caller can retry " +
+              "with a fresh request; add keycardAuth() to the channel's auth chain if it is missing",
+          );
+        }
+        selectedToken = kvEntry.token;
+        notAfter = kvEntry.exp * 1000;
+      }
+
+      return withCache(
+        config,
+        cache,
+        cacheKey,
+        () => exchangeSubjectToken(config, selectedToken),
+        notAfter,
+        selectedToken,
+      );
+    };
+  }
+
   return async (session: SessionLike): Promise<ConnectionAuthResult> => {
     const auth = requireKeycardUser(session.auth, config);
     const key = principalKey(auth);
@@ -111,22 +201,7 @@ export function onBehalfOf(options: KeycardConnectionOptions): KeycardConnection
       config,
       cache,
       key,
-      () =>
-        acquire(config, async () => {
-          const credential = config.credential();
-          let request: TokenExchangeRequest;
-          if (credential) {
-            request = await credential.prepareTokenExchangeRequest(subjectToken, config.resource);
-          } else {
-            request = {
-              subjectToken,
-              resource: config.resource,
-              subjectTokenType: TokenType.ACCESS_TOKEN,
-            };
-          }
-          if (config.scope) request = { ...request, scope: config.scope };
-          return config.zoneClient().exchangeToken(request);
-        }),
+      () => exchangeSubjectToken(config, subjectToken),
       subjectTokenExpiresAt(subjectToken),
     );
   };
@@ -227,6 +302,45 @@ function requireKeycardUser(
   );
 }
 
+function readLocalHostKvEntry(
+  store: HostKvSubjectTokenStore,
+  issuer: string,
+  subject: string,
+): LocalSubjectTokenEntry | undefined {
+  if (store.getLocalEntry) {
+    return store.getLocalEntry(issuer, subject);
+  }
+  const key = `${issuer}|${subject}`;
+  const token = store.get(key);
+  if (!token) return undefined;
+  if (subjectTokenExpired(token)) {
+    store.delete(key);
+    return undefined;
+  }
+  return { token };
+}
+
+function exchangeSubjectToken(
+  config: ResolvedConnectionConfig,
+  subjectToken: string,
+): Promise<TokenResponse> {
+  return acquire(config, async () => {
+    const credential = config.credential();
+    let request: TokenExchangeRequest;
+    if (credential) {
+      request = await credential.prepareTokenExchangeRequest(subjectToken, config.resource);
+    } else {
+      request = {
+        subjectToken,
+        resource: config.resource,
+        subjectTokenType: TokenType.ACCESS_TOKEN,
+      };
+    }
+    if (config.scope) request = { ...request, scope: config.scope };
+    return config.zoneClient().exchangeToken(request);
+  });
+}
+
 /**
  * Serves a cached token for `key` until a skew before it expires, minting a
  * new one otherwise. `notAfter` (epoch milliseconds) caps the cached lifetime,
@@ -238,9 +352,14 @@ async function withCache(
   key: string,
   mint: () => Promise<TokenResponse>,
   notAfter?: number,
+  subjectToken?: string,
 ): Promise<ConnectionAuthResult> {
   const cached = cache.get(key);
-  if (cached && (cached.expiresAt === undefined || cached.expiresAt - config.skewMs > Date.now())) {
+  if (
+    cached &&
+    (subjectToken === undefined || cached.subjectToken === subjectToken) &&
+    (cached.expiresAt === undefined || cached.expiresAt - config.skewMs > Date.now())
+  ) {
     return headers(config, cached.token);
   }
   const response = await mint();
@@ -254,7 +373,11 @@ async function withCache(
       : zoneExpiry === undefined
         ? notAfter
         : Math.min(zoneExpiry, notAfter);
-  cache.set(key, { token: response.accessToken, ...(expiresAt !== undefined ? { expiresAt } : {}) });
+  cache.set(key, {
+    token: response.accessToken,
+    ...(expiresAt !== undefined ? { expiresAt } : {}),
+    ...(subjectToken !== undefined ? { subjectToken } : {}),
+  });
   return headers(config, response.accessToken);
 }
 
