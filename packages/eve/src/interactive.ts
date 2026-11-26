@@ -51,6 +51,10 @@ const REFRESH_SKEW_MS = 60_000;
  * client can redeem the code. Nothing secret is journaled: registered clients
  * are public and PKCE-bound, and a static client's secret or credential stays
  * in the definition (see {@link interactive}).
+ *
+ * The state `interactive` returns prints without `codeVerifier` in
+ * `util.inspect` and `console.log`. JSON keeps it, so the journaled state
+ * still redeems the code.
  */
 export interface KeycardResumeState {
   readonly state: string;
@@ -721,13 +725,17 @@ export function interactive(
       }
       return {
         challenge: { url, displayName: connectionName },
-        resume: {
-          state,
-          codeVerifier: redirect.codeVerifier,
-          resources: redirect.resources,
-          callbackUrl: redirectUri,
-          clientId: attemptClientId,
-        },
+        resume: omitWhenPrinted(
+          {
+            state,
+            codeVerifier: redirect.codeVerifier,
+            resources: redirect.resources,
+            callbackUrl: redirectUri,
+            clientId: attemptClientId,
+          },
+          "KeycardResumeState",
+          ["codeVerifier"],
+        ),
       };
     },
     async completeAuthorization({ principal, callbackUrl, resume, callback }) {

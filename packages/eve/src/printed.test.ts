@@ -61,8 +61,8 @@ describe("printed token results leave out the token", () => {
   });
 });
 
-describe("printed interactive grants leave out the tokens", () => {
-  it("prints the stored grant and the token result without their tokens", async () => {
+describe("printed interactive results leave out their secrets", () => {
+  it("prints the stored grant, the token result, and the resume state without their secrets", async () => {
     const flow: WebAppFlow = {
       async begin() {
         return { url: `${ZONE}/authorize`, state: "state-1", codeVerifier: "verifier-1", resources: [CALENDAR] };
@@ -87,6 +87,9 @@ describe("printed interactive grants leave out the tokens", () => {
       callback,
     });
     const [grant] = await tokens.list(`${ZONE}|user-1`);
+
+    const { codeVerifier: _v, ...resumeShown } = started.resume!;
+    check(started.resume!, printed("KeycardResumeState", resumeShown), ["verifier-1"]);
 
     check(result, printed("TokenResult", { expiresAt: result.expiresAt }), ["granted-token"]);
     const { accessToken: _a, refreshToken: _r, ...shown } = grant!;
