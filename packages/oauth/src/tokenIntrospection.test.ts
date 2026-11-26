@@ -183,6 +183,16 @@ describe('introspectToken', () => {
     expect(request().form).toEqual(request(1).form);
   });
 
+  it('tolerates malformed optional active claims while preserving other claims', async () => {
+    transport.mockResolvedValueOnce(Response.json({
+      active: true, sub: null, exp: 1_700_000_600.5, scope: ['read'], iss: ISSUER, sub_profile: 'user',
+    }));
+
+    await expect(introspectToken(ISSUER, TOKEN, options)).resolves.toStrictEqual({
+      active: true, sub: undefined, exp: undefined, scope: undefined, iss: ISSUER, sub_profile: 'user',
+    });
+  });
+
   it('token introspection row 10: uses supplied metadata without discovering the issuer', async () => {
     await introspectToken(undefined, TOKEN, options);
 
