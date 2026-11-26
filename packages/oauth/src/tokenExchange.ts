@@ -5,6 +5,12 @@ import type { ApplicationCredential } from "./credentials.js";
 import { basicAuthorization } from "./basicAuthorization.js";
 import { buildSubstituteUserToken } from "./jwt/substituteUser.js";
 import { DEFAULT_FETCH_TIMEOUT_MS, TokenEndpointResolver, type TokenEndpointCacheOptions } from "./tokenEndpoint.js";
+import {
+  fetchIdentityToken,
+  validateIdentityTokenSource,
+  type IdentityTokenFetcher,
+  type IdentityTokenSource,
+} from "./identityTokenSource.js";
 
 // =============================================================================
 // Token Exchange Types (RFC 8693)
@@ -66,6 +72,11 @@ export interface TokenExchangeClientOptions extends TokenEndpointCacheOptions {
    * request's other fields are sent as the caller set them.
    */
   credential?: ApplicationCredential;
+  /**
+   * Supplies a fresh actor JWT for each exchange, unless the request sets
+   * its own actor token. The source is not called for impersonation.
+   */
+  actor?: IdentityTokenSource | IdentityTokenFetcher;
   /**
    * Timeout for each request to the authorization server: token endpoint
    * discovery and the token request itself. Default: 10 seconds.
@@ -142,6 +153,7 @@ export class TokenExchangeClient {
   #clientId?: string;
   #clientSecret?: string;
   #credential?: ApplicationCredential;
+  #actor?: IdentityTokenSource | IdentityTokenFetcher;
   #tokenEndpoint: TokenEndpointResolver;
   #fetchTimeoutMs: number;
 
@@ -150,6 +162,11 @@ export class TokenExchangeClient {
     this.#clientId = options?.clientId;
     this.#clientSecret = options?.clientSecret;
     this.#credential = options?.credential;
+    const actor = options?.actor;
+    if (actor !== undefined) {
+      validateIdentityTokenSource(actor);
+    }
+    this.#actor = actor;
     this.#fetchTimeoutMs = options?.fetchTimeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS;
     this.#tokenEndpoint = new TokenEndpointResolver(issuer, options);
   }
@@ -162,6 +179,14 @@ export class TokenExchangeClient {
     const basicAuth = request.clientAssertion ? null : this.#resolveBasicAuth(issuer);
     if (basicAuth && request.clientId) {
       throw new ConfigurationError("Token exchange clientId cannot be sent with HTTP Basic");
+    }
+
+    if (this.#actor && !request.actorToken && request.subjectTokenType !== TokenType.SUBSTITUTE_USER) {
+      request = {
+        ...request,
+        actorToken: await fetchIdentityToken(this.#actor),
+        actorTokenType: "urn:ietf:params:oauth:token-type:jwt",
+      };
     }
 
     const tokenEndpoint = await this.#tokenEndpoint.resolve();
@@ -237,7 +262,13 @@ export class TokenExchangeClient {
       request = { ...prepared, subjectToken, resource: req.resource };
     }
     return this.exchangeToken(
-      { ...request, subjectTokenType: TokenType.SUBSTITUTE_USER, scope: req.scope },
+      {
+        ...request,
+        subjectTokenType: TokenType.SUBSTITUTE_USER,
+        scope: req.scope,
+        actorToken: undefined,
+        actorTokenType: undefined,
+      },
       { issuer: req.issuer },
     );
   }

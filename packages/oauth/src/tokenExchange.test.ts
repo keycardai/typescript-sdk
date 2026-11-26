@@ -1,7 +1,11 @@
 import { jest } from '@jest/globals';
 import { TokenExchangeClient, TokenType } from './tokenExchange.js';
 import { ClientSecret } from './server/clientSecret.js';
-import { WorkloadIdentity } from './server/workloadIdentity.js';
+import {
+  WorkloadIdentity,
+  WorkloadIdentityConfigurationError,
+  WorkloadIdentityRuntimeError,
+} from './server/workloadIdentity.js';
 import { ConfigurationError, HTTPError, OAuthError } from './errors.js';
 import { buildSubstituteUserToken } from './jwt/substituteUser.js';
 import type { ApplicationCredential } from './credentials.js';
@@ -83,11 +87,13 @@ describe('TokenExchangeClient', () => {
     ['static credentials', { clientId: 'configured', clientSecret: 'secret' }],
     ['ClientSecret', { credential: new ClientSecret('configured', 'secret') }],
   ] as const)('row 4f: rejects a request clientId with %s before discovery', async (_name, options) => {
-    const client = new TokenExchangeClient(ISSUER, options);
+    const actor = jest.fn(() => 'actor-jwt');
+    const client = new TokenExchangeClient(ISSUER, { ...options, actor });
 
     await expect(client.exchangeToken({ subjectToken: 'subject', clientId: 'request-id' }))
       .rejects.toThrow(ConfigurationError);
     expect(fetchMock).not.toHaveBeenCalled();
+    expect(actor).not.toHaveBeenCalled();
   });
 
   it('row 4f: resolves the client issuer for a multi-zone ClientSecret without a per-call issuer', async () => {
@@ -308,6 +314,8 @@ describe('TokenExchangeClient', () => {
         subjectTokenType: TokenType.ACCESS_TOKEN,
         clientAssertion: 'prepared-assertion',
         clientAssertionType: 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',
+        actorToken: 'prepared-actor',
+        actorTokenType: 'urn:ietf:params:oauth:token-type:jwt',
       }),
     );
     const getAuth = jest.fn((_issuer?: string) => null);
@@ -330,6 +338,8 @@ describe('TokenExchangeClient', () => {
     const params = new URLSearchParams(((tokenCall![1] as RequestInit).body ?? '') as string);
     expect(params.get('client_assertion')).toBe('prepared-assertion');
     expect(params.get('subject_token_type')).toBe(TokenType.SUBSTITUTE_USER);
+    expect(params.has('actor_token')).toBe(false);
+    expect(params.has('actor_token_type')).toBe(false);
   });
 
   it('row 4b: exchangeToken sends credential authentication and keeps caller fields', async () => {
@@ -454,6 +464,116 @@ describe('TokenExchangeClient', () => {
       'Error fetching identity token',
     );
     expect(fetchMock.mock.calls.find(([url]) => url === TOKEN_ENDPOINT)).toBeUndefined();
+  });
+
+  function tokenRequestBodies(): URLSearchParams[] {
+    return fetchMock.mock.calls
+      .filter(([url]) => url === TOKEN_ENDPOINT)
+      .map(([, init]) => new URLSearchParams((init as RequestInit).body as string));
+  }
+
+  it.each([null, {}, { identityToken: 'not callable' }])(
+    'rejects an invalid actor source at construction: %j',
+    (actor) => {
+      expect(() => new TokenExchangeClient(ISSUER, { actor: actor as never }))
+        .toThrow(WorkloadIdentityConfigurationError);
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it('row 23: reads the current actor JWT once per exchange', async () => {
+    const actor = {
+      identityToken: jest.fn(async () => 'rotated-jwt').mockResolvedValueOnce('first-jwt'),
+    };
+    const client = new TokenExchangeClient(ISSUER, { actor, clientId: 'app', clientSecret: 'secret' });
+    const request = { subjectToken: 'subject' };
+
+    await client.exchangeToken(request);
+    await client.exchangeToken(request);
+
+    expect(tokenRequestBodies().map((body) => [body.get('actor_token'), body.get('actor_token_type')]))
+      .toEqual([
+        ['first-jwt', 'urn:ietf:params:oauth:token-type:jwt'],
+        ['rotated-jwt', 'urn:ietf:params:oauth:token-type:jwt'],
+      ]);
+    expect(actor.identityToken).toHaveBeenCalledTimes(2);
+    expect(request).toEqual({ subjectToken: 'subject' });
+  });
+
+  it('row 24: uses explicit actor fields without calling the source', async () => {
+    const actor = jest.fn(() => 'source-jwt');
+    const client = new TokenExchangeClient(ISSUER, { actor });
+    const actorTokenType = 'urn:ietf:params:oauth:token-type:access_token';
+
+    await client.exchangeToken({ subjectToken: 'subject', actorToken: 'explicit', actorTokenType });
+
+    const [explicitBody] = tokenRequestBodies();
+    expect(explicitBody.get('actor_token')).toBe('explicit');
+    expect(explicitBody.get('actor_token_type')).toBe(actorTokenType);
+    expect(actor).not.toHaveBeenCalled();
+
+    await client.exchangeToken({ subjectToken: 'subject' });
+    expect(tokenRequestBodies()[1].get('actor_token')).toBe('source-jwt');
+    expect(actor).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['', null])('row 24: uses the source when the request actor token is %j', async (actorToken) => {
+    const actor = jest.fn(() => 'source-jwt');
+    const client = new TokenExchangeClient(ISSUER, { actor });
+
+    await client.exchangeToken({
+      subjectToken: 'subject',
+      actorToken: actorToken as string,
+      actorTokenType: 'urn:ietf:params:oauth:token-type:access_token',
+    });
+
+    const [body] = tokenRequestBodies();
+    expect(body.get('actor_token')).toBe('source-jwt');
+    expect(body.get('actor_token_type')).toBe('urn:ietf:params:oauth:token-type:jwt');
+    expect(actor).toHaveBeenCalledTimes(1);
+  });
+
+  it('row 25: omits actor fields and skips the source on impersonation', async () => {
+    const actor = jest.fn(async () => 'source-jwt');
+    const client = new TokenExchangeClient(ISSUER, { actor, clientId: 'app', clientSecret: 'secret' });
+
+    await client.impersonate({ userIdentifier: 'user@example.com', resource: 'https://api.example.com' });
+
+    const [impersonationBody] = tokenRequestBodies();
+    expect(impersonationBody.has('actor_token')).toBe(false);
+    expect(impersonationBody.has('actor_token_type')).toBe(false);
+    expect(actor).not.toHaveBeenCalled();
+
+    await client.exchangeToken({ subjectToken: 'subject' });
+    expect(tokenRequestBodies()[1].get('actor_token')).toBe('source-jwt');
+    expect(actor).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['configuration error', new WorkloadIdentityConfigurationError('source misconfigured')],
+    ['runtime error', new WorkloadIdentityRuntimeError('source failed')],
+  ])('row 26: passes the typed %s through without sending a request', async (_label, cause) => {
+    const actor = { identityToken: jest.fn(async () => { throw cause; }) };
+    const client = new TokenExchangeClient(ISSUER, { actor });
+
+    await expect(client.exchangeToken({ subjectToken: 'subject' })).rejects.toBe(cause);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['plain error', new Error('source failed'), false],
+    ['timeout', new DOMException('source timed out', 'TimeoutError'), true],
+    ['5xx', new HTTPError('source unavailable', 503), true],
+    ['connection error', Object.assign(new Error('source unreachable'), { code: 'ECONNREFUSED' }), true],
+  ])('row 26: wraps a custom source %s without sending a request', async (_label, cause, retryable) => {
+    const actor = () => { throw cause; };
+    const client = new TokenExchangeClient(ISSUER, { actor });
+
+    const failure = client.exchangeToken({ subjectToken: 'subject' });
+    await expect(failure).rejects.toBeInstanceOf(WorkloadIdentityRuntimeError);
+    await expect(failure).rejects.toMatchObject({ source: 'custom', retryable });
+    await expect(failure).rejects.toHaveProperty('cause', cause);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('bounds the token request with a timeout by default', async () => {

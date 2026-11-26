@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as http from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
+import { jest } from "@jest/globals";
 import {
   DEFAULT_FILE_TOKEN_ENV_VARS,
   FileTokenSource,
@@ -99,6 +100,20 @@ describe("WorkloadIdentity", () => {
     );
 
     expect(request.clientAssertion).toBe("sync-token");
+  });
+
+  it("calls a bare token source with the credential as its receiver", async () => {
+    const credential = new WorkloadIdentity(
+      function (this: WorkloadIdentity) { return `token-for-${this.clientId}`; },
+      { clientId: "acr_123" },
+    );
+
+    await expect(
+      credential.prepareTokenExchangeRequest("subject-token", "https://resource.example.com"),
+    ).resolves.toMatchObject({ clientAssertion: "token-for-acr_123" });
+    await expect(
+      credential.clientAuthentication("https://zone.example.com", "https://zone.example.com/token"),
+    ).resolves.toMatchObject({ form: { client_assertion: "token-for-acr_123" } });
   });
 
   it("fetches a fresh token on every exchange", async () => {
@@ -378,13 +393,15 @@ describe("GCPMetadataTokenSource", () => {
     } catch (error) {
       expect(error).toBeInstanceOf(WorkloadIdentityRuntimeError);
       expect((error as WorkloadIdentityRuntimeError).source).toBe("gcp-metadata");
+      expect((error as WorkloadIdentityRuntimeError).retryable).toBe(false);
     }
   });
 
   it("throws a runtime error with the cause when unreachable", async () => {
+    handler = (_req, res) => res.destroy();
     const source = new GCPMetadataTokenSource({
       audience: "https://zone.example.com",
-      metadataUrl: "http://127.0.0.1:1",
+      metadataUrl,
       timeoutMs: 1000,
     });
 
@@ -394,6 +411,45 @@ describe("GCPMetadataTokenSource", () => {
     } catch (error) {
       expect(error).toBeInstanceOf(WorkloadIdentityRuntimeError);
       expect((error as WorkloadIdentityRuntimeError).cause).toBeDefined();
+      expect((error as WorkloadIdentityRuntimeError).retryable).toBe(true);
+    }
+  });
+
+  it("does not mark an invalid metadata URL as retryable", async () => {
+    const source = new GCPMetadataTokenSource({
+      audience: "https://zone.example.com",
+      metadataUrl: "https://[invalid",
+    });
+
+    const failure = source.identityToken();
+    await expect(failure).rejects.toBeInstanceOf(WorkloadIdentityRuntimeError);
+    await expect(failure).rejects.toMatchObject({
+      source: "gcp-metadata",
+      retryable: false,
+    });
+  });
+
+  it.each([true, false])("classifies AbortError using the timeout signal (timed out: %s)", async (timedOut) => {
+    const cause = Object.assign(new Error("The operation was aborted"), { name: "AbortError" });
+    const fetchMock = jest.spyOn(globalThis, "fetch").mockImplementation(async (_url, options) => {
+      if (!timedOut) throw cause;
+      return new Promise((_, reject) => {
+        options?.signal?.addEventListener("abort", () => reject(cause), { once: true });
+      });
+    });
+    try {
+      const source = new GCPMetadataTokenSource({
+        audience: "https://zone.example.com",
+        metadataUrl,
+        timeoutMs: 10,
+      });
+      await expect(source.identityToken()).rejects.toMatchObject({
+        source: "gcp-metadata",
+        cause,
+        retryable: timedOut,
+      });
+    } finally {
+      fetchMock.mockRestore();
     }
   });
 });
@@ -476,6 +532,7 @@ describe("FlyTokenSource", () => {
     } catch (error) {
       expect(error).toBeInstanceOf(WorkloadIdentityRuntimeError);
       expect((error as WorkloadIdentityRuntimeError).source).toBe("fly");
+      expect((error as WorkloadIdentityRuntimeError).retryable).toBe(false);
     }
   });
 
@@ -488,6 +545,7 @@ describe("FlyTokenSource", () => {
     } catch (error) {
       expect(error).toBeInstanceOf(WorkloadIdentityRuntimeError);
       expect((error as WorkloadIdentityRuntimeError).cause).toBeDefined();
+      expect((error as WorkloadIdentityRuntimeError).retryable).toBe(true);
     }
   });
 });

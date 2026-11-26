@@ -1,7 +1,22 @@
 import * as fs from "node:fs";
 import type { ApplicationCredential, ClientAuthentication } from "../credentials.js";
 import { ConfigurationError } from "../errors.js";
+import {
+  fetchIdentityToken,
+  validateIdentityTokenSource,
+  WorkloadIdentityConfigurationError,
+  WorkloadIdentityRuntimeError,
+  type IdentityTokenFetcher,
+  type IdentityTokenSource,
+} from "../identityTokenSource.js";
 import type { TokenExchangeRequest } from "../tokenExchange.js";
+
+export {
+  WORKLOAD_IDENTITY_SOURCE_CUSTOM,
+  WorkloadIdentityConfigurationError,
+  WorkloadIdentityRuntimeError,
+} from "../identityTokenSource.js";
+export type { IdentityTokenFetcher, IdentityTokenSource } from "../identityTokenSource.js";
 
 /**
  * Source identifiers carried on WorkloadIdentityConfigurationError and
@@ -10,70 +25,6 @@ import type { TokenExchangeRequest } from "../tokenExchange.js";
 export const WORKLOAD_IDENTITY_SOURCE_FILE = "file";
 export const WORKLOAD_IDENTITY_SOURCE_GCP_METADATA = "gcp-metadata";
 export const WORKLOAD_IDENTITY_SOURCE_FLY = "fly";
-export const WORKLOAD_IDENTITY_SOURCE_CUSTOM = "custom";
-
-/**
- * A workload identity credential or token source was misconfigured at
- * construction: a missing or empty token file, no discovery environment
- * variable set, a missing required audience, or an invalid source.
- *
- * `source` identifies the token source ("file", "gcp-metadata", "fly");
- * undefined when the fault is in the credential itself. The underlying cause,
- * when any, is on `cause`.
- */
-export class WorkloadIdentityConfigurationError extends Error {
-  readonly source?: string;
-  readonly cause?: unknown;
-
-  constructor(message: string, options?: { source?: string; cause?: unknown }) {
-    super(message);
-    this.name = "WorkloadIdentityConfigurationError";
-    this.source = options?.source;
-    this.cause = options?.cause;
-  }
-}
-
-/**
- * The subject token could not be obtained at request time: the token file was
- * rotated away or emptied after construction, or the platform endpoint was
- * unreachable. Distinct from WorkloadIdentityConfigurationError, which is a
- * construction-time fault.
- *
- * `source` identifies the token source ("file", "gcp-metadata", "fly", or
- * "custom" for a source whose error is not one of this module's typed
- * errors). The underlying cause, when any, is on `cause`.
- */
-export class WorkloadIdentityRuntimeError extends Error {
-  readonly source?: string;
-  readonly cause?: unknown;
-
-  constructor(message: string, options?: { source?: string; cause?: unknown }) {
-    super(message);
-    this.name = "WorkloadIdentityRuntimeError";
-    this.source = options?.source;
-    this.cause = options?.cause;
-  }
-}
-
-/**
- * Supplies a platform-signed OIDC token for use as a client assertion during
- * token exchange. The only per-platform piece of a workload identity
- * credential: {@link FileTokenSource} covers platforms that project the token
- * to a file (EKS, AKS, Kubernetes projected service-account tokens),
- * {@link GCPMetadataTokenSource} covers platforms that serve it from the GCP
- * metadata endpoint (GKE, GCE, Cloud Run), {@link FlyTokenSource} covers Fly
- * Machines, and any bare function returning the token is accepted as a source.
- *
- * `identityToken` is called on every token exchange. Implementations must
- * return the current token; platforms rotate these tokens, so returning a
- * stale cached value risks an expired assertion.
- */
-export interface IdentityTokenSource {
-  identityToken(): Promise<string>;
-}
-
-/** A bare function accepted anywhere a IdentityTokenSource is. */
-export type IdentityTokenFetcher = () => Promise<string> | string;
 
 export const DEFAULT_FILE_TOKEN_ENV_VARS = [
   "KEYCARD_EKS_WORKLOAD_IDENTITY_TOKEN_FILE",
@@ -203,23 +154,29 @@ export class GCPMetadataTokenSource implements IdentityTokenSource {
 
     let response: Response;
     let body: string;
+    let signal: AbortSignal | undefined;
     try {
+      signal = AbortSignal.timeout(this.#timeoutMs);
       response = await fetch(url, {
         headers: { "Metadata-Flavor": "Google" },
-        signal: AbortSignal.timeout(this.#timeoutMs),
+        signal,
       });
       body = await response.text();
     } catch (error) {
+      const timedOut = signal?.aborted && error instanceof Error && error.name === "AbortError";
       throw new WorkloadIdentityRuntimeError(
         `Error calling metadata server at ${this.#metadataUrl} (is this running on GCP?)`,
-        { source: WORKLOAD_IDENTITY_SOURCE_GCP_METADATA, cause: error },
+        { source: WORKLOAD_IDENTITY_SOURCE_GCP_METADATA, cause: error, retryable: timedOut ? true : undefined },
       );
     }
 
     if (!response.ok) {
       throw new WorkloadIdentityRuntimeError(
         `Metadata server returned status ${response.status}`,
-        { source: WORKLOAD_IDENTITY_SOURCE_GCP_METADATA },
+        {
+          source: WORKLOAD_IDENTITY_SOURCE_GCP_METADATA,
+          retryable: response.status >= 500 && response.status < 600,
+        },
       );
     }
     const token = body.trim();
@@ -285,7 +242,10 @@ export class FlyTokenSource implements IdentityTokenSource {
               reject(
                 new WorkloadIdentityRuntimeError(
                   `Machines API returned status ${response.statusCode}`,
-                  { source: WORKLOAD_IDENTITY_SOURCE_FLY },
+                  {
+                    source: WORKLOAD_IDENTITY_SOURCE_FLY,
+                    retryable: response.statusCode !== undefined && response.statusCode >= 500 && response.statusCode < 600,
+                  },
                 ),
               );
               return;
@@ -311,7 +271,7 @@ export class FlyTokenSource implements IdentityTokenSource {
         reject(
           new WorkloadIdentityRuntimeError(
             `Error calling Machines API socket ${this.#socketPath} (is this running on a Fly Machine?)`,
-            { source: WORKLOAD_IDENTITY_SOURCE_FLY, cause: error },
+            { source: WORKLOAD_IDENTITY_SOURCE_FLY, cause: error, retryable: true },
           ),
         );
       });
@@ -319,7 +279,7 @@ export class FlyTokenSource implements IdentityTokenSource {
         request.destroy(
           new WorkloadIdentityRuntimeError(
             `Machines API request timed out after ${FLY_TIMEOUT_MS}ms`,
-            { source: WORKLOAD_IDENTITY_SOURCE_FLY },
+            { source: WORKLOAD_IDENTITY_SOURCE_FLY, retryable: true },
           ),
         );
       });
@@ -368,17 +328,7 @@ export class WorkloadIdentity implements ApplicationCredential {
     source: IdentityTokenSource | IdentityTokenFetcher,
     options?: WorkloadIdentityOptions,
   ) {
-    if (source == null) {
-      throw new WorkloadIdentityConfigurationError("identity token source must not be null");
-    }
-    if (
-      typeof source !== "function" &&
-      typeof (source as IdentityTokenSource).identityToken !== "function"
-    ) {
-      throw new WorkloadIdentityConfigurationError(
-        "identity token source must provide identityToken() or be a function",
-      );
-    }
+    validateIdentityTokenSource(source);
     this.#source = source;
     this.#clientId = options?.clientId;
   }
@@ -396,7 +346,7 @@ export class WorkloadIdentity implements ApplicationCredential {
     subjectToken: string,
     resource: string,
   ): Promise<TokenExchangeRequest> {
-    const assertion = await this.#fetchIdentityToken();
+    const assertion = await fetchIdentityToken(this.#source, this);
 
     return {
       subjectToken,
@@ -411,12 +361,12 @@ export class WorkloadIdentity implements ApplicationCredential {
   /**
    * Fetches the current token from the source and returns it as
    * `client_assertion`, with `client_assertion_type` and, when configured,
-   * `client_id`. `headers` is empty. Errors from the token source are thrown
-   * as is.
+   * `client_id`. `headers` is empty. Typed workload identity errors pass
+   * through, and other source failures surface as workload identity runtime errors.
    */
   async clientAuthentication(_issuer: string, _endpoint: string): Promise<ClientAuthentication> {
     const form: Record<string, string> = {
-      client_assertion: await this.#fetchIdentityToken(),
+      client_assertion: await fetchIdentityToken(this.#source, this),
       client_assertion_type: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
     };
     if (this.#clientId) form.client_id = this.#clientId;
@@ -434,32 +384,5 @@ export class WorkloadIdentity implements ApplicationCredential {
         "WorkloadIdentity: clientId is required for interactive grants (the public ID of a v2 token credential)",
       );
     }
-  }
-
-  async #fetchIdentityToken(): Promise<string> {
-    let token: string;
-    try {
-      token =
-        typeof this.#source === "function"
-          ? await this.#source()
-          : await this.#source.identityToken();
-    } catch (error) {
-      if (
-        error instanceof WorkloadIdentityConfigurationError ||
-        error instanceof WorkloadIdentityRuntimeError
-      ) {
-        throw error;
-      }
-      throw new WorkloadIdentityRuntimeError("Error fetching identity token", {
-        source: WORKLOAD_IDENTITY_SOURCE_CUSTOM,
-        cause: error,
-      });
-    }
-    if (typeof token !== "string" || !token.trim()) {
-      throw new WorkloadIdentityRuntimeError("Identity token source returned an empty token", {
-        source: WORKLOAD_IDENTITY_SOURCE_CUSTOM,
-      });
-    }
-    return token;
   }
 }
