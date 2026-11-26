@@ -424,7 +424,7 @@ describe('DelegationClient invocation endpoint origins', () => {
 
   it.each([
     ['12: invokes on the same origin', `${TARGET_URL}/rpc`, []],
-    ['14: invokes on an allowlisted origin', 'https://gateway.example.com/rpc', ['HTTPS://Gateway.Example.com:443']],
+    ['14: invokes on an allowlisted origin', 'https://gateway.example.com/rpc', ['HTTPS://Gateway.Example.com:443/']],
     ['15: matches an explicit default port', 'https://agent.example.com:443/rpc', []],
     ['15b: matches scheme and host case-insensitively', 'HTTPS://Agent.Example.com/rpc', []],
   ])('row %s', async (_name, url, trustedEndpointOrigins) => {
@@ -475,7 +475,37 @@ describe('DelegationClient invocation endpoint origins', () => {
     expect(harness.rpcCalls).toHaveLength(0);
   });
 
-  it('uses the convention endpoint on the target origin when the card does not advertise JSON-RPC', async () => {
+  it.each([
+    'https://gateway.example.com/rpc',
+    'https://gateway.example.com/rpc/..',
+    'https://gateway.example.com/?key=value',
+    'https://gateway.example.com/?',
+    'https://gateway.example.com/#part',
+    'https://gateway.example.com/#',
+    'https://user@gateway.example.com',
+    'https://@gateway.example.com',
+  ])('rejects a non-bare trusted endpoint origin: %s', (origin) => {
+    expect(() => makeClient(makeHarness(), { trustedEndpointOrigins: [origin] })).toThrow(A2ADiscoveryError);
+  });
+
+  it('rejects a card advertising only non-JSON-RPC interfaces before exchange', async () => {
+    const card = {
+      ...TARGET_CARD_JSON,
+      supportedInterfaces: ['HTTP+JSON', 'GRPC'].map((protocolBinding) => ({
+        ...rpcInterface,
+        url: `${TARGET_URL}/other`,
+        protocolBinding,
+      })),
+    };
+    const harness = makeHarness({ card });
+
+    await expect(makeClient(harness).invokeService(TARGET_URL, 'ping', options))
+      .rejects.toThrow(/no usable JSON-RPC interface/);
+    expect(harness.exchangeCount()).toBe(0);
+    expect(harness.rpcCalls).toHaveLength(0);
+  });
+
+  it('uses the convention endpoint on the target origin when the card advertises no endpoints', async () => {
     const harness = makeHarness({ card: { ...TARGET_CARD_JSON, supportedInterfaces: [] } });
 
     await makeClient(harness).invokeService(TARGET_URL, 'ping', options);

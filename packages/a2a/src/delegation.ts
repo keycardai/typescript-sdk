@@ -109,7 +109,7 @@ export class DelegationClient {
     this.#transportFactory = new JsonRpcTransportFactory(transportOptions);
     this.#cardResolver = new DefaultAgentCardResolver(transportOptions);
     this.#trustedOrigins = new Set(
-      (options?.trustedEndpointOrigins ?? []).map((origin) => httpOrigin(origin, "trusted endpoint origin")),
+      (options?.trustedEndpointOrigins ?? []).map(trustedHttpOrigin),
     );
   }
 
@@ -197,21 +197,23 @@ export class DelegationClient {
 }
 
 function withConventionEndpoint(card: AgentCard, target: string): AgentCard {
-  if (card.supportedInterfaces?.some((iface) => iface.protocolBinding.toUpperCase() === "JSONRPC")) {
-    return card;
-  }
+  if (card.supportedInterfaces?.length) return card;
   return {
     ...card,
-    supportedInterfaces: [
-      ...(card.supportedInterfaces ?? []),
-      {
-        url: `${target.replace(/\/+$/, "")}/a2a/jsonrpc`,
-        protocolBinding: "JSONRPC",
-        protocolVersion: A2A_PROTOCOL_VERSION,
-        tenant: "",
-      },
-    ],
+    supportedInterfaces: [{
+      url: `${target.replace(/\/+$/, "")}/a2a/jsonrpc`,
+      protocolBinding: "JSONRPC",
+      protocolVersion: A2A_PROTOCOL_VERSION,
+      tenant: "",
+    }],
   };
+}
+
+function trustedHttpOrigin(value: string): string {
+  if (!/^https?:\/\/[^\s/?#@\\]+\/?$/i.test(value)) {
+    throw new A2ADiscoveryError("Invalid trusted endpoint origin: expected a bare HTTP or HTTPS origin");
+  }
+  return httpOrigin(value, "trusted endpoint origin");
 }
 
 function httpOrigin(value: string, label: string): string {
