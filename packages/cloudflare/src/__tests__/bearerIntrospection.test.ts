@@ -121,6 +121,23 @@ describe("Workers bearer introspection", () => {
     expect(post).toHaveBeenCalledTimes(1);
   });
 
+  it("bearer row 20: direct calls with fresh options deduplicate introspection failure logs", async () => {
+    const post = stubZone([
+      () => Response.json({ error: "invalid_client" }, { status: 401 }),
+      () => Response.json({ error: "invalid_client" }, { status: 401 }),
+    ]);
+    const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+    const request = await bearerRequest();
+    for (let i = 0; i < 2; i++) {
+      expect(await verifyBearerToken(request, {
+        issuers: issuer, resourceIdentifier: resource, introspect: true, credential,
+      })).toMatchObject({ status: 503 });
+    }
+    expect(post).toHaveBeenCalledTimes(2);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith("Bearer token introspection failed:", "invalid_client (HTTP 401)");
+  });
+
   it("bearer row 22: direct verifyRequest reuses discovery but checks token status on every call", async () => {
     const post = stubZone([() => Response.json({ active: true }), () => Response.json({ active: false })]);
     const fetch = jest.fn(globalThis.fetch);

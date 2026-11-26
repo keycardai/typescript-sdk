@@ -24,6 +24,7 @@ import {
 // fresh `JWTVerifier` around this keyring; that construction is a handful
 // of Set literals and is sub-millisecond.
 const sharedKeyring = new JWKSOAuthKeyring();
+const introspectionLoggedCauses = new Set<string>();
 const introspectionStates = new WeakMap<BearerAuthOptions, ReturnType<typeof createBearerIntrospectionState>>();
 
 /**
@@ -85,7 +86,10 @@ export async function verifyRequest(
     const multiZone = binding.mode === "perZone" || binding.mode === "shared"
       ? binding.entries.size > 1
       : Array.isArray(options.issuers) && new Set(options.issuers).size > 1;
-    const state = introspectionStates.get(options) ?? createBearerIntrospectionState();
+    const state = introspectionStates.get(options) ?? {
+      ...createBearerIntrospectionState(),
+      loggedCauses: introspectionLoggedCauses,
+    };
     introspect = configureBearerIntrospection(options, multiZone, state);
     introspectionStates.set(options, state);
   }
