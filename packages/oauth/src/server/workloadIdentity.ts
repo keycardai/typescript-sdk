@@ -3,6 +3,8 @@ import { createClientAuthentication, type ApplicationCredential, type ClientAuth
 import { ConfigurationError } from "../errors.js";
 import {
   fetchIdentityToken,
+  isRetryableSourceFailure,
+  isRetryableSourceStatus,
   validateIdentityTokenSource,
   WorkloadIdentityConfigurationError,
   WorkloadIdentityRuntimeError,
@@ -74,12 +76,14 @@ function readTokenFile(
     throw new errorClass(`Error reading token file: ${tokenFilePath}`, {
       source: WORKLOAD_IDENTITY_SOURCE_FILE,
       cause: error,
+      retryable: errorClass === WorkloadIdentityRuntimeError,
     });
   }
   const token = contents.trim();
   if (!token) {
     throw new errorClass(`Token file is empty: ${tokenFilePath}`, {
       source: WORKLOAD_IDENTITY_SOURCE_FILE,
+      retryable: errorClass === WorkloadIdentityRuntimeError,
     });
   }
   return token;
@@ -166,7 +170,7 @@ export class GCPMetadataTokenSource implements IdentityTokenSource {
       const timedOut = signal?.aborted && error instanceof Error && error.name === "AbortError";
       throw new WorkloadIdentityRuntimeError(
         `Error calling metadata server at ${this.#metadataUrl} (is this running on GCP?)`,
-        { source: WORKLOAD_IDENTITY_SOURCE_GCP_METADATA, cause: error, retryable: timedOut ? true : undefined },
+        { source: WORKLOAD_IDENTITY_SOURCE_GCP_METADATA, cause: error, retryable: timedOut || isRetryableSourceFailure(error) },
       );
     }
 
@@ -175,7 +179,7 @@ export class GCPMetadataTokenSource implements IdentityTokenSource {
         `Metadata server returned status ${response.status}`,
         {
           source: WORKLOAD_IDENTITY_SOURCE_GCP_METADATA,
-          retryable: response.status >= 500 && response.status < 600,
+          retryable: isRetryableSourceStatus(response.status),
         },
       );
     }
@@ -244,7 +248,7 @@ export class FlyTokenSource implements IdentityTokenSource {
                   `Machines API returned status ${response.statusCode}`,
                   {
                     source: WORKLOAD_IDENTITY_SOURCE_FLY,
-                    retryable: response.statusCode !== undefined && response.statusCode >= 500 && response.statusCode < 600,
+                    retryable: response.statusCode !== undefined && isRetryableSourceStatus(response.statusCode),
                   },
                 ),
               );

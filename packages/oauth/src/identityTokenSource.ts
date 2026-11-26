@@ -21,7 +21,7 @@ export class WorkloadIdentityConfigurationError extends Error {
 /**
  * A workload identity token cannot be obtained at request time.
  * `source` identifies the token source, and `cause` preserves the underlying error.
- * `retryable` indicates a transport failure, timeout, or HTTP 5xx response.
+ * `retryable` indicates that the source classified the failure as transient.
  */
 export class WorkloadIdentityRuntimeError extends Error {
   readonly source?: string;
@@ -33,7 +33,7 @@ export class WorkloadIdentityRuntimeError extends Error {
     this.name = "WorkloadIdentityRuntimeError";
     this.source = options?.source;
     this.cause = options?.cause;
-    this.retryable = options?.retryable ?? isRetryableSourceFailure(this.cause);
+    this.retryable = options?.retryable ?? false;
   }
 }
 
@@ -65,7 +65,11 @@ const transportErrorCodes = new Set([
   "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_HEADERS_TIMEOUT", "UND_ERR_BODY_TIMEOUT", "UND_ERR_SOCKET",
 ]);
 
-function isRetryableSourceFailure(cause: unknown): boolean {
+export function isRetryableSourceStatus(status: number): boolean {
+  return status === 429 || (status >= 500 && status < 600);
+}
+
+export function isRetryableSourceFailure(cause: unknown): boolean {
   const seen = new Set<object>();
   while (cause && typeof cause === "object" && !seen.has(cause)) {
     seen.add(cause);
@@ -75,7 +79,7 @@ function isRetryableSourceFailure(cause: unknown): boolean {
       status?: unknown;
       cause?: unknown;
     };
-    if (typeof status === "number") return status >= 500 && status < 600;
+    if (typeof status === "number") return isRetryableSourceStatus(status);
     if (name === "TimeoutError" || (typeof code === "string" && transportErrorCodes.has(code))) return true;
     if (cause instanceof HTTPError && nested === undefined) return true;
     cause = nested;
