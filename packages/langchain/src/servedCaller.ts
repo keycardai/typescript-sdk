@@ -7,6 +7,8 @@
  * authenticate hook and the middleware agree on them.
  */
 
+import { omitWhenPrinted } from "./printed.js";
+
 /** Where the LangGraph JS server puts the authenticated user on a run. */
 export const AUTH_USER_KEY = "langgraph_auth_user";
 
@@ -16,7 +18,11 @@ export const SUBJECT_TOKEN_FIELD = "subject_token";
 /** The metadata field recording which identity owns a thread, run or item. */
 export const OWNER_KEY = "owner";
 
-/** A verified caller of a served run: who they are, and the bearer they sent. */
+/**
+ * A verified caller of a served run: who they are, and the bearer they sent.
+ * `callerFromRuntime` returns a value that `util.inspect` and `console.log`
+ * print without `subjectToken`.
+ */
 export interface ServedCaller {
   identity: string;
   subjectToken: string;
@@ -49,5 +55,5 @@ export function callerFromRuntime(runtime: unknown): ServedCaller | null {
   const identity = stringField(user, "identity");
   const subjectToken = stringField(user, SUBJECT_TOKEN_FIELD);
   if (identity === null || subjectToken === null) return null;
-  return { identity, subjectToken };
+  return omitWhenPrinted({ identity, subjectToken }, "ServedCaller", ["subjectToken"]);
 }
