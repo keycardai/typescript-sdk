@@ -1,3 +1,9 @@
+## 0.43.0-keycardai-oauth (2026-11-26)
+
+
+- feat(oauth): token introspection in the bearer middleware (#468)
+- Adds the bearer introspection checker that @keycardai/express and @keycardai/cloudflare use, per bearer-token-verification-middleware spec-version 8 (spec#101, ID-882).
+
 ## 0.42.0-keycardai-oauth (2026-11-26)
 
 
