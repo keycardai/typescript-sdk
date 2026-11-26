@@ -113,6 +113,11 @@ export class TokenVerifier {
     return this.#verify(token, zoneId);
   }
 
+  /** Whether the verifier can trust more than its configured base issuer. */
+  get isMultiZone(): boolean {
+    return this.#enableMultiZone;
+  }
+
   /**
    * Flushes JWKS keys and discovery results from the underlying keyring.
    * Use after a global key rotation. No-op if the injected keyring does
@@ -183,6 +188,7 @@ function toAccessToken(token: string, claims: JWTClaims): AccessToken {
   // returning, so this assertion is load-bearing only at the type boundary.
   const accessToken: AccessToken = {
     token,
+    issuer: claims.iss,
     clientId: claims.client_id as string,
     scopes,
     expiresAt,

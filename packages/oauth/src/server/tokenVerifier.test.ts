@@ -107,6 +107,7 @@ describe('TokenVerifier', () => {
     const result = await verifier.verifyToken(token);
     expect(result).not.toBeNull();
     expect(result!.token).toBe(token);
+    expect(result!.issuer).toBe(ISSUER);
     expect(result!.clientId).toBe('service-x');
     expect(result!.scopes).toEqual(['read', 'write']);
     expect(result!.expiresAt).toBe(claims.exp);
@@ -242,6 +243,8 @@ describe('TokenVerifier', () => {
     });
     const result = await verifier.verifyTokenForZone(token, 'zone-a');
     expect(result).not.toBeNull();
+    expect(result!.issuer).toBe(zoneIssuer);
+    expect(verifier.isMultiZone).toBe(true);
     expect(result!.clientId).toBe('service-x');
   });
 

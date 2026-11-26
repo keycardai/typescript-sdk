@@ -65,10 +65,7 @@ export async function introspectToken(
   const server = metadata ?? await withTransport("Introspection discovery", options, (signal) =>
     fetchAuthorizationServerMetadata(zoneIssuer, { signal, timeoutMs: 0, fetch: transport }),
   );
-  const endpoint = server.introspection_endpoint;
-  if (!isUrlWithProtocol(endpoint, "https:")) {
-    throw new ConfigurationError("introspectToken requires an HTTPS introspection_endpoint in authorization server metadata");
-  }
+  const endpoint = resolveIntrospectionEndpoint(server);
 
   options.signal?.throwIfAborted();
   const params = new URLSearchParams({ token });
@@ -110,7 +107,15 @@ export async function introspectToken(
   });
 }
 
-function isUrlWithProtocol(value: string | undefined, ...protocols: string[]): value is string {
+export function resolveIntrospectionEndpoint(metadata: OAuthAuthorizationServerMetadata): string {
+  const endpoint = metadata.introspection_endpoint;
+  if (!isUrlWithProtocol(endpoint, "https:")) {
+    throw new ConfigurationError("introspectToken requires an HTTPS introspection_endpoint in authorization server metadata");
+  }
+  return endpoint;
+}
+
+export function isUrlWithProtocol(value: string | undefined, ...protocols: string[]): value is string {
   if (!value) return false;
   try {
     return protocols.includes(new URL(value).protocol);
