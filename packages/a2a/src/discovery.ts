@@ -1,4 +1,5 @@
 import type { AgentCard } from "@a2a-js/sdk";
+import { boundedPeerFetch, peerResponseLimit } from "./peer-response.js";
 
 export type { AgentCard } from "@a2a-js/sdk";
 
@@ -10,6 +11,14 @@ interface CacheEntry {
   expiresAt: number;
 }
 
+export interface ServiceDiscoveryOptions {
+  cacheTtlMs?: number;
+  /** Maximum decoded bytes in an agent card with the default fetch (64 MiB). */
+  maxPeerResponseBytes?: number;
+  /** Replacement fetch implementation, independent of the peer response limit. */
+  fetchImpl?: typeof fetch;
+}
+
 /**
  * Fetches and caches agent cards from remote A2A services.
  *
@@ -18,9 +27,12 @@ interface CacheEntry {
 export class ServiceDiscovery {
   #cacheTtlMs: number;
   #cache = new Map<string, CacheEntry>();
+  #fetch: typeof fetch;
 
-  constructor(options?: { cacheTtlMs?: number }) {
+  constructor(options?: ServiceDiscoveryOptions) {
     this.#cacheTtlMs = options?.cacheTtlMs ?? DEFAULT_CACHE_TTL_MS;
+    const limit = peerResponseLimit(options?.maxPeerResponseBytes);
+    this.#fetch = options?.fetchImpl ?? boundedPeerFetch(limit);
   }
 
   /**
@@ -29,7 +41,7 @@ export class ServiceDiscovery {
    */
   async discoverService(serviceUrl: string): Promise<AgentCard> {
     const cardUrl = buildAgentCardUrl(serviceUrl);
-    const response = await fetch(cardUrl, {
+    const response = await this.#fetch(cardUrl, {
       headers: { Accept: "application/json" },
       signal: AbortSignal.timeout(10_000),
     });

@@ -1,4 +1,5 @@
 import { TokenExchangeClient } from "@keycardai/oauth/tokenExchange";
+import { ResponseBodyTooLargeError } from "@keycardai/oauth";
 import { ClientSecret } from "@keycardai/oauth/server/clientSecret";
 import type { AgentCard, Message, Task } from "@a2a-js/sdk";
 import { Role } from "@a2a-js/sdk";
@@ -9,6 +10,7 @@ import {
   type Client,
 } from "@a2a-js/sdk/client";
 import { ServiceDiscovery } from "./discovery.js";
+import { boundedPeerFetch, peerResponseLimit } from "./peer-response.js";
 import type { AgentServiceConfig } from "./config.js";
 import { getAuthServerUrl } from "./config.js";
 
@@ -56,6 +58,8 @@ export interface DelegationClientOptions {
   legacyCompat?: { enabled: boolean };
   /** `fetch` implementation for the JSON-RPC transport. Default: global `fetch`. */
   fetchImpl?: typeof fetch;
+  /** Maximum decoded bytes per peer reply on the default fetch (64 MiB). */
+  maxPeerResponseBytes?: number;
 }
 
 /**
@@ -88,12 +92,13 @@ export class DelegationClient {
 
   constructor(config: AgentServiceConfig, options?: DelegationClientOptions) {
     this.#config = config;
-    this.#discovery = options?.discovery ?? new ServiceDiscovery();
+    const limit = peerResponseLimit(options?.maxPeerResponseBytes);
+    this.#discovery = options?.discovery ?? new ServiceDiscovery({ maxPeerResponseBytes: limit });
     this.#tokenClient = new TokenExchangeClient(getAuthServerUrl(config), {
       credential: new ClientSecret(config.clientId, config.clientSecret),
     });
     const transportOptions = {
-      fetchImpl: options?.fetchImpl,
+      fetchImpl: options?.fetchImpl ?? boundedPeerFetch(limit, true),
       legacyCompat: options?.legacyCompat,
     };
     this.#clientFactory = new ClientFactory({
@@ -125,6 +130,7 @@ export class DelegationClient {
         },
       );
     } catch (error) {
+      if (error instanceof ResponseBodyTooLargeError) throw error;
       throw new Error(
         `DelegationClient: A2A request to "${serviceUrl}" failed: ${
           error instanceof Error ? error.message : String(error)
