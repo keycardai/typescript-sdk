@@ -1,3 +1,13 @@
+## 0.38.0-keycardai-oauth (2026-11-26)
+
+
+- feat(oauth): export basicAuthorization (#433)
+- * feat(oauth): export basicAuthorization
+- * feat(oauth): export basicAuthorization from the credentials entry point
+- * docs(oauth): document the basicAuthorization export
+- ---------
+- Co-authored-by: devin-ai-keycard <devin-ai@keycard.ai>
+
 ## 0.37.0-keycardai-oauth (2026-11-26)
 
 
