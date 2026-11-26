@@ -1,8 +1,8 @@
-import { ConfigurationError } from "@keycardai/oauth/errors";
-import { verifyBearerToken, isAuthError } from "./auth.js";
-import { handleMetadataRequest } from "./metadata.js";
+import { verifyRequest, isAuthError } from "./auth.js";
+import { handleMetadata } from "./metadata.js";
 import { WorkersClientSecret, WorkersWebIdentity } from "./credentials.js";
 import type { KeycardEnv, KeycardWorkerOptions, MetadataOptions } from "./types.js";
+import { resolveResourceBinding, validateAudience, validateZoneResolver, warnLegacy } from "./resourceBinding.js";
 
 /**
  * Creates a Cloudflare Worker `ExportedHandler` with Keycard auth built in.
@@ -20,9 +20,10 @@ import type { KeycardEnv, KeycardWorkerOptions, MetadataOptions } from "./types.
 export function createKeycardWorker<Env extends KeycardEnv = KeycardEnv>(
   options: KeycardWorkerOptions<Env>,
 ): ExportedHandler<Env> {
-  if (Array.isArray(options.audiences) && options.audiences.length === 0) {
-    throw new ConfigurationError("createKeycardWorker: audiences must not be an empty list");
-  }
+  const binding = resolveResourceBinding(options);
+  validateAudience(binding, options.audiences);
+  validateZoneResolver(binding, options.zoneResolver);
+  if (binding.mode === "legacy") warnLegacy("createKeycardWorker");
 
   // Cache the WebIdentity instance across requests (module-level is safe —
   // it only holds the private key, which is the same for all requests)
@@ -51,18 +52,19 @@ export function createKeycardWorker<Env extends KeycardEnv = KeycardEnv>(
       });
 
       // Handle metadata endpoints
-      const metadataResponse = await handleMetadataRequest(request, metadataOptions);
+      const metadataResponse = await handleMetadata(request, metadataOptions, binding, false);
       if (metadataResponse) {
         return metadataResponse;
       }
 
       // Verify bearer token. `KEYCARD_ISSUER` from env is the trust anchor:
       // tokens with any other `iss` are rejected before any JWKS lookup.
-      const authResult = await verifyBearerToken(request, {
+      const authResult = await verifyRequest(request, {
         issuers: env.KEYCARD_ISSUER,
         audiences: options.audiences,
         requiredScopes: options.requiredScopes,
-      });
+        zoneResolver: options.zoneResolver,
+      }, binding, false);
 
       if (isAuthError(authResult)) {
         return authResult;

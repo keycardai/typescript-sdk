@@ -14,6 +14,63 @@ describe("handleMetadataRequest", () => {
     expect(result).toBeNull();
   });
 
+  it("metadata rows 1 and 7: publishes the exact configured identifier independent of the request origin", async () => {
+    for (const [resourceIdentifier, suffix] of [
+      ["https://example.com", ""],
+      ["https://example.com/mcp?q=1", "/mcp?q=1"],
+    ]) {
+      const request = new Request("http://internal.example/.well-known/oauth-protected-resource" + suffix);
+      const result = await handleMetadataRequest(request, { ...baseOptions, resourceIdentifier });
+      expect(result?.status).toBe(200);
+      expect(await result?.json()).toMatchObject({ resource: resourceIdentifier, authorization_servers: [baseOptions.issuer] });
+    }
+  });
+
+  it("metadata rows 8d and 8e: validates options first and skips only the verifier-only document", async () => {
+    const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      for (const flags of [{ allowAnyAudience: true }, { multiResource: true }]) {
+        const options = { ...baseOptions, ...flags, publicJwks: { keys: [] } };
+        expect(await handleMetadataRequest(new Request("https://example.com/.well-known/oauth-protected-resource"), options)).toBeNull();
+        expect((await handleMetadataRequest(new Request("https://example.com/.well-known/jwks.json"), options))?.status).toBe(200);
+      }
+      expect(warn).not.toHaveBeenCalled();
+      await expect(handleMetadataRequest(new Request("https://example.com/non-metadata"), {
+        ...baseOptions, allowAnyAudience: true, multiResource: true,
+      })).rejects.toMatchObject({ name: "ConfigurationError" });
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("metadata rows 4a, 4b, 9a, 9c and integration 2: only configured zones are discoverable", async () => {
+    const a = "https://example.com/a/mcp";
+    const b = "https://example.com/b/mcp";
+    const options = { issuer: "https://keycard.cloud:9443", resourceIdentifiersByZone: { a, b } };
+    const upstream = '{\n  "authorization_endpoint": "https://auth.example.com/authorize?resource=stale&keep=1"\n}\n';
+    const fetch = jest.spyOn(globalThis, "fetch").mockImplementation(async () => new Response(upstream));
+    try {
+      for (const [zone, resource] of Object.entries(options.resourceIdentifiersByZone)) {
+        const issuer = `https://${zone}.keycard.cloud:9443`;
+        const result = await handleMetadataRequest(new Request(`https://example.com/.well-known/oauth-protected-resource/${zone}/mcp`), options);
+        expect(await result?.json()).toEqual({ resource, authorization_servers: [issuer] });
+        const metadata = await handleMetadataRequest(new Request(`https://example.com/.well-known/oauth-authorization-server/${zone}`), options);
+        expect(await metadata?.text()).toBe(upstream);
+        expect(fetch).toHaveBeenLastCalledWith(issuer + "/.well-known/oauth-authorization-server", expect.anything());
+      }
+      for (const suffix of ["", "/c"]) {
+        expect(await handleMetadataRequest(new Request("https://example.com/.well-known/oauth-authorization-server" + suffix), options)).toBeNull();
+      }
+      expect(fetch).toHaveBeenCalledTimes(2);
+      const shared = await handleMetadataRequest(new Request("https://example.com/.well-known/oauth-protected-resource/a/mcp"), {
+        ...options, multiResource: true, resourceIdentifiersByZone: { a, b: a },
+      });
+      expect(await shared?.json()).toEqual({ resource: a, authorization_servers: ["https://a.keycard.cloud:9443", "https://b.keycard.cloud:9443"] });
+    } finally {
+      fetch.mockRestore();
+    }
+  });
+
   it("returns protected resource metadata", async () => {
     const request = new Request("https://example.com/.well-known/oauth-protected-resource");
     const result = await handleMetadataRequest(request, baseOptions);

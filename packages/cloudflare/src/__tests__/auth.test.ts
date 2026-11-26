@@ -22,6 +22,7 @@ jest.unstable_mockModule("@keycardai/oauth/jwt/verifier", () => ({
 }));
 
 const { verifyBearerToken, isAuthError } = await import("../auth.js");
+const { JWTVerifier } = await import("@keycardai/oauth/jwt/verifier");
 
 function makeRequest(authHeader?: string): Request {
   const headers = new Headers();
@@ -34,6 +35,76 @@ function makeRequest(authHeader?: string): Request {
 describe("verifyBearerToken", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+  });
+
+  it("rows 1, 12, 12a and 12c: challenges only the configured path and query", async () => {
+    const options = { issuers: "https://auth.keycard.ai", resourceIdentifier: "https://example.com/mcp?q=1" };
+    for (const [path, challenge] of [
+      ["/mcp?q=1", 'Bearer resource_metadata="https://example.com/.well-known/oauth-protected-resource/mcp?q=1"'],
+      ["/mcp?q=2", "Bearer"],
+      ["/tools", "Bearer"],
+    ]) {
+      const result = await verifyBearerToken(new Request("http://internal.example" + path, {
+        headers: { "x-forwarded-host": "attacker.example", "x-forwarded-proto": "http" },
+      }), options) as Response;
+      expect(result.status).toBe(401);
+      expect(result.headers.get("WWW-Authenticate")).toBe(challenge);
+    }
+  });
+
+  it("row 15: verifies the exact configured audience behind a proxy", async () => {
+    const resourceIdentifier = "https://example.com/mcp?q=1";
+    const issuers = "https://auth.keycard.ai";
+    mockVerify.mockResolvedValue({ client_id: "client", aud: resourceIdentifier });
+    const result = await verifyBearerToken(new Request("http://internal.example/mcp?q=1", {
+      headers: { authorization: "Bearer token" },
+    }), { issuers, resourceIdentifier });
+    expect(isAuthError(result)).toBe(false);
+    expect(JWTVerifier).toHaveBeenCalledWith(expect.anything(), { issuers, audiences: resourceIdentifier });
+  });
+
+  it("rows 16, 16c and 17: verifier and challenge agree on the zone binding", async () => {
+    const issuers = "https://keycard.cloud";
+    const a = "https://example.com/a/mcp";
+    const perZone = {
+      issuers,
+      resourceIdentifiersByZone: { a, b: "https://example.com/b/mcp" },
+      zoneResolver: (request: Request) => new URL(request.url).pathname.split("/")[1],
+    };
+    const anonymous = await verifyBearerToken(new Request("http://internal.example/a/mcp"), perZone) as Response;
+    expect(anonymous.headers.get("WWW-Authenticate")).toContain("/oauth-protected-resource/a/mcp");
+    const unknown = await verifyBearerToken(new Request("http://internal.example/c/mcp"), perZone) as Response;
+    expect(unknown.status).toBe(401);
+    expect(unknown.headers.get("WWW-Authenticate")).toBe("Bearer");
+    mockVerify.mockResolvedValue({ client_id: "client", aud: a });
+    const tokenRequest = new Request("http://internal.example/a/mcp", { headers: { authorization: "Bearer token" } });
+    expect(isAuthError(await verifyBearerToken(tokenRequest, perZone))).toBe(false);
+    expect(JWTVerifier).toHaveBeenLastCalledWith(expect.anything(), { issuers: "https://a.keycard.cloud", audiences: a });
+    expect(isAuthError(await verifyBearerToken(tokenRequest, {
+      issuers,
+      resourceIdentifiersByZone: { a, b: a },
+      multiResource: true,
+      audiences: [a],
+    }))).toBe(false);
+    expect(JWTVerifier).toHaveBeenLastCalledWith(expect.anything(), {
+      issuers: ["https://a.keycard.cloud", "https://b.keycard.cloud"],
+      audiences: a,
+    });
+  });
+
+  it("rows 8e, 14b, 16d and 17a: rejects invalid modes before starting verification", async () => {
+    const a = "https://example.com/mcp";
+    const b = "https://example.com/other";
+    for (const options of [
+      { multiResource: true, audiences: [] },
+      { multiResource: true, audiences: a },
+      { resourceIdentifiersByZone: { a } },
+      { multiResource: true, audiences: [a], resourceIdentifiersByZone: { a, b } },
+    ]) {
+      await expect(verifyBearerToken(makeRequest(), { issuers: "https://keycard.cloud", ...options }))
+        .rejects.toMatchObject({ name: "ConfigurationError" });
+    }
+    expect(JWTVerifier).not.toHaveBeenCalled();
   });
 
   it("returns 401 when no Authorization header is present", async () => {
