@@ -73,11 +73,11 @@ export function metadataRouter(
   const issuers = zoneIssuers(binding, options.issuer);
   if (binding.mode === "legacy" && warn) warnLegacy("keycardMetadataRouter");
   const timeout = options.asMetadataTimeoutMs ?? 10_000;
-  const documents = new Map<string, Array<{ identifier: ResourceIdentifier; issuers: string[] }>>();
+  const documents = new Map<string, Array<{ identifier: ResourceIdentifier; url: URL; issuers: string[] }>>();
   const addDocument = (identifier: ResourceIdentifier, authorizationServers: string[]) => {
     if (!identifier.metadataTarget || !identifier.metadataUrl) return;
     const entries = documents.get(identifier.metadataTarget) ?? [];
-    entries.push({ identifier, issuers: authorizationServers });
+    entries.push({ identifier, url: new URL(identifier.metadataUrl), issuers: authorizationServers });
     documents.set(identifier.metadataTarget, entries);
   };
 
@@ -97,11 +97,10 @@ export function metadataRouter(
   if (documents.size) {
     const findDocument: RequestHandler = (req, res, next) => {
       const entries = documents.get(requestTarget(req.url));
-      const host = req.headers.host?.toLowerCase();
-      const entry = entries?.length === 1 ? entries[0] : entries?.find(candidate => {
-        const url = new URL(candidate.identifier.metadataUrl!);
-        return url.host === host?.replace(url.protocol === "https:" ? /:0*443$/ : /:0*80$/, "");
-      });
+      const host = req.headers.host?.toLowerCase().replace(/:0+(\d+)$/, ":$1");
+      const entry = entries?.length === 1 ? entries[0]
+        : entries?.find(({ url }) => url.host === host)
+          ?? entries?.find(({ url }) => url.host === host?.replace(url.protocol === "https:" ? /:443$/ : /:80$/, ""));
       if (!entry) return next();
       if (req.method === "OPTIONS") return preflightHandler(req, res, next);
       return protectedResourceHandler(options, entry.identifier.value, entry.issuers)(req, res, next);
