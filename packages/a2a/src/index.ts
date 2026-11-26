@@ -18,6 +18,7 @@ export { getAgentCardUrl, getJsonrpcUrl, getAuthServerUrl } from "./config.js";
 
 // Discovery
 export { ServiceDiscovery, type ServiceDiscoveryOptions } from "./discovery.js";
+export { A2ADiscoveryError } from "./errors.js";
 
 // Delegation client
 export { DelegationClient } from "./delegation.js";

@@ -1,5 +1,5 @@
 import { jest } from '@jest/globals';
-import { DelegationClient } from './delegation.js';
+import { A2ADiscoveryError, DelegationClient, type DelegationClientOptions } from './index.js';
 import { buildAgentCard } from './server.js';
 import { ServiceDiscovery } from './discovery.js';
 import { boundedPeerFetch } from './peer-response.js';
@@ -122,11 +122,13 @@ function headersOf(init?: RequestInit): Record<string, string> {
 function makeHarness(opts: {
   card?: unknown;
   rpcResponse?: unknown;
+  rpcUrl?: string;
   rpcStatus?: number;
   peerResponse?: (document: unknown, invocation: boolean) => Response;
   tokenResponse?: Response;
 } = {}) {
   const rpcCalls: Recorded[] = [];
+  let exchanges = 0;
   const fetchMock = jest.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
     if (url === `${TARGET_URL}/.well-known/agent-card.json`) {
@@ -140,6 +142,7 @@ function makeHarness(opts: {
       });
     }
     if (url === 'https://zone-abc.keycard.cloud/token') {
+      exchanges++;
       if (opts.tokenResponse) return opts.tokenResponse;
       return jsonResponse({
         access_token: 'delegated-token',
@@ -147,7 +150,7 @@ function makeHarness(opts: {
         issued_token_type: 'urn:ietf:params:oauth:token-type:access_token',
       });
     }
-    if (url === TARGET_JSONRPC_URL) {
+    if (url === (opts.rpcUrl ?? TARGET_JSONRPC_URL)) {
       const body = JSON.parse(String(init?.body));
       rpcCalls.push({ url, method: init?.method ?? 'GET', headers: headersOf(init), body });
       const response = { ...(opts.rpcResponse ?? RECORDED_1_0_MESSAGE_RESPONSE), id: body.id };
@@ -156,7 +159,7 @@ function makeHarness(opts: {
     }
     throw new Error(`unexpected fetch: ${url}`);
   });
-  return { fetch: fetchMock as unknown as typeof fetch, rpcCalls };
+  return { fetch: fetchMock as unknown as typeof fetch, rpcCalls, exchangeCount: () => exchanges };
 }
 
 let originalFetch: typeof fetch;
@@ -167,7 +170,7 @@ afterEach(() => {
   globalThis.fetch = originalFetch;
 });
 
-function makeClient(harness: ReturnType<typeof makeHarness>, extra: { legacyCompat?: { enabled: boolean } } = {}) {
+function makeClient(harness: ReturnType<typeof makeHarness>, extra: DelegationClientOptions = {}) {
   // ServiceDiscovery and TokenExchangeClient use the global fetch; the A2A
   // transport receives the same mock via fetchImpl.
   globalThis.fetch = harness.fetch;
@@ -411,6 +414,107 @@ describe('DelegationClient wire shape (A2A 1.0)', () => {
   });
 });
 
+describe('DelegationClient invocation endpoint origins', () => {
+  const options = { subjectToken: 'user-token' };
+  const rpcInterface = TARGET_CARD_JSON.supportedInterfaces[0];
+  const cardAt = (url: string) => ({
+    ...TARGET_CARD_JSON,
+    supportedInterfaces: [{ ...rpcInterface, url }],
+  });
+
+  it.each([
+    ['12: invokes on the same origin', `${TARGET_URL}/rpc`, []],
+    ['14: invokes on an allowlisted origin', 'https://gateway.example.com/rpc', ['HTTPS://Gateway.Example.com:443/']],
+    ['15: matches an explicit default port', 'https://agent.example.com:443/rpc', []],
+    ['15b: matches scheme and host case-insensitively', 'HTTPS://Agent.Example.com/rpc', []],
+  ])('row %s', async (_name, url, trustedEndpointOrigins) => {
+    const harness = makeHarness({ card: cardAt(url), rpcUrl: url });
+    const client = makeClient(harness, { trustedEndpointOrigins });
+
+    await client.invokeService(TARGET_URL, 'ping', options);
+
+    expect(harness.exchangeCount()).toBe(1);
+    expect(harness.rpcCalls).toEqual([
+      expect.objectContaining({ url, headers: expect.objectContaining({ authorization: 'Bearer delegated-token' }) }),
+    ]);
+  });
+
+  it.each([
+    ['13: refuses a different host', 'https://other.example.com/rpc', 'https://other.example.com:443', false],
+    ['15: refuses a different port', 'https://agent.example.com:8443/rpc', 'https://agent.example.com:8443', false],
+    ['15: refuses a different scheme', 'http://agent.example.com/rpc', 'http://agent.example.com:80', false],
+    ['15a: refuses another origin in a 0.3 card', 'https://other.example.com/rpc', 'https://other.example.com:443', true],
+  ])('row %s', async (_name, url, origin, legacy) => {
+    const card = legacy ? { ...LEGACY_TARGET_CARD_JSON, url } : cardAt(url);
+    const harness = makeHarness({ card, rpcUrl: url });
+    const client = makeClient(harness, { legacyCompat: { enabled: legacy } });
+    const call = client.invokeService(TARGET_URL, 'ping', options);
+
+    await expect(call).rejects.toBeInstanceOf(A2ADiscoveryError);
+    await expect(call).rejects.toMatchObject({
+      retryable: false,
+      message: expect.stringContaining(`Endpoint origin ${origin} is not trusted for target "${TARGET_URL}"`),
+    });
+    expect(harness.exchangeCount()).toBe(0);
+    expect(harness.rpcCalls).toHaveLength(0);
+  });
+
+  it('checks the selected JSON-RPC interface rather than the first interface', async () => {
+    const url = 'https://other.example.com/rpc';
+    const card = {
+      ...TARGET_CARD_JSON,
+      supportedInterfaces: [
+        { ...rpcInterface, protocolVersion: '0.3' },
+        { ...rpcInterface, url },
+      ],
+    };
+    const harness = makeHarness({ card, rpcUrl: url });
+
+    await expect(makeClient(harness).invokeService(TARGET_URL, 'ping', options)).rejects.toBeInstanceOf(A2ADiscoveryError);
+    expect(harness.exchangeCount()).toBe(0);
+    expect(harness.rpcCalls).toHaveLength(0);
+  });
+
+  it.each([
+    'https://gateway.example.com/rpc',
+    'https://gateway.example.com/rpc/..',
+    'https://gateway.example.com/?key=value',
+    'https://gateway.example.com/?',
+    'https://gateway.example.com/#part',
+    'https://gateway.example.com/#',
+    'https://user@gateway.example.com',
+    'https://@gateway.example.com',
+  ])('rejects a non-bare trusted endpoint origin: %s', (origin) => {
+    expect(() => makeClient(makeHarness(), { trustedEndpointOrigins: [origin] })).toThrow(A2ADiscoveryError);
+  });
+
+  it('rejects a card advertising only non-JSON-RPC interfaces before exchange', async () => {
+    const card = {
+      ...TARGET_CARD_JSON,
+      supportedInterfaces: ['HTTP+JSON', 'GRPC'].map((protocolBinding) => ({
+        ...rpcInterface,
+        url: `${TARGET_URL}/other`,
+        protocolBinding,
+      })),
+    };
+    const harness = makeHarness({ card });
+
+    await expect(makeClient(harness).invokeService(TARGET_URL, 'ping', options))
+      .rejects.toThrow(/no usable JSON-RPC interface/);
+    expect(harness.exchangeCount()).toBe(0);
+    expect(harness.rpcCalls).toHaveLength(0);
+  });
+
+  it('uses the convention endpoint on the target origin when the card advertises no endpoints', async () => {
+    const harness = makeHarness({ card: { ...TARGET_CARD_JSON, supportedInterfaces: [] } });
+
+    await makeClient(harness).invokeService(TARGET_URL, 'ping', options);
+
+    expect(harness.exchangeCount()).toBe(1);
+    expect(harness.rpcCalls[0]?.url).toBe(TARGET_JSONRPC_URL);
+  });
+});
+
 describe('DelegationClient and 0.3-generation agents', () => {
   it('rejects a 0.3 agent card by default (no compatibility layer)', async () => {
     const harness = makeHarness({ card: LEGACY_TARGET_CARD_JSON });
@@ -419,6 +523,22 @@ describe('DelegationClient and 0.3-generation agents', () => {
     await expect(
       client.invokeService(TARGET_URL, 'ping', { subjectToken: 'user-token' }),
     ).rejects.toThrow(/no usable JSON-RPC interface/);
+    expect(harness.rpcCalls).toHaveLength(0);
+  });
+
+  it('rejects a protobuf-shaped 0.3 card before exchange when compatibility is disabled', async () => {
+    const card = {
+      ...LEGACY_TARGET_CARD_JSON,
+      url: 'https://legacy.example.com/rpc',
+      security: [{ schemes: { bearer: { list: [] } } }],
+    };
+    const harness = makeHarness({ card });
+    const client = makeClient(harness, { legacyCompat: { enabled: false } });
+
+    await expect(
+      client.invokeService(TARGET_URL, 'ping', { subjectToken: 'user-token' }),
+    ).rejects.toThrow(/no usable JSON-RPC interface/);
+    expect(harness.exchangeCount()).toBe(0);
     expect(harness.rpcCalls).toHaveLength(0);
   });
 

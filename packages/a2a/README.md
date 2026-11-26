@@ -130,6 +130,14 @@ app.use("/a2a/jsonrpc", requireBearerAuth({ ... }), jsonRpcHandler({ requestHand
 
 The Python equivalent is `enable_v0_3_compat` in `keycardai-a2a`. See the upstream [v0.3 compatibility guide](https://github.com/a2aproject/a2a-js/blob/main/docs/compatibility-v0_3.md).
 
+## Trusted invocation origins
+
+Delegation only accepts invocation endpoints on the target's origin by default.
+For a trusted gateway on another origin, pass
+`{ trustedEndpointOrigins: ["https://gateway.example.com"] }` to the client.
+An untrusted endpoint throws a non-retryable `A2ADiscoveryError` before token
+exchange.
+
 ## Peer response size
 
 `DelegationClient` and `ServiceDiscovery` accept a positive
