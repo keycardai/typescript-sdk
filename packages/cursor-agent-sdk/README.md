@@ -61,12 +61,39 @@ fresh instance finds no token and fails closed with
 `subject_token_unavailable`; the caller's next request verifies again. Agents
 that act without a request in hand use `Keycard.asSelf` or
 `Keycard.impersonate`, and self-hosting with `agent-sdk serve` keeps one
-process. There is no persisted option: whatever the verifier returns becomes
-`session.auth`, which Cursor saves with the session. Cursor advises against
-putting the raw token there, and a `ctx.host.kv`-backed store would put the
-token at rest the same way. The `"attributes"` mode of 0.2.x, which did exactly
-that, is rejected at construction; sessions created with it on 0.2.x keep the
-token in their session record until those sessions end.
+process. Whatever the verifier returns becomes `session.auth`, which Cursor
+saves with the session, so no retention mode puts the raw token there. The
+`"attributes"` mode of 0.2.x, which did exactly that, is rejected at
+construction; sessions created with it on 0.2.x keep the token in their session
+record until those sessions end.
+
+Hosted agents that need on-behalf-of on a fresh instance can opt in to
+`retainSubjectToken: "host-kv"`. It keeps the same process-local retention as
+`"memory"` and also writes a copy to `ctx.host.kv`, scoped by session ID and
+verified principal and usable only before the token's verified `exp`. Pass one
+`hostKvSubjectTokenStore()` to both `keycardAuth` and every `Keycard.onBehalfOf`
+connection, and attach the deployment's KV handle in the channel's `onStart`:
+
+```ts
+import { hostKvSubjectTokenStore, keycardAuth, Keycard } from "@keycardai/cursor-agent-sdk";
+
+const subjectTokens = hostKvSubjectTokenStore();
+const verify = keycardAuth({ zoneUrl, retainSubjectToken: "host-kv", subjectTokens });
+const github = Keycard.onBehalfOf({ zoneUrl, resource, subjectTokens });
+
+// In the channel config:
+onStart: ({ host }) => subjectTokens.attachHostKv(host.kv),
+```
+
+This mode covers Cursor's built-in routes only. Cursor KV has no TTL, so
+expired copies are not guaranteed to be deleted: a read at or after an entry's
+`exp` deletes it, and the next write for the same session and principal prunes
+expired entries. A session that is never resumed leaves its expired entry in
+KV. Cursor publishes no confidentiality guarantee for `ctx.host.kv` beyond
+deployment scoping, so this mode puts a short-lived bearer at rest in storage
+Keycard does not control. It is off by default for that reason. Hosted v2 HTTP
+session starts skip the `bearerAuth` verifier, so `onBehalfOf` fails there with
+`principal_required` in every mode.
 
 On Cursor hosting the built-in session, MCP and playground routes also sit
 behind the deployment alias token (`X-Agent-Alias-Token`); a Keycard bearer
