@@ -453,6 +453,31 @@ describe("requireBearerAuth middleware", () => {
       }
     });
 
+    it.each([
+      "https://api.example.com",
+      "https://API.EXAMPLE.COM/mcp",
+      "https://api.example.com:443/mcp",
+    ])("normalizes the URL fallback but compares aud exactly for %s", async configured => {
+      const resource = new URL(configured);
+      const verified = { token: "token", clientId: "client", scopes: [], resource };
+      mockRequest.headers = { authorization: "Bearer token" };
+      mockRequest.originalUrl = resource.pathname;
+      for (const mode of [{ resourceIdentifier: configured }, { multiResource: true, audiences: ["opaque", configured] }]) {
+        const handler = requireBearerAuth({ verifier: mockVerifier, ...mode });
+        nextFunction.mockClear();
+        mockVerifyAccessToken.mockResolvedValueOnce(verified);
+        await handler(mockRequest as Request, mockResponse as Response, nextFunction);
+        expect(nextFunction).toHaveBeenCalledTimes(1);
+        mockVerifyAccessToken.mockResolvedValueOnce({ ...verified, aud: [resource.href] });
+        await handler(mockRequest as Request, mockResponse as Response, nextFunction);
+        expect(nextFunction).toHaveBeenCalledTimes(1);
+        expect(mockResponse.status).toHaveBeenLastCalledWith(401);
+        mockVerifyAccessToken.mockResolvedValueOnce({ ...verified, aud: [configured] });
+        await handler(mockRequest as Request, mockResponse as Response, nextFunction);
+        expect(nextFunction).toHaveBeenCalledTimes(2);
+      }
+    });
+
     it("reports the bound resource when it is not the first audience", async () => {
       const other = new URL("https://api.example.com/other");
       class VerifierAuth {

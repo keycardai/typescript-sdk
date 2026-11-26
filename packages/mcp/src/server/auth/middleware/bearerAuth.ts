@@ -134,9 +134,13 @@ export function requireBearerAuth(options: BearerAuthMiddlewareOptions): Request
 
       const authInfo = await verify(token, zone);
       const expected = identifier ? [identifier.value] : binding.mode === "multi" ? audiences as readonly string[] : undefined;
-      const verifiedAudiences = authInfo.aud ?? (verifier && authInfo.resource ? [authInfo.resource.href] : []);
-      if (expected && !verifiedAudiences.some(value => expected.includes(value))) {
-        throw new InvalidTokenError("Audience mismatch");
+      if (expected) {
+        const aud = authInfo.aud;
+        const resourceHref = aud === undefined && verifier ? authInfo.resource?.href : undefined;
+        const matches = aud !== undefined
+          ? aud.some(value => expected.includes(value))
+          : resourceHref !== undefined && expected.some(value => toResourceUrl(value)?.href === resourceHref);
+        if (!matches) throw new InvalidTokenError("Audience mismatch");
       }
 
       if (authInfo.resource && requestUrl && !isIntendedResource(authInfo.resource, requestUrl, audiences)) {
