@@ -1,6 +1,8 @@
 import { ConfigurationError } from "./errors.js";
 import type { TokenExchangeRequest } from "./tokenExchange.js";
 
+export { basicAuthorization } from "./basicAuthorization.js";
+
 /**
  * The headers and form fields that authenticate the client on one request to
  * the authorization server. Keys are wire names, such as `Authorization` or
