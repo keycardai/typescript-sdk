@@ -1,3 +1,14 @@
+## 0.41.0-keycardai-oauth (2026-11-26)
+
+
+- fix(oauth)!: classify workload identity source retryability (#453)
+- * fix(oauth)!: classify workload identity source retryability
+- Custom token sources must set retryable: true on WorkloadIdentityRuntimeError for failures that should be retried.
+- * fix(cursor-agent-sdk): classify transient OIDC helper failures
+- Co-Authored-By: Devin AI <158243242+devin-ai-integration[bot]@users.noreply.github.com>
+- ---------
+- Co-authored-by: devin-ai-keycard <devin-ai@keycard.ai>
+
 ## 0.40.0-keycardai-oauth (2026-11-26)
 
 
