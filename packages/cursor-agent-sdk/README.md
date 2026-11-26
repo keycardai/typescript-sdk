@@ -130,11 +130,11 @@ running `@grok/agent-sdk` 0.7.1 or later), `clientId` plus `clientSecret`
 
 For hosted deployments without a stored client secret, pass
 `cursorWorkloadIdentity: { clientId }` (with an optional `audience`, defaulting
-to `zoneUrl`). Register `https://api.cursor.com` as a trusted issuer in the
-Keycard zone, create a v2 token credential pinned to
-`agent_sdk_deployment_id:<deployment-id>`, declare the audience in
-`hosting.oidc.audiences`, and add the zone hostname to `hosting.egressDomains`
-before deploying.
+to the zone issuer URL, `zoneUrl` without trailing slashes). Register
+`https://api.cursor.com` as a trusted issuer in the Keycard zone, create a v2
+token credential pinned to `agent_sdk_deployment_id:<deployment-id>`, declare
+the exact audience in `hosting.oidc.audiences`, and add the zone hostname to
+`hosting.egressDomains` before deploying.
 
 `clientSecret` also accepts the SDK's `SecretRef` (`{ secretName }`), read from
 `process.env` when the provider runs rather than when the module is imported:
