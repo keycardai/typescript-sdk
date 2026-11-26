@@ -1,3 +1,4 @@
+import { basicAuthorization as publicBasicAuthorization } from './index.js';
 import { basicAuthorization } from './basicAuthorization.js';
 
 function decode(header: string): string {
@@ -6,6 +7,10 @@ function decode(header: string): string {
 }
 
 describe('basicAuthorization', () => {
+  it('exports the helper from the package root', () => {
+    expect(publicBasicAuthorization).toBe(basicAuthorization);
+  });
+
   // The decoded value is what the server sees before it decodes each half.
   // Each half must decode to the original with a form decoder (RFC 6749
   // Appendix B) and with decodeURIComponent (Keycard zones).
