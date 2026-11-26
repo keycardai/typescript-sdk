@@ -11,6 +11,7 @@ import {
   JWKSError,
   JWKSKeyNotFoundError,
 } from "@keycardai/oauth/errors";
+import { omitWhenPrinted } from "./printed.js";
 import type { AuthInfo, BearerAuthOptions } from "./types.js";
 
 // Module-level shared keyring. The keyring caches JWKS responses per
@@ -171,7 +172,7 @@ export async function verifyBearerToken(
       throw new InvalidTokenError("Token has expired");
     }
 
-    return authInfo;
+    return omitWhenPrinted(authInfo, "AuthInfo", ["token"]);
   } catch (error) {
     if (error instanceof BadRequestError) {
       return new Response(null, { status: 400 });

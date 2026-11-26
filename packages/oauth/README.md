@@ -347,6 +347,7 @@ issuer's `userinfo_endpoint`. Pass `{ metadata }` to skip discovery.
 | `fetchAuthorizationServerMetadata` | `@keycardai/oauth/discovery` | Fetches `.well-known/oauth-authorization-server` metadata |
 | `TokenExchangeClient` | `@keycardai/oauth/tokenExchange` | RFC 8693 token exchange client with auto-discovery, plus `impersonate()` for substitute-user exchange |
 | `TokenType` | `@keycardai/oauth/tokenExchange` | URN constants: `ACCESS_TOKEN`, `SUBSTITUTE_USER` |
+| `omitTokenExchangeSecrets` | `@keycardai/oauth/tokenExchange` | Returns a prepared `TokenExchangeRequest` that `console.log` and `util.inspect` print without `subjectToken`, `actorToken`, and `clientAssertion`. Credentials call it on the request they prepare |
 | `buildSubstituteUserToken` | `@keycardai/oauth/jwt/substituteUser` | Builds the unsigned subject JWT for impersonation calls |
 | `registerClient` | `@keycardai/oauth/registration` | RFC 7591 dynamic client registration with auto-discovery |
 
@@ -398,6 +399,7 @@ issuer's `userinfo_endpoint`. Pass `{ metadata }` to skip discovery.
 | `ApplicationCredential` (type) | `@keycardai/oauth/credentials` | Interface for credential providers. The optional `clientAuthentication(issuer, endpoint)` returns the headers and form fields that authenticate one request. The optional `checkClientAuthentication()` throws `ConfigurationError` before any request when the credential cannot do so |
 | `providesClientAuthentication` | `@keycardai/oauth/credentials` | Reports whether a credential provides `clientAuthentication` |
 | `basicAuthorization` | `@keycardai/oauth/credentials` | Builds the HTTP Basic `Authorization` header value from a client ID and secret; also exported from `@keycardai/oauth` |
+| `createClientAuthentication` | `@keycardai/oauth/credentials` | Builds a `ClientAuthentication` from headers and form fields. `console.log` and `util.inspect` print the field names, not the values |
 
 ### Errors
 

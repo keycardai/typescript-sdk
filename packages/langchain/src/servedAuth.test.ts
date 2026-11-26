@@ -9,6 +9,7 @@
  */
 
 import { beforeAll, describe, expect, it } from "@jest/globals";
+import { inspect } from "node:util";
 import {
   authenticate as serverAuthenticate,
   authorize as serverAuthorize,
@@ -489,6 +490,21 @@ describe("callerFromRuntime", () => {
       identity: ADA,
       subjectToken: "token-a",
     });
+  });
+
+  it("prints the caller without the subject token", () => {
+    const runtime = {
+      configurable: {
+        langgraph_auth_user: { identity: ADA, subject_token: "token-a" },
+      },
+    };
+    const caller = callerFromRuntime(runtime)!;
+
+    // util.inspect is what console.log uses.
+    const printed = inspect(caller, { breakLength: Infinity });
+    expect(printed).toBe(`ServedCaller ${inspect({ identity: ADA }, { breakLength: Infinity })}`);
+    expect(inspect({ nested: caller }, { breakLength: Infinity })).not.toContain("token-a");
+    expect(JSON.parse(JSON.stringify(caller)).subjectToken).toBe("token-a");
   });
 });
 

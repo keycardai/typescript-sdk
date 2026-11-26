@@ -5,9 +5,14 @@ import type { PrivateKeyring, IdentifiableKey } from "@keycardai/oauth/keyring";
 import { JWTSigner } from "@keycardai/oauth/jwt/signer";
 import type { TokenExchangeRequest } from "@keycardai/oauth/tokenExchange";
 
+import { omitWhenPrinted } from "./printed.js";
+
 export type { ApplicationCredential } from "@keycardai/oauth/credentials";
 
 const JWT_BEARER_ASSERTION_TYPE = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer";
+
+/** Fields a prepared `TokenExchangeRequest` leaves out of its `util.inspect` form. */
+const TOKEN_EXCHANGE_SECRETS = ["subjectToken", "actorToken", "clientAssertion"] as const;
 
 // =============================================================================
 // WorkersClientSecret — Basic auth credential for Workers
@@ -22,8 +27,9 @@ export class WorkersClientSecret implements ApplicationCredential {
     this.#clientSecret = clientSecret;
   }
 
+  /** Returns a value that `util.inspect` and `console.log` print without `clientSecret`. */
   getAuth(): { clientId: string; clientSecret: string } {
-    return { clientId: this.#clientId, clientSecret: this.#clientSecret };
+    return omitWhenPrinted({ clientId: this.#clientId, clientSecret: this.#clientSecret }, "ClientAuth", ["clientSecret"]);
   }
 
   async clientAuthentication(_issuer: string, _endpoint: string): Promise<ClientAuthentication> {
@@ -37,11 +43,11 @@ export class WorkersClientSecret implements ApplicationCredential {
     subjectToken: string,
     resource: string,
   ): Promise<TokenExchangeRequest> {
-    return {
+    return omitWhenPrinted<TokenExchangeRequest>({
       subjectToken,
       resource,
       subjectTokenType: "urn:ietf:params:oauth:token-type:access_token",
-    };
+    }, "TokenExchangeRequest", TOKEN_EXCHANGE_SECRETS);
   }
 }
 
@@ -80,13 +86,13 @@ export class WorkersWebIdentity implements ApplicationCredential {
       throw new ConfigurationError("WorkersWebIdentity: token endpoint is required for the assertion audience (aud)");
     }
 
-    return {
+    return omitWhenPrinted<TokenExchangeRequest>({
       subjectToken,
       resource,
       subjectTokenType: "urn:ietf:params:oauth:token-type:access_token",
       clientAssertionType: JWT_BEARER_ASSERTION_TYPE,
       clientAssertion: await this.#signAssertion(issuer, audience),
-    };
+    }, "TokenExchangeRequest", TOKEN_EXCHANGE_SECRETS);
   }
 
   async clientAuthentication(_issuer: string, endpoint: string): Promise<ClientAuthentication> {

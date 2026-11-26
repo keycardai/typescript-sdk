@@ -1,4 +1,5 @@
 import type { AuthInfo, OAuthTokenVerifier } from "../../../shared/auth.js";
+import { omitWhenPrinted } from "../../../shared/printed.js";
 import type { OAuthKeyring } from "@keycardai/oauth/keyring";
 import { JWTVerifier, type JWTVerifierOptions } from "@keycardai/oauth/jwt/verifier";
 import { ConfigurationError } from "@keycardai/oauth/errors";
@@ -23,7 +24,7 @@ export class JWTOAuthTokenVerifier implements OAuthTokenVerifier {
   async verifyAccessToken(token: string): Promise<AuthInfo> {
     const claims = await this.#verifier.verify(token);
 
-    return {
+    const authInfo: AuthInfo = {
       token,
       // The verifier rejects missing `client_id` before we reach here, so the
       // cast is safe; the guard is gone.
@@ -36,6 +37,7 @@ export class JWTOAuthTokenVerifier implements OAuthTokenVerifier {
         ? { act: claims.act as Record<string, unknown> }
         : {}),
     };
+    return omitWhenPrinted(authInfo, "AuthInfo", ["token"]);
   }
 }
 

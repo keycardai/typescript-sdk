@@ -1,4 +1,5 @@
 import { jest } from '@jest/globals';
+import { inspect } from 'node:util';
 import { JWTSigner } from '@keycardai/oauth/jwt/signer';
 import { JWTOAuthTokenVerifier } from './jwt.js';
 import { JSONWebTokenSigner } from '../../../client/auth/signers/jwt.js'
@@ -78,6 +79,20 @@ describe('JSON Web Token Verifier', () => {
       aud: ['https://api.example.com/'],
       expiresAt: Math.floor(now / 1000) + 3600
     });
+
+    // util.inspect is what console.log uses. The printed form leaves out the
+    // bearer token and keeps every other field.
+    const shown = {
+      clientId: 's6BhdRkqt3',
+      resource: new URL('https://api.example.com'),
+      scopes: ['profile', 'reademail'],
+      expiresAt: Math.floor(now / 1000) + 3600,
+      aud: ['https://api.example.com/'],
+    };
+    const printed = inspect(authInfo, { breakLength: Infinity });
+    expect(printed).toBe(`AuthInfo ${inspect(shown, { breakLength: Infinity })}`);
+    expect(printed).not.toContain(token);
+    expect(JSON.parse(JSON.stringify(authInfo)).token).toBe(token);
   });
 
   it.each([

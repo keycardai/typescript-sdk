@@ -1,7 +1,8 @@
-import type { ApplicationCredential, ClientAuthentication } from "../credentials.js";
+import { createClientAuthentication, type ApplicationCredential, type ClientAuthentication } from "../credentials.js";
 import { basicAuthorization } from "../basicAuthorization.js";
 import { ConfigurationError } from "../errors.js";
-import type { TokenExchangeRequest } from "../tokenExchange.js";
+import { omitWhenPrinted } from "../printed.js";
+import { omitTokenExchangeSecrets, type TokenExchangeRequest } from "../tokenExchange.js";
 
 const ACCESS_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:access_token";
 const SINGLE_CREDENTIAL_KEY = "__default__";
@@ -96,13 +97,13 @@ export class ClientSecret implements ApplicationCredential {
   getAuth(issuer?: string): { clientId: string; clientSecret: string } | null {
     if (!this.#isMultiZone) {
       const tuple = this.#credentialsByIssuer.get(SINGLE_CREDENTIAL_KEY);
-      return tuple ? { clientId: tuple[0], clientSecret: tuple[1] } : null;
+      return tuple ? printedAuth(tuple) : null;
     }
     if (!issuer) {
       return null;
     }
     const tuple = this.#credentialsByIssuer.get(normalizeIssuer(issuer));
-    return tuple ? { clientId: tuple[0], clientSecret: tuple[1] } : null;
+    return tuple ? printedAuth(tuple) : null;
   }
 
   /**
@@ -115,20 +116,22 @@ export class ClientSecret implements ApplicationCredential {
     if (!auth) {
       throw new ConfigurationError(`ClientSecret: no client credentials configured for issuer "${issuer}"`);
     }
-    return {
-      headers: { Authorization: basicAuthorization(auth.clientId, auth.clientSecret) },
-      form: {},
-    };
+    return createClientAuthentication({ Authorization: basicAuthorization(auth.clientId, auth.clientSecret) }, {});
   }
 
   async prepareTokenExchangeRequest(
     subjectToken: string,
     resource: string,
   ): Promise<TokenExchangeRequest> {
-    return {
+    return omitTokenExchangeSecrets({
       subjectToken,
       resource,
       subjectTokenType: ACCESS_TOKEN_TYPE,
-    };
+    });
   }
+}
+
+/** `{ clientId, clientSecret }` that `util.inspect` prints without `clientSecret`. */
+function printedAuth([clientId, clientSecret]: [string, string]): { clientId: string; clientSecret: string } {
+  return omitWhenPrinted({ clientId, clientSecret }, "ClientAuth", ["clientSecret"]);
 }
