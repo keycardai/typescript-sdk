@@ -83,8 +83,10 @@ export function configureBearerIntrospection(
     try {
       const metadata = await fetchAuthorizationServerMetadata(issuer, { timeoutMs, fetch: introspectionFetch });
       resolveIntrospectionEndpoint(metadata);
-      state.metadata.set(issuer, { value: metadata, expiresAt: Date.now() + DEFAULT_DISCOVERY_TTL_MS });
-      state.retry.delete(issuer);
+      if (state.metadata.get(issuer) === cached) {
+        state.metadata.set(issuer, { value: metadata, expiresAt: Date.now() + DEFAULT_DISCOVERY_TTL_MS });
+        state.retry.delete(issuer);
+      }
       return metadata;
     } catch (error) {
       if (state.metadata.get(issuer) === cached &&

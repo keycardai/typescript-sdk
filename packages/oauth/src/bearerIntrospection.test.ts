@@ -88,6 +88,27 @@ describe("bearer introspection plumbing", () => {
     await expect(second).resolves.toBe(true);
   });
 
+  it("bearer row 22: a late discovery response does not replace an already refreshed endpoint", async () => {
+    let finishFirst!: (response: Response) => void;
+    const firstDiscovery = new Promise<Response>(resolve => { finishFirst = resolve; });
+    const previousEndpoint = issuer + "/previous-introspect";
+    const currentEndpoint = issuer + "/current-introspect";
+    const transport = jest.fn<typeof fetch>(async () => Response.json({ active: true }))
+      .mockReturnValueOnce(firstDiscovery)
+      .mockResolvedValueOnce(Response.json({ issuer, introspection_endpoint: currentEndpoint }));
+    const check = configureBearerIntrospection({
+      introspect: true, credential, introspectionFetch: transport,
+    }, false)!;
+    const first = check(issuer, "first-token");
+    await expect(check(issuer, "second-token")).resolves.toBe(true);
+    finishFirst(Response.json({ issuer, introspection_endpoint: previousEndpoint }));
+    await expect(first).resolves.toBe(true);
+    await expect(check(issuer, "third-token")).resolves.toBe(true);
+    expect(transport.mock.calls.slice(2).map(([input]) => String(input))).toEqual([
+      currentEndpoint, previousEndpoint, currentEndpoint,
+    ]);
+  });
+
   it("bearer row 20: drops failed discovery and retries only on a later request after the retry delay", async () => {
     jest.spyOn(console, "warn").mockImplementation(() => {});
     const now = jest.spyOn(performance, "now").mockReturnValue(0);
