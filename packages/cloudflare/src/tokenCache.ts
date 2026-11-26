@@ -94,7 +94,10 @@ export class IsolateSafeTokenCache {
 
   async #exchange(subjectToken: string, resource: string): Promise<TokenResponse> {
     if (this.#credential) {
-      const request = await this.#credential.prepareTokenExchangeRequest(subjectToken, resource);
+      const tokenEndpoint = await this.#client.getTokenEndpoint();
+      const request = await this.#credential.prepareTokenExchangeRequest(subjectToken, resource, {
+        tokenEndpoint,
+      });
       return this.#client.exchangeToken(request);
     }
 

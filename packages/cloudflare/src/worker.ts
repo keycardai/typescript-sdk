@@ -104,7 +104,7 @@ export function resolveCredential<Env extends KeycardEnv>(
   env: Env,
 ): WorkersClientSecret | WorkersWebIdentity {
   if (env.KEYCARD_PRIVATE_KEY) {
-    return new WorkersWebIdentity(env.KEYCARD_PRIVATE_KEY);
+    return new WorkersWebIdentity(env.KEYCARD_PRIVATE_KEY, { clientId: env.KEYCARD_CLIENT_ID });
   }
 
   if (env.KEYCARD_CLIENT_ID && env.KEYCARD_CLIENT_SECRET) {
