@@ -53,10 +53,10 @@ export function mcpAuthMetadataRouter(options: InferredAuthMetadataOptions): exp
     if (documents.size) router.use((req, res, next) => {
       if (req.method !== "GET" && req.method !== "OPTIONS") return next();
       const entries = documents.get(requestTarget(req.url));
-      const host = req.headers.host?.toLowerCase();
-      const entry = entries?.length === 1 ? entries[0] : entries?.find(({ url }) =>
-        url.host === host?.replace(url.protocol === "https:" ? /:0*443$/ : /:0*80$/, ""),
-      );
+      const host = req.headers.host?.toLowerCase().replace(/:0+(\d+)$/, ":$1");
+      const entry = entries?.length === 1 ? entries[0]
+        : entries?.find(({ url }) => url.host === host)
+          ?? entries?.find(({ url }) => url.host === host?.replace(url.protocol === "https:" ? /:443$/ : /:80$/, ""));
       return entry ? entry.send(req, res, next) : next();
     });
   }
