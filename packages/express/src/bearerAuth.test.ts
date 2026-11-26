@@ -542,14 +542,20 @@ describe('requireBearerAuth when the zone is unavailable (real TokenVerifier)', 
     ]) expect(() => requireBearerAuth({ zoneUrl: ISSUER, ...options })).toThrow(ConfigurationError);
   });
 
-  it('rejects a single-issuer explicit binding with enableMultiZone, so the base URL is never advertised', () => {
+  it('rejects an HTTP(S) resourceIdentifier with enableMultiZone, so the base URL is never advertised', () => {
+    const options = { zoneUrl: ISSUER, enableMultiZone: true, resourceIdentifier: AUDIENCE };
+    expect(() => requireBearerAuth(options)).toThrow(ConfigurationError);
+    expect(() => createKeycardMiddleware(options)).toThrow(ConfigurationError);
+  });
+
+  it('accepts verifier-only bindings with enableMultiZone', () => {
     for (const options of [
-      { resourceIdentifier: AUDIENCE },
+      { resourceIdentifier: 'urn:example:api' },
       { multiResource: true, audience: [AUDIENCE] },
       { allowAnyAudience: true },
     ]) {
-      expect(() => requireBearerAuth({ zoneUrl: ISSUER, enableMultiZone: true, ...options })).toThrow(ConfigurationError);
-      expect(() => createKeycardMiddleware({ zoneUrl: ISSUER, enableMultiZone: true, ...options })).toThrow(ConfigurationError);
+      expect(() => requireBearerAuth({ zoneUrl: ISSUER, enableMultiZone: true, zoneResolver: subdomainZoneResolver, ...options }))
+        .not.toThrow();
     }
   });
 
