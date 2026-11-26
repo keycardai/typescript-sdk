@@ -60,7 +60,8 @@ export class WorkersWebIdentity implements ApplicationCredential {
   constructor(privateKeyPem: string, options?: string | { keyId?: string; clientId?: string }) {
     this.#privateKeyPem = privateKeyPem;
     this.#keyId = (typeof options === "string" ? options : options?.keyId) ?? "worker-key";
-    this.#clientId = typeof options === "string" ? undefined : options?.clientId;
+    const clientId = typeof options === "string" ? undefined : options?.clientId;
+    this.#clientId = clientId || undefined;
   }
 
   getAuth(): null {

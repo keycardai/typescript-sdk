@@ -57,6 +57,22 @@ describe("WorkersWebIdentity client assertions", () => {
     });
   });
 
+  it("row 4: treats an empty client ID as missing for token exchange and client authentication", async () => {
+    const credential = new WorkersWebIdentity(generateRsaPem("pkcs8"), { keyId: "legacy-key", clientId: "" });
+
+    const request = await credential.prepareTokenExchangeRequest("subject-token", "https://api.example.test", {
+      tokenEndpoint: TOKEN_ENDPOINT,
+    });
+
+    expect(readClaims(request.clientAssertion!)).toMatchObject({
+      iss: "legacy-key",
+      sub: "legacy-key",
+      aud: TOKEN_ENDPOINT,
+    });
+    expect(() => credential.checkClientAuthentication()).toThrow(ConfigurationError);
+    await expect(credential.clientAuthentication(ISSUER, TOKEN_ENDPOINT)).rejects.toThrow(ConfigurationError);
+  });
+
   it("row 4: requires the token endpoint rather than using the client ID as the audience", async () => {
     const credential = new WorkersWebIdentity(generateRsaPem("pkcs8"), { clientId: "client-abc" });
 
