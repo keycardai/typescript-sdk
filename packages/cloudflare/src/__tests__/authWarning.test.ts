@@ -42,7 +42,7 @@ describe("verifyBearerToken missing-audience warning", () => {
     await verifyBearerToken(makeRequest(), { issuers: "https://auth.keycard.ai" });
     await verifyBearerToken(makeRequest(), { issuers: "https://auth.keycard.ai" });
     expect(warn).toHaveBeenCalledTimes(1);
-    expect(String(warn.mock.calls[0][0])).toMatch(/set audiences/);
+    expect(String(warn.mock.calls[0][0])).toMatch(/resource_identifier/);
   });
 
   it("row 8e: rejects an empty audience list before authentication without warning", async () => {
@@ -53,7 +53,7 @@ describe("verifyBearerToken missing-audience warning", () => {
     expect(warn).not.toHaveBeenCalled();
   });
 
-  it("does not warn when audiences is configured", async () => {
+  it("rows 14 and 14a: warns once across legacy scalar and list audience calls", async () => {
     const verifyBearerToken = await freshVerifyBearerToken();
     await verifyBearerToken(makeRequest(), {
       issuers: "https://auth.keycard.ai",
@@ -63,6 +63,18 @@ describe("verifyBearerToken missing-audience warning", () => {
       issuers: "https://auth.keycard.ai",
       audiences: ["https://example.com"],
     });
-    expect(warn).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("resource_identifier"));
+  });
+
+  it("metadata row 8f: warns once across the stateless verification and metadata APIs", async () => {
+    const verifyBearerToken = await freshVerifyBearerToken();
+    const { handleMetadataRequest } = await import("../metadata.js");
+    const metadata = new Request("https://example.com/.well-known/oauth-protected-resource");
+    expect((await handleMetadataRequest(metadata, { issuer: "https://auth.keycard.ai" }))?.status).toBe(200);
+    await verifyBearerToken(makeRequest(), { issuers: "https://auth.keycard.ai" });
+    expect((await handleMetadataRequest(metadata, { issuer: "https://auth.keycard.ai" }))?.status).toBe(200);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("resource_identifier"));
   });
 });

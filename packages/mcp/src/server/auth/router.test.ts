@@ -10,6 +10,12 @@ describe('MCP Auth Metadata Router', () => {
   };
 
   describe('Router creation', () => {
+    it('rejects resource zone keys that are not DNS labels', () => {
+      expect(() => mcpAuthMetadataRouter({
+        oauthMetadata: mockOAuthMetadata, resourceIdentifiersByZone: { z_abc123: 'https://api.example.com/mcp' },
+      })).toThrow(/DNS-label zone IDs/);
+    });
+
     it('successfully creates router with valid options', () => {
       const options: InferredAuthMetadataOptions = {
         oauthMetadata: mockOAuthMetadata,
@@ -17,6 +23,82 @@ describe('MCP Auth Metadata Router', () => {
 
       expect(() => mcpAuthMetadataRouter(options)).not.toThrow();
     });
+  });
+
+  it('metadata rows 7, 9a, 4a, 4b and integration 2: uses the configured resource and matching zone issuer', async () => {
+    const app = express();
+    app.use(mcpAuthMetadataRouter({
+      oauthMetadata: { issuer: 'https://keycard.cloud' },
+      resourceIdentifiersByZone: { a: 'https://api.example.com/mcp?q=1', b: 'https://api.example.com/b/mcp' },
+    }));
+    const document = '{\n  "authorization_endpoint": "https://a.keycard.cloud/authorize?resource=stale&keep=1"\n}\n';
+    const fetch = jest.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(document));
+    try {
+      await supertest(app).get('/.well-known/oauth-protected-resource/mcp?q=1')
+        .set('Host', 'internal.example')
+        .expect(200).expect({ resource: 'https://api.example.com/mcp?q=1', authorization_servers: ['https://a.keycard.cloud'] });
+      await supertest(app).get('/.well-known/oauth-protected-resource/mcp').expect(404);
+      await supertest(app).get('/.well-known/oauth-protected-resource/b/mcp')
+        .expect(200).expect({ resource: 'https://api.example.com/b/mcp', authorization_servers: ['https://b.keycard.cloud'] });
+      await supertest(app).get('/.well-known/oauth-authorization-server/a').expect(200).expect(res => {
+        expect(res.text).toBe(document);
+      });
+      await supertest(app).get('/.well-known/oauth-authorization-server').expect(404);
+      await supertest(app).get('/.well-known/oauth-authorization-server/c').expect(404);
+      await supertest(app).options('/.well-known/oauth-authorization-server/c').expect(404);
+      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(fetch).toHaveBeenCalledWith('https://a.keycard.cloud/.well-known/oauth-authorization-server', expect.anything());
+    } finally {
+      fetch.mockRestore();
+    }
+  });
+
+  it('routes same-path metadata by Host with or without the default port', async () => {
+    const app = express();
+    const a = 'https://a.example.com/mcp';
+    const b = 'https://b.example.com:8443/mcp';
+    app.enable('trust proxy');
+    app.use(mcpAuthMetadataRouter({
+      oauthMetadata: { issuer: 'https://keycard.cloud' }, resourceIdentifiersByZone: { a, b },
+    }));
+    const path = '/.well-known/oauth-protected-resource/mcp';
+    await supertest(app).get(path).set('Host', 'a.example.com:443').set('X-Forwarded-Host', 'b.example.com:8443')
+      .expect(200).expect({ resource: a, authorization_servers: ['https://a.keycard.cloud'] });
+    await supertest(app).get(path).set('Host', 'b.example.com:8443')
+      .expect(200).expect({ resource: b, authorization_servers: ['https://b.keycard.cloud'] });
+    await supertest(app).get(path).set('Host', 'b.example.com:443').expect(404);
+  });
+
+  it.each([
+    { authority: 'a.example.com:8443', scheme: 'https', defaultResource: 'a' as const },
+    { authority: 'a.example.com:443', scheme: 'http', defaultResource: 'b' as const },
+  ])('selects the registered authority when two zones share a host and path: %j', async ({ authority, scheme, defaultResource }) => {
+    const a = 'https://a.example.com/mcp';
+    const b = `${scheme}://${authority}/mcp`;
+    const app = express();
+    app.use(mcpAuthMetadataRouter({
+      oauthMetadata: { issuer: 'https://keycard.cloud' }, resourceIdentifiersByZone: { a, b },
+    }));
+    const resources = { a, b };
+    const path = '/.well-known/oauth-protected-resource/mcp';
+    await supertest(app).get(path).set('Host', 'a.example.com:443')
+      .expect(200).expect({ resource: resources[defaultResource], authorization_servers: [`https://${defaultResource}.keycard.cloud`] });
+    await supertest(app).get(path).set('Host', authority)
+      .expect(200).expect({ resource: b, authorization_servers: ['https://b.keycard.cloud'] });
+  });
+
+  it('metadata rows 8a, 8b and 9c: standalone validates explicit modes and publishes one shared document', async () => {
+    const oauthMetadata = { issuer: 'https://keycard.cloud' };
+    expect(() => mcpAuthMetadataRouter({ oauthMetadata, multiResource: true, allowAnyAudience: true })).toThrow();
+    const app = express();
+    app.use(mcpAuthMetadataRouter({ oauthMetadata, allowAnyAudience: true }));
+    const resource = 'https://api.example.com/mcp';
+    app.use(mcpAuthMetadataRouter({
+      oauthMetadata, multiResource: true, resourceIdentifiersByZone: { a: resource, b: resource },
+    }));
+    await supertest(app).get('/.well-known/oauth-protected-resource').expect(404);
+    await supertest(app).get('/.well-known/oauth-protected-resource/mcp')
+      .expect(200).expect({ resource, authorization_servers: ['https://a.keycard.cloud', 'https://b.keycard.cloud'] });
   });
 
   describe('Metadata endpoints', () => {

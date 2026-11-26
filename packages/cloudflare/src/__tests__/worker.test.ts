@@ -4,16 +4,16 @@ import type { AuthInfo, KeycardEnv } from "../types.js";
 
 // Mock auth and metadata modules
 jest.unstable_mockModule("../auth.js", () => ({
-  verifyBearerToken: jest.fn(),
+  verifyRequest: jest.fn(),
   isAuthError: jest.fn((result: unknown) => result instanceof Response),
 }));
 
 jest.unstable_mockModule("../metadata.js", () => ({
-  handleMetadataRequest: jest.fn(),
+  handleMetadata: jest.fn(),
 }));
 
-const { verifyBearerToken } = await import("../auth.js");
-const { handleMetadataRequest } = await import("../metadata.js");
+const { verifyRequest: verifyBearerToken } = await import("../auth.js");
+const { handleMetadata: handleMetadataRequest } = await import("../metadata.js");
 const { createKeycardWorker, resolveCredential } = await import("../worker.js");
 
 const mockEnv: KeycardEnv = {
@@ -109,7 +109,8 @@ describe("createKeycardWorker", () => {
       issuers: mockEnv.KEYCARD_ISSUER,
       audiences: ["https://my-worker.example.workers.dev"],
       requiredScopes: ["mcp:tools"],
-    });
+      zoneResolver: undefined,
+    }, { mode: "legacy" }, false);
   });
 
   it("row 8e: rejects an empty audience list when creating the worker", () => {
