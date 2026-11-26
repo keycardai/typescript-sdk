@@ -1,10 +1,12 @@
-import type { Request, RequestHandler } from "express";
-import { requireBearerAuth } from "./bearerAuth.js";
+import type { Request, RequestHandler, Router } from "express";
+import { bearerAuthHandler } from "./bearerAuth.js";
 import { grant } from "./grant.js";
 import type { GrantOptions } from "./grant.js";
 import type { ApplicationCredential } from "@keycardai/oauth/credentials";
+import { resolveResourceBinding, warnLegacy, type Audience, type ResourceBindingOptions } from "./resourceBinding.js";
+import { metadataRouter, type KeycardRouterOptions } from "./wellKnown.js";
 
-export interface KeycardMiddlewareOptions {
+export interface KeycardMiddlewareOptions extends ResourceBindingOptions {
   /**
    * Keycard zone URL, e.g. "https://zone-id.keycard.cloud".
    * Either `zoneUrl` or `zoneId` is required.
@@ -22,7 +24,7 @@ export interface KeycardMiddlewareOptions {
   /**
    * Accepted audience or nonempty list of audiences for `requireBearerAuth()`.
    */
-  audience?: string | readonly string[];
+  audience?: Audience;
   /**
    * Enables per-request zone verification in `requireBearerAuth()`.
    * Pair with `zoneResolver` for multi-zone deployments.
@@ -56,6 +58,8 @@ export interface KeycardMiddleware {
    * Accepts optional `requiredScopes` to enforce at the middleware level.
    */
   requireBearerAuth(options?: { requiredScopes?: readonly string[] }): RequestHandler;
+  /** Mount discovery at the public host root, outside protected route mounts. */
+  metadataRouter(options?: Omit<KeycardRouterOptions, keyof ResourceBindingOptions | "issuer">): Router;
   /**
    * Express middleware for delegated RFC 8693 token exchange.
    * Sets `req.accessContext` with per-resource tokens. Per-call options
@@ -105,15 +109,22 @@ export function createKeycardMiddleware(options: KeycardMiddlewareOptions): Keyc
     throw new Error("createKeycardMiddleware: either `zoneUrl` or `zoneId` is required");
   }
 
+  const binding = resolveResourceBinding(options);
+  const verify = bearerAuthHandler({ ...options, zoneUrl }, binding, false);
+  if (binding.mode === "legacy") warnLegacy("createKeycardMiddleware", options.audience);
+
   return {
     requireBearerAuth(localOptions?: { requiredScopes?: readonly string[] }) {
-      return requireBearerAuth({
+      if (!localOptions?.requiredScopes?.length) return verify;
+      return bearerAuthHandler({
+        ...options,
         zoneUrl,
-        audience: options.audience,
-        enableMultiZone: options.enableMultiZone,
-        zoneResolver: options.zoneResolver,
         requiredScopes: localOptions?.requiredScopes,
-      });
+      }, binding, false);
+    },
+
+    metadataRouter(localOptions) {
+      return metadataRouter({ ...localOptions, issuer: zoneUrl }, binding, false);
     },
 
     grant(resources, localOptions) {

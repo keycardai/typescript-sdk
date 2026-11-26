@@ -86,6 +86,22 @@ app.use(grant(["https://api.example.com"], {
 
 ### Add OAuth discovery routes
 
+Set `resourceIdentifier` to the exact registered resource URL, including any
+path or query. Use the same setting for bearer verification and discovery,
+or call `createKeycardMiddleware({ zoneUrl, resourceIdentifier })` and use
+its `requireBearerAuth()` and `metadataRouter()` methods. Mount the metadata
+router at the public host root, outside any protected route mount, or
+forward the host-root well-known path to it.
+
+An HTTP(S) identifier publishes discovery at its RFC 9728 URL. A URN,
+`multiResource: true` with an `audience` list, and
+`allowAnyAudience: true` are verifier-only modes. Configure
+`resourceIdentifiersByZone` with a base issuer and a `zoneResolver` that
+selects a zone from the request without inspecting a token. With
+`multiResource: true` and the same HTTP(S) identifier in every zone and
+as the sole list audience, discovery is shared and verification selects
+from the configured zone issuers.
+
 ```typescript
 import { keycardMetadataRouter } from "@keycardai/express";
 

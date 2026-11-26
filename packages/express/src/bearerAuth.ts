@@ -2,8 +2,11 @@ import type { Request, Response, NextFunction, RequestHandler } from "express";
 import { TokenVerifier } from "@keycardai/oauth/server/tokenVerifier";
 import type { TokenVerifierOptions } from "@keycardai/oauth/server/tokenVerifier";
 import type { AccessToken } from "@keycardai/oauth/server/accessToken";
+import { JWTVerifier } from "@keycardai/oauth/jwt/verifier";
+import { JWKSOAuthKeyring } from "@keycardai/oauth/keyring";
 import {
   BadRequestError,
+  ConfigurationError,
   UnauthorizedError,
   InvalidTokenError,
   InsufficientScopeError,
@@ -13,6 +16,10 @@ import {
   JWKSKeyNotFoundError,
 } from "@keycardai/oauth/errors";
 import { getRequestOrigin } from "./host.js";
+import {
+  bearerChallenge, metadataChallenge, requestTarget, resolveResourceBinding, validateAudience, warnLegacy, zoneIssuers,
+  type Audience, type ResourceBinding, type ResourceBindingOptions,
+} from "./resourceBinding.js";
 
 /**
  * Provenance brand for downstream Keycard packages: `requireBearerAuth` stamps
@@ -56,7 +63,7 @@ export interface AuthenticatedRequest extends Request {
   auth: AccessToken;
 }
 
-export type BearerAuthOptions =
+export type BearerAuthOptions = ResourceBindingOptions & { audience?: Audience } & (
   | {
       verifier: TokenVerifier;
       requiredScopes?: readonly string[];
@@ -73,7 +80,6 @@ export type BearerAuthOptions =
        * Either `zoneUrl` or `zoneId` is required (consistent with `grant()`).
        */
       zoneId?: string;
-      audience?: string | readonly string[];
       enableMultiZone?: boolean;
       keyring?: TokenVerifierOptions["keyring"];
       requiredScopes?: readonly string[];
@@ -88,7 +94,8 @@ export type BearerAuthOptions =
        * subdomain can pass `subdomainZoneResolver` directly.
        */
       zoneResolver?: (req: Request) => string | undefined;
-    };
+    }
+);
 
 /**
  * Express middleware that validates a Bearer token (RFC 6750) and sets
@@ -117,60 +124,66 @@ export type BearerAuthOptions =
  * ```
  */
 export function requireBearerAuth(options: BearerAuthOptions): RequestHandler {
-  // Do not pass requiredScopes to TokenVerifier: it returns null on scope
-  // failure, which the middleware would interpret as a generic 401. The
-  // explicit scope check below produces the correct 403 InsufficientScopeError.
-  let verifier: TokenVerifier;
-  if ("verifier" in options) {
-    verifier = options.verifier;
-  } else {
-    const issuer = options.zoneUrl ?? buildIssuerFromZoneId(options.zoneId);
-    if (!issuer) {
-      throw new Error("requireBearerAuth: either `zoneUrl` or `zoneId` is required");
-    }
-    verifier = new TokenVerifier({
-      issuer,
-      audience: options.audience,
-      enableMultiZone: options.enableMultiZone,
-      keyring: options.keyring,
-    });
+  return bearerAuthHandler(options);
+}
+
+export function bearerAuthHandler(
+  options: BearerAuthOptions,
+  binding = resolveResourceBinding(options),
+  warn = true,
+): RequestHandler {
+  const { audience, zoneResolver } = options;
+  validateAudience(binding, audience);
+  if (binding.mode === "perZone" && !zoneResolver) {
+    throw new ConfigurationError("Per-zone resource binding requires a token-independent zoneResolver");
   }
+  if (binding.mode === "shared" && zoneResolver) {
+    throw new ConfigurationError("Shared discovery selects a trusted issuer from the token, not a zoneResolver");
+  }
+  const verify = configureVerifier(options, binding);
+  if (binding.mode === "legacy" && warn) warnLegacy("requireBearerAuth", audience);
 
   return async (req: Request, res: Response, next: NextFunction) => {
-    const resourceMetadataUrl = getResourceMetadataUrl(req);
+    let resourceMetadataUrl: string | undefined;
 
     try {
+      const zone = binding.mode === "perZone" ? zoneResolver?.(req) : undefined;
+      const identifier = binding.mode === "perZone"
+        ? (zone ? binding.entries.get(zone) : undefined)
+        : binding.mode === "single" || binding.mode === "shared" ? binding.identifier : undefined;
+      if (binding.mode === "perZone" && !identifier) throw new UnauthorizedError("Unknown resource zone");
+      resourceMetadataUrl = binding.mode === "legacy"
+        ? getResourceMetadataUrl(req)
+        : metadataChallenge(requestTarget(req.originalUrl), identifier);
+
       const authorization = req.headers.authorization;
       if (!authorization) {
         throw new UnauthorizedError("No credentials");
       }
 
-      const [scheme, token] = authorization.split(" ");
-      if (!token) {
+      const [scheme, token, extra] = authorization.split(" ");
+      if (!token || (binding.mode !== "legacy" && extra !== undefined)) {
         throw new BadRequestError("Malformed credentials");
       }
       if (scheme.toLowerCase() !== "bearer") {
         throw new InvalidTokenError("Unsupported authentication scheme");
       }
 
-      const zoneId = options.zoneResolver?.(req);
-      const accessToken = zoneId
-        ? await verifier.verifyTokenForZone(token, zoneId)
-        : await verifier.verifyToken(token);
+      const zoneId = binding.mode === "perZone" ? zone : zoneResolver?.(req);
+      const accessToken = await verify(token, zoneId);
       if (!accessToken) {
         throw new InvalidTokenError("Token validation failed");
       }
 
-      // Validate resource audience: a token scoped to a different resource
-      // server must not be accepted here. An http(s) resource is compared by
-      // origin so path and query string differences are ignored. A URN or
-      // other non-http(s) resource has no origin to compare, so it must
-      // match one of the configured audiences.
-      if (accessToken.resource) {
-        // A caller-supplied verifier's audiences are not visible here, so a
-        // non-http(s) resource is only accepted with `audience` set.
-        const audience = "audience" in options ? options.audience : undefined;
-        if (!isIntendedResource(accessToken.resource, getRequestOrigin(req), audience)) {
+      const expected = identifier ? [identifier.value] : binding.mode === "multi" ? audience as readonly string[] : undefined;
+      if (expected && !accessToken.aud?.some(value => expected.includes(value))) {
+        throw new InvalidTokenError("Audience mismatch");
+      }
+      if (binding.mode === "legacy" && accessToken.resource) {
+        const legacyAudience = typeof audience === "string" || isAudienceList(audience)
+          ? audience
+          : zoneId && audience && Object.prototype.hasOwnProperty.call(audience, zoneId) ? audience[zoneId] : undefined;
+        if (!isIntendedResource(accessToken.resource, getRequestOrigin(req), legacyAudience)) {
           throw new InvalidTokenError("Token not intended for resource");
         }
       }
@@ -195,25 +208,25 @@ export function requireBearerAuth(options: BearerAuthOptions): RequestHandler {
       if (error instanceof BadRequestError) {
         res.status(400).end();
       } else if (error instanceof UnauthorizedError) {
-        res.set("WWW-Authenticate", `Bearer resource_metadata="${resourceMetadataUrl}"`);
+        res.set("WWW-Authenticate", bearerChallenge(resourceMetadataUrl));
         res.status(401).end();
       } else if (error instanceof InsufficientScopeError) {
         res.set(
           "WWW-Authenticate",
-          `Bearer error="${error.errorCode}", error_description="${error.message}", resource_metadata="${resourceMetadataUrl}"`,
+          bearerChallenge(resourceMetadataUrl, error.errorCode, error.message),
         );
         res.status(403).end();
       } else if (error instanceof InvalidTokenError) {
         res.set(
           "WWW-Authenticate",
-          `Bearer error="${error.errorCode}", error_description="${error.message}", resource_metadata="${resourceMetadataUrl}"`,
+          bearerChallenge(resourceMetadataUrl, error.errorCode, error.message),
         );
         res.status(401).end();
       } else if (error instanceof JWKSKeyNotFoundError) {
         // A forged token, or a valid token whose signing key rotated out of the
         // JWKS: the resource server cannot validate it. RFC 6750 invalid_token
         // so the client re-runs authorization rather than seeing a 500.
-        const challenge = `Bearer error="invalid_token", error_description="Unable to verify token signing key", resource_metadata="${resourceMetadataUrl}"`;
+        const challenge = bearerChallenge(resourceMetadataUrl, "invalid_token", "Unable to verify token signing key");
         res.set("WWW-Authenticate", challenge);
         res.status(401).end();
       } else if (error instanceof JWKSError || error instanceof HTTPError || error instanceof OAuthError) {
@@ -235,6 +248,77 @@ export function requireBearerAuth(options: BearerAuthOptions): RequestHandler {
         next(error);
       }
     }
+  };
+}
+
+function isAudienceList(audience?: Audience): audience is readonly string[] {
+  return Array.isArray(audience);
+}
+
+function configureVerifier(
+  options: BearerAuthOptions,
+  binding: ResourceBinding,
+): (token: string, zone?: string) => Promise<AccessToken | null> {
+  if ("verifier" in options) {
+    return (token, zone) => zone
+      ? options.verifier.verifyTokenForZone(token, zone)
+      : options.verifier.verifyToken(token);
+  }
+  const issuer = options.zoneUrl ?? buildIssuerFromZoneId(options.zoneId);
+  if (!issuer) throw new ConfigurationError("requireBearerAuth: either zoneUrl or zoneId is required");
+  const configuredIssuers = zoneIssuers(binding, issuer);
+  if (binding.mode === "perZone") {
+    const keyring = options.keyring ?? new JWKSOAuthKeyring();
+    const verifiers = new Map([...binding.entries].map(([zone, identifier]) => [
+      zone, new TokenVerifier({ issuer: configuredIssuers.get(zone)!, audience: identifier.value, keyring }),
+    ]));
+    return async (token, zone) => (zone && verifiers.get(zone)?.verifyToken(token)) || null;
+  }
+  const audiences = binding.mode === "single" ? binding.identifier.value : options.audience;
+  if (audiences !== undefined && binding.mode !== "shared") {
+    const verifier = new TokenVerifier({
+      issuer,
+      audience: audiences,
+      enableMultiZone: options.enableMultiZone,
+      keyring: options.keyring,
+    });
+    return (token, zone) => zone ? verifier.verifyTokenForZone(token, zone) : verifier.verifyToken(token);
+  }
+
+  const sharedIssuers = binding.mode === "shared" ? [...configuredIssuers.values()] : undefined;
+  const keyring = options.keyring ?? new JWKSOAuthKeyring();
+  return async (token, zone) => {
+    if (zone && !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(zone)) return null;
+    const base = options.enableMultiZone && zone ? new URL(issuer) : undefined;
+    const issuers = sharedIssuers ?? (base ? `${base.protocol}//${zone}.${base.host}` : issuer);
+    const verifier = new JWTVerifier(keyring, {
+      issuers,
+      algorithms: ["RS256"],
+      audiences: binding.mode === "shared" ? binding.identifier.value : undefined,
+    });
+    let claims: Awaited<ReturnType<JWTVerifier["verify"]>>;
+    try {
+      claims = await verifier.verify(token);
+    } catch (error) {
+      if (binding.mode === "legacy" && (error instanceof InvalidTokenError || error instanceof JWKSKeyNotFoundError)) {
+        return null;
+      }
+      throw error;
+    }
+    return {
+      token,
+      clientId: claims.client_id as string,
+      scopes: typeof claims.scope === "string" ? claims.scope.split(" ").filter(Boolean) : [],
+      expiresAt: claims.exp,
+      resource: typeof claims.resource === "string" ? claims.resource : undefined,
+      sub: typeof claims.sub === "string" ? claims.sub : undefined,
+      subProfile: typeof claims.sub_profile === "string" ? claims.sub_profile : undefined,
+      keycardAppId: typeof claims.keycard_app_id === "string" ? claims.keycard_app_id : undefined,
+      aud: typeof claims.aud === "string" ? [claims.aud] : claims.aud ?? [],
+      ...(claims.act !== null && typeof claims.act === "object" && !Array.isArray(claims.act)
+        ? { act: claims.act as Record<string, unknown> }
+        : {}),
+    };
   };
 }
 

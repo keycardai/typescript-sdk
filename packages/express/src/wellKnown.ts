@@ -1,8 +1,12 @@
 import { Router } from "express";
 import type { RequestHandler } from "express";
 import { getRequestOrigin } from "./host.js";
+import {
+  AUTHORIZATION_SERVER_PATH, PROTECTED_RESOURCE_PATH, requestTarget, resolveResourceBinding, warnLegacy, zoneIssuers,
+  type ResourceBindingOptions, type ResourceIdentifier,
+} from "./resourceBinding.js";
 
-export interface KeycardRouterOptions {
+export interface KeycardRouterOptions extends ResourceBindingOptions {
   /**
    * Keycard issuer URL, e.g. "https://zone-id.keycard.cloud".
    * Used to proxy AS metadata from the Keycard authorization server.
@@ -57,31 +61,71 @@ const CORS_ALLOW_HEADERS = "Content-Type, MCP-Protocol-Version";
  * only bypass auth for these exact paths, never a broad `/.well-known/` prefix.
  */
 export function keycardMetadataRouter(options: KeycardRouterOptions): Router {
+  return metadataRouter(options);
+}
+
+export function metadataRouter(
+  options: KeycardRouterOptions,
+  binding = resolveResourceBinding(options),
+  warn = true,
+): Router {
   const router = Router();
+  const issuers = zoneIssuers(binding, options.issuer);
+  if (binding.mode === "legacy" && warn) warnLegacy("keycardMetadataRouter");
+  const timeout = options.asMetadataTimeoutMs ?? 10_000;
+  const documents = new Map<string, Array<{ identifier: ResourceIdentifier; issuers: string[] }>>();
+  const addDocument = (identifier: ResourceIdentifier, authorizationServers: string[]) => {
+    if (!identifier.metadataTarget || !identifier.metadataUrl) return;
+    const entries = documents.get(identifier.metadataTarget) ?? [];
+    entries.push({ identifier, issuers: authorizationServers });
+    documents.set(identifier.metadataTarget, entries);
+  };
 
-  const metadataPaths = [
-    "/.well-known/oauth-protected-resource",
-    "/.well-known/oauth-authorization-server",
-  ];
-
-  router.get(
-    "/.well-known/oauth-protected-resource",
-    protectedResourceHandler(options),
-  );
-
-  router.get(
-    "/.well-known/oauth-authorization-server",
-    authorizationServerHandler(options.issuer, options.asMetadataTimeoutMs ?? 10_000),
-  );
-
-  if (options.publicJwks) {
-    metadataPaths.push("/.well-known/jwks.json");
-    router.get("/.well-known/jwks.json", jwksHandler(options.publicJwks));
+  if (binding.mode === "legacy") {
+    router.get(PROTECTED_RESOURCE_PATH, protectedResourceHandler(options));
+    router.options(PROTECTED_RESOURCE_PATH, preflightHandler);
+  } else if (binding.mode === "single") {
+    addDocument(binding.identifier, [options.issuer]);
+  } else if (binding.mode === "perZone") {
+    for (const [zone, identifier] of binding.entries) {
+      if (identifier.metadataTarget) addDocument(identifier, [issuers.get(zone)!]);
+    }
+  } else if (binding.mode === "shared") {
+    addDocument(binding.identifier, [...issuers.values()]);
   }
 
-  // CORS preflight for the metadata endpoints. Browsers send OPTIONS before
-  // cross-origin GETs that include headers such as MCP-Protocol-Version.
-  router.options(metadataPaths, preflightHandler);
+  if (documents.size) {
+    const findDocument: RequestHandler = (req, res, next) => {
+      const entries = documents.get(requestTarget(req.url));
+      const entry = entries?.length === 1 ? entries[0] : entries?.find(candidate =>
+        new URL(candidate.identifier.metadataUrl!).host.toLowerCase() === req.headers.host?.toLowerCase(),
+      );
+      if (!entry) return next();
+      if (req.method === "OPTIONS") return preflightHandler(req, res, next);
+      return protectedResourceHandler(options, entry.identifier.value, entry.issuers)(req, res, next);
+    };
+    router.get(/^\/\.well-known\/oauth-protected-resource(?:\/|$)/, findDocument);
+    router.options(/^\/\.well-known\/oauth-protected-resource(?:\/|$)/, findDocument);
+  }
+
+  if (binding.mode === "perZone" || binding.mode === "shared") {
+    const proxy: RequestHandler = (req, res, next) => {
+      const zone = req.path.slice(AUTHORIZATION_SERVER_PATH.length + 1).split("/")[0];
+      const issuer = issuers.get(zone);
+      if (!issuer) return next();
+      if (req.method === "OPTIONS") return preflightHandler(req, res, next);
+      return authorizationServerHandler(issuer, timeout)(req, res, next);
+    };
+    router.get(/^\/\.well-known\/oauth-authorization-server\//, proxy);
+    router.options(/^\/\.well-known\/oauth-authorization-server\//, proxy);
+  } else if (options.issuer) {
+    router.get(AUTHORIZATION_SERVER_PATH, authorizationServerHandler(options.issuer, timeout, binding.mode === "legacy"));
+    router.options(AUTHORIZATION_SERVER_PATH, preflightHandler);
+  }
+  if (options.publicJwks) {
+    router.get("/.well-known/jwks.json", jwksHandler(options.publicJwks));
+    router.options("/.well-known/jwks.json", preflightHandler);
+  }
 
   return router;
 }
@@ -100,12 +144,16 @@ function jwksHandler(publicJwks: { keys: Record<string, unknown>[] }): RequestHa
   };
 }
 
-function protectedResourceHandler(options: KeycardRouterOptions): RequestHandler {
+function protectedResourceHandler(
+  options: KeycardRouterOptions,
+  identifier?: string,
+  issuers = [options.issuer],
+): RequestHandler {
   return (req, res) => {
-    const resource = getRequestOrigin(req);
+    const resource = identifier ?? getRequestOrigin(req);
     const metadata: Record<string, unknown> = {
       resource,
-      authorization_servers: [options.issuer],
+      authorization_servers: issuers,
     };
     if (options.resourceName) metadata.resource_name = options.resourceName;
     if (options.scopesSupported) metadata.scopes_supported = [...options.scopesSupported];
@@ -116,21 +164,30 @@ function protectedResourceHandler(options: KeycardRouterOptions): RequestHandler
   };
 }
 
-function authorizationServerHandler(issuer: string, timeoutMs: number): RequestHandler {
+function authorizationServerHandler(issuer: string, timeoutMs: number, legacy = false): RequestHandler {
   return async (_req, res, next) => {
+    let upstream: Response;
     try {
-      const upstream = await fetch(
+      upstream = await fetch(
         `${issuer}/.well-known/oauth-authorization-server`,
         { signal: AbortSignal.timeout(timeoutMs) },
       );
-      if (!upstream.ok) {
-        res.status(502).json({ error: "Failed to fetch AS metadata from issuer" });
-        return;
-      }
-      const metadata = await upstream.json() as Record<string, unknown>;
-
+    } catch (error) {
+      if (legacy) return next(error);
+      res.status(502).json({ error: "Failed to fetch AS metadata from issuer" });
+      return;
+    }
+    if (!upstream.ok) {
+      res.status(502).json({ error: "Failed to fetch AS metadata from issuer" });
+      return;
+    }
+    try {
       res.set("Access-Control-Allow-Origin", "*");
-      res.status(200).json(metadata);
+      if (legacy) {
+        res.status(200).json(await upstream.json());
+      } else {
+        res.status(200).type("json").send(Buffer.from(await upstream.arrayBuffer()));
+      }
     } catch (e) {
       next(e);
     }
