@@ -87,6 +87,7 @@ describe('JSON Web Token Verifier', () => {
       resource: new URL('https://api.example.com'),
       scopes: ['profile', 'reademail'],
       expiresAt: Math.floor(now / 1000) + 3600,
+      aud: ['https://api.example.com/'],
     };
     const printed = inspect(authInfo, { breakLength: Infinity });
     expect(printed).toBe(`AuthInfo ${inspect(shown, { breakLength: Infinity })}`);

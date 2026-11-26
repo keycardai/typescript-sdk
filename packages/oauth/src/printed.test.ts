@@ -10,7 +10,7 @@ import { ClientSecret } from './server/clientSecret.js';
 import { TokenVerifier } from './server/tokenVerifier.js';
 import { WebIdentity } from './server/webIdentity.js';
 import { WorkloadIdentity } from './server/workloadIdentity.js';
-import { deserializeTokenResponse } from './tokenExchange.js';
+import { deserializeTokenResponse, omitTokenExchangeSecrets } from './tokenExchange.js';
 import { beginAuthorization } from './webApp.js';
 
 const ISSUER = 'https://zone.example.com';
@@ -78,7 +78,7 @@ describe('printed forms leave out secrets', () => {
 
   it.each<{ name: string; build: () => Promise<Built>; secrets: (v: Built) => string[]; want: (v: Built) => string }>([
     {
-      name: 'ClientSecret client authentication',
+      name: 'row 9: ClientSecret client authentication',
       build: () => new ClientSecret('client-id', 'client-secret').clientAuthentication(ISSUER, DEVICE_ENDPOINT),
       secrets: (v) => [v.headers.Authorization, 'client-secret'],
       want: () => "ClientAuthentication { headers: [ 'Authorization' ], form: [] }",
@@ -98,7 +98,7 @@ describe('printed forms leave out secrets', () => {
       want: () => "ClientAuthentication { headers: [], form: [ 'client_assertion', 'client_assertion_type', 'client_id' ] }",
     },
     {
-      name: 'DeviceAuthorization',
+      name: 'row 38: DeviceAuthorization',
       build: () => {
         respondWith({
           device_code: 'device-code',
@@ -121,7 +121,7 @@ describe('printed forms leave out secrets', () => {
         "verificationUriComplete: 'https://zone.example.com/device?user_code=WDJB-MJHT' }",
     },
     {
-      name: 'TokenResponse',
+      name: 'row 27: TokenResponse',
       build: async () =>
         deserializeTokenResponse({
           access_token: 'access-token',
@@ -143,7 +143,7 @@ describe('printed forms leave out secrets', () => {
       secrets: (v) => [v.token],
       want: () =>
         "AccessToken { clientId: 'service-x', scopes: [ 'read' ], expiresAt: 4102444800, resource: undefined, " +
-        "sub: 'user-1', subProfile: undefined, keycardAppId: undefined }",
+        "sub: 'user-1', subProfile: undefined, keycardAppId: undefined, aud: [ 'https://api.example.com' ] }",
     },
     {
       name: 'ClientSecret getAuth',
@@ -168,6 +168,21 @@ describe('printed forms leave out secrets', () => {
       want: () =>
         `TokenExchangeRequest { resource: '${RESOURCE}', subjectTokenType: '${ACCESS_TOKEN_TYPE}', ` +
         "clientAssertionType: 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer', clientId: 'client-id' }",
+    },
+    {
+      name: 'row 27: TokenExchangeRequest with an actor token',
+      build: async () =>
+        omitTokenExchangeSecrets({
+          subjectToken: 'subject-token',
+          subjectTokenType: ACCESS_TOKEN_TYPE,
+          actorToken: 'actor-token',
+          actorTokenType: 'urn:ietf:params:oauth:token-type:jwt',
+          resource: RESOURCE,
+        }),
+      secrets: () => ['subject-token', 'actor-token'],
+      want: () =>
+        `TokenExchangeRequest { subjectTokenType: '${ACCESS_TOKEN_TYPE}', ` +
+        `actorTokenType: 'urn:ietf:params:oauth:token-type:jwt', resource: '${RESOURCE}' }`,
     },
     {
       name: 'Pkce',
@@ -215,7 +230,7 @@ describe('printed forms leave out secrets', () => {
     }
   });
 
-  it('JSON keeps every field, so persisted values can be used again', async () => {
+  it('rows 27 and 38: JSON keeps every field, so persisted values can be used again', async () => {
     respondWith({ device_code: 'device-code', user_code: 'U', verification_uri: `${ISSUER}/device`, expires_in: 600 });
     const device = await requestDeviceAuthorization(ISSUER, { clientId: 'public-client', metadata: METADATA });
     const token = deserializeTokenResponse({ access_token: 'access-token', refresh_token: 'refresh-token' });
