@@ -1047,4 +1047,51 @@ describe("host-kv subject token retention (spec-version 5)", () => {
     expect(client.calls.exchanges).toHaveLength(3);
     expect(kv.ops).toHaveLength(0);
   });
+
+  it("serializes concurrent first-turn publications across parallel connections on the same store", async () => {
+    const baseMs = 1_700_000_000_000;
+    const nowSec = Math.floor(baseMs / 1000);
+    jest.spyOn(Date, "now").mockReturnValue(baseMs);
+
+    const kv = createFakeKv();
+    const store = hostKvSubjectTokenStore();
+    store.attachHostKv(kv);
+
+    const exp = nowSec + 600;
+    const token = tokenWithExp(exp);
+    const verify = keycardAuth({
+      zoneUrl: ZONE,
+      retainSubjectToken: "host-kv",
+      subjectTokens: store,
+      verify: async () => claimsFor(exp),
+    });
+    const authCtx = (await verify(token))!;
+
+    const clientA = fakeZoneClient();
+    const clientB = fakeZoneClient();
+    const connA = onBehalfOf({
+      resource: CALENDAR,
+      zoneUrl: ZONE,
+      client: clientA,
+      subjectTokens: store,
+    });
+    const connB = onBehalfOf({
+      resource: "https://mail.example.com",
+      zoneUrl: ZONE,
+      client: clientB,
+      subjectTokens: store,
+    });
+
+    await Promise.all([
+      connA(session(authCtx, { id: "session-1" })),
+      connB(session(authCtx, { id: "session-1" })),
+    ]);
+
+    const entryKeys = [...kv.data.keys()].filter((k) => k.includes(":entry:"));
+    expect(entryKeys).toHaveLength(1);
+    const listKey = [...kv.data.keys()].find((k) => k.endsWith(":list"))!;
+    const list = kv.data.get(listKey) as { entries: Array<{ id: string; exp: number }> };
+    expect(list.entries).toHaveLength(1);
+    expect(entryKeys[0]).toContain(list.entries[0]!.id);
+  });
 });

@@ -143,6 +143,7 @@ interface KvEntryRecord {
  */
 export function hostKvSubjectTokenStore(): HostKvSubjectTokenStore {
   const local = new Map<string, LocalSubjectTokenEntry>();
+  const pendingPublishes = new Map<string, Promise<void>>();
   let kv: HostKvApi | undefined;
 
   return {
@@ -227,56 +228,69 @@ export function hostKvSubjectTokenStore(): HostKvSubjectTokenStore {
     ): Promise<void> {
       if (!kv || !sessionId) return;
       if (typeof exp !== "number" || !Number.isFinite(exp) || exp <= nowSeconds()) return;
-      const handle = kv;
       const prefix = scopePrefix(sessionId, issuer, subject);
+      const previous = pendingPublishes.get(prefix) ?? Promise.resolve();
+      const current = previous.then(async () => {
+        if (!kv) return;
+        const handle = kv;
+        try {
+          const nowSec = nowSeconds();
+          if (exp <= nowSec) return;
+          const existingRef = parseRefRecord(await handle.get(refKey(prefix)));
+          if (existingRef && existingRef.exp > nowSec) {
+            const currentEntry = parseEntryRecord(
+              await handle.get(entryKey(prefix, existingRef.id)),
+            );
+            if (currentEntry && currentEntry.exp > nowSec && exp <= currentEntry.exp) {
+              return;
+            }
+          }
 
+          const existingList = parseListRecord(await handle.get(listKey(prefix)));
+          const nowForList = nowSeconds();
+          const liveEntries: KvRefRecord[] = [];
+          const expiredIds = new Set<string>();
+          for (const item of existingList) {
+            if (item.exp <= nowForList) {
+              expiredIds.add(item.id);
+            } else {
+              liveEntries.push(item);
+            }
+          }
+
+          const entryId = randomUUID();
+          const nextList: KvRefRecord[] = [...liveEntries, { id: entryId, exp }];
+
+          await handle.put(listKey(prefix), {
+            entries: nextList.map((item) => ({ id: item.id, exp: item.exp })),
+          });
+
+          for (const expiredId of expiredIds) {
+            await safeDelete(handle, entryKey(prefix, expiredId));
+          }
+
+          await handle.put(entryKey(prefix, entryId), {
+            id: entryId,
+            token,
+            exp,
+          });
+
+          await handle.put(refKey(prefix), {
+            id: entryId,
+            exp,
+          });
+        } catch {
+          // Publication is best-effort; the live local bearer remains usable.
+        }
+      });
+
+      pendingPublishes.set(prefix, current);
       try {
-        const nowSec = nowSeconds();
-        const existingRef = parseRefRecord(await handle.get(refKey(prefix)));
-        if (existingRef && existingRef.exp > nowSec) {
-          const currentEntry = parseEntryRecord(
-            await handle.get(entryKey(prefix, existingRef.id)),
-          );
-          if (currentEntry && currentEntry.exp > nowSec && exp <= currentEntry.exp) {
-            return;
-          }
+        await current;
+      } finally {
+        if (pendingPublishes.get(prefix) === current) {
+          pendingPublishes.delete(prefix);
         }
-
-        const existingList = parseListRecord(await handle.get(listKey(prefix)));
-        const nowForList = nowSeconds();
-        const liveEntries: KvRefRecord[] = [];
-        const expiredIds = new Set<string>();
-        for (const item of existingList) {
-          if (item.exp <= nowForList) {
-            expiredIds.add(item.id);
-          } else {
-            liveEntries.push(item);
-          }
-        }
-
-        const entryId = randomUUID();
-        const nextList: KvRefRecord[] = [...liveEntries, { id: entryId, exp }];
-
-        await handle.put(listKey(prefix), {
-          entries: nextList.map((item) => ({ id: item.id, exp: item.exp })),
-        });
-
-        for (const expiredId of expiredIds) {
-          await safeDelete(handle, entryKey(prefix, expiredId));
-        }
-
-        await handle.put(entryKey(prefix, entryId), {
-          id: entryId,
-          token,
-          exp,
-        });
-
-        await handle.put(refKey(prefix), {
-          id: entryId,
-          exp,
-        });
-      } catch {
-        // Publication is best-effort; the live local bearer remains usable.
       }
     },
   };
