@@ -384,21 +384,76 @@ describe("requireBearerAuth middleware", () => {
     it("warns once when built from issuers without audiences", () => {
       requireBearerAuth({ issuers: "https://auth.example.com" });
       expect(warn).toHaveBeenCalledTimes(1);
-      expect(String(warn.mock.calls[0][0])).toMatch(/set audiences/);
+      expect(String(warn.mock.calls[0][0])).toMatch(/resource_identifier/);
     });
 
-    it("does not warn when built from issuers with audiences", () => {
+    it("row 14a: warns once when built from issuers with a legacy scalar audience", () => {
       requireBearerAuth({
         issuers: "https://auth.example.com",
         audiences: "https://api.example.com",
       });
-      expect(warn).not.toHaveBeenCalled();
+      expect(warn).toHaveBeenCalledTimes(1);
     });
 
-    it("does not warn when the caller supplies its own verifier", () => {
+    it("row 7: warns once for a legacy setup even with a custom verifier", () => {
       requireBearerAuth({ verifier: mockVerifier });
-      expect(warn).not.toHaveBeenCalled();
+      expect(warn).toHaveBeenCalledTimes(1);
     });
+  });
+
+  describe("configured resource binding", () => {
+    const resourceIdentifier = "https://api.example.com/mcp?q=1";
+    const metadataUrl = "https://api.example.com/.well-known/oauth-protected-resource/mcp?q=1";
+
+    it.each([
+      { rows: "1, 12, 12c and gate 2", target: "/mcp?q=1", challenge: `Bearer resource_metadata="${metadataUrl}"` },
+      { rows: "12a", target: "/mcp?q=2", challenge: "Bearer" },
+    ])("rows $rows: matches request target, not host headers", async ({ target, challenge }) => {
+      mockRequest.protocol = "http";
+      mockRequest.host = "internal.example";
+      mockRequest.headers = { "x-forwarded-host": "attacker.example", "x-forwarded-proto": "http" };
+      mockRequest.originalUrl = target;
+      await requireBearerAuth({ verifier: mockVerifier, resourceIdentifier })(mockRequest as Request, mockResponse as Response, nextFunction);
+      expect(mockResponse.status).toHaveBeenCalledWith(401);
+      expect(mockResponse.set).toHaveBeenCalledWith("WWW-Authenticate", challenge);
+    });
+
+    it.each([
+      { rows: "8, integration 2", aud: ["https://api.example.com/other"], status: 401, description: "invalid_token" },
+      { rows: "15", aud: ["other", resourceIdentifier], status: undefined, description: undefined },
+    ])("rows $rows: checks the exact configured audience", async ({ aud, status, description }) => {
+      mockVerifyAccessToken.mockResolvedValue({ token: "token", clientId: "client", scopes: [], aud });
+      mockRequest.headers = { authorization: "Bearer token" };
+      mockRequest.originalUrl = "/mcp?q=1";
+      await requireBearerAuth({ verifier: mockVerifier, resourceIdentifier })(mockRequest as Request, mockResponse as Response, nextFunction);
+      if (status) {
+        expect(mockResponse.status).toHaveBeenCalledWith(status);
+        expect(mockResponse.set).toHaveBeenCalledWith("WWW-Authenticate", expect.stringContaining(description!));
+      } else {
+        expect(nextFunction).toHaveBeenCalledTimes(1);
+      }
+    });
+
+    it("gate row 6: does not advertise another route's document on insufficient scope", async () => {
+      mockVerifyAccessToken.mockResolvedValue({ token: "token", clientId: "client", scopes: [], aud: [resourceIdentifier] });
+      mockRequest.headers = { authorization: "Bearer token" };
+      mockRequest.originalUrl = "/tools";
+      await requireBearerAuth({ verifier: mockVerifier, resourceIdentifier, requiredScopes: ["write"] })(
+        mockRequest as Request, mockResponse as Response, nextFunction,
+      );
+      expect(mockResponse.status).toHaveBeenCalledWith(403);
+      expect(mockResponse.set).toHaveBeenCalledWith("WWW-Authenticate", expect.stringContaining("insufficient_scope"));
+      expect(mockResponse.set).not.toHaveBeenCalledWith("WWW-Authenticate", expect.stringContaining("resource_metadata"));
+    });
+
+    it.each([{ resourceIdentifier: "urn:example:service" }, { allowAnyAudience: true }])(
+      "gate row 7: verifier-only mode %j has no metadata challenge",
+      async mode => {
+        await requireBearerAuth({ verifier: mockVerifier, ...mode })(mockRequest as Request, mockResponse as Response, nextFunction);
+        expect(mockResponse.status).toHaveBeenCalledWith(401);
+        expect(mockResponse.set).toHaveBeenCalledWith("WWW-Authenticate", "Bearer");
+      },
+    );
   });
 
 

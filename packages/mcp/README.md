@@ -22,25 +22,24 @@ import { requireBearerAuth } from "@keycardai/mcp/server/auth/middleware/bearerA
 import { mcpAuthMetadataRouter } from "@keycardai/mcp/server/auth/router";
 
 const app = express();
+const resourceIdentifier = "https://your-server.example.com/api/data";
 
-// Mount OAuth metadata endpoints (.well-known)
+// Mount OAuth metadata at the public host root.
 app.use(
   mcpAuthMetadataRouter({
     oauthMetadata: { issuer: "https://your-zone.keycard.cloud" },
+    resourceIdentifier,
   }),
 );
 
 // Protect routes with bearer token verification.
 // `issuers` is required — it binds the verifier to your zone so forged
 // tokens from any other issuer are rejected before key lookup.
-// `audiences` is this server's registered Resource identifier; without it
-// the verifier accepts tokens minted for any resource in the zone and warns
-// once at startup.
 app.use(
   "/api",
   requireBearerAuth({
     issuers: "https://your-zone.keycard.cloud",
-    audiences: "https://your-server.example.com/api",
+    resourceIdentifier,
     requiredScopes: ["read"],
   }),
 );
@@ -49,6 +48,17 @@ app.get("/api/data", (req, res) => {
   res.json({ message: "Authenticated!" });
 });
 ```
+
+The configured resource URL is the exact token audience and the source of the
+RFC 9728 document and challenge. An HTTP(S) identifier with a path or query
+publishes metadata at the host-root well-known URL, outside the protected
+route mount. Register it there or forward that URL to the metadata router.
+Use a URN, `multiResource: true` with an `audiences` list, or
+`allowAnyAudience: true` for verification without discovery. To bind routes
+per zone, pass the same `resourceIdentifiersByZone` map to both constructors,
+use the base issuer, and set a request-only `zoneResolver` on the middleware.
+For shared discovery, use `multiResource: true` and the same HTTP(S)
+identifier in every zone and as the sole list audience instead of a resolver.
 
 ### Delegated Access (Token Exchange)
 

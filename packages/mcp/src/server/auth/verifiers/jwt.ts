@@ -3,26 +3,41 @@ import { omitWhenPrinted } from "../../../shared/printed.js";
 import type { OAuthKeyring } from "@keycardai/oauth/keyring";
 import { JWTVerifier, type JWTVerifierOptions } from "@keycardai/oauth/jwt/verifier";
 import { ConfigurationError } from "@keycardai/oauth/errors";
+import { resolveResourceBinding, validateAudience, warnLegacy, zoneIssuers, type ResourceBindingOptions } from "../resourceBinding.js";
 
 export class JWTOAuthTokenVerifier implements OAuthTokenVerifier {
-  #verifier: JWTVerifier;
+  #verifier: OAuthTokenVerifier;
 
-  constructor(keyring: OAuthKeyring, options: JWTVerifierOptions) {
-    if (Array.isArray(options.audiences) && options.audiences.length === 0) {
-      throw new ConfigurationError("JWTOAuthTokenVerifier: audiences must not be an empty list");
+  constructor(keyring: OAuthKeyring, options: JWTVerifierOptions & ResourceBindingOptions) {
+    const binding = resolveResourceBinding(options);
+    validateAudience(binding, options.audiences);
+    if (binding.mode === "perZone") {
+      throw new ConfigurationError("Per-zone resource binding requires middleware with a request zoneResolver");
     }
-    this.#verifier = new JWTVerifier(keyring, options);
-    if (options.audiences === undefined) {
-      console.warn(
-        "JWTOAuthTokenVerifier: this verifier has no audience configured, so it accepts a " +
-          "token minted for any resource in the zone; set audiences to this server's " +
-          "registered resource identifier.",
-      );
+    if (binding.mode === "shared" && typeof options.issuers !== "string") {
+      throw new ConfigurationError("Shared discovery requires a single base issuer URL");
+    }
+    this.#verifier = makeJWTAccessTokenVerifier(keyring, {
+      ...options,
+      issuers: binding.mode === "shared"
+        ? [...zoneIssuers(binding, options.issuers as string).values()]
+        : options.issuers,
+      audiences: binding.mode === "single" ? binding.identifier.value : options.audiences,
+    });
+    if (binding.mode === "legacy") {
+      warnLegacy("JWTOAuthTokenVerifier", options.audiences);
     }
   }
 
-  async verifyAccessToken(token: string): Promise<AuthInfo> {
-    const claims = await this.#verifier.verify(token);
+  verifyAccessToken(token: string): Promise<AuthInfo> {
+    return this.#verifier.verifyAccessToken(token);
+  }
+}
+
+export function makeJWTAccessTokenVerifier(keyring: OAuthKeyring, options: JWTVerifierOptions): OAuthTokenVerifier {
+  const verifier = new JWTVerifier(keyring, options);
+  return { async verifyAccessToken(token) {
+    const claims = await verifier.verify(token);
 
     const authInfo: AuthInfo = {
       token,
@@ -38,7 +53,7 @@ export class JWTOAuthTokenVerifier implements OAuthTokenVerifier {
         : {}),
     };
     return omitWhenPrinted(authInfo, "AuthInfo", ["token"]);
-  }
+  } };
 }
 
 /**

@@ -129,7 +129,7 @@ describe('JSON Web Token Verifier', () => {
     it('warns exactly once at construction when audiences is omitted', () => {
       new JWTOAuthTokenVerifier(keyring, { issuers: 'https://auth.example.com' });
       expect(warn).toHaveBeenCalledTimes(1);
-      expect(String(warn.mock.calls[0][0])).toMatch(/set audiences/);
+      expect(String(warn.mock.calls[0][0])).toMatch(/resource_identifier/);
     });
 
     it('row 8e: rejects an empty audience list without warning', () => {
@@ -138,19 +138,27 @@ describe('JSON Web Token Verifier', () => {
       expect(warn).not.toHaveBeenCalled();
     });
 
-    it('does not warn with a string audience', () => {
+    it('row 14a: warns once with a legacy string audience', () => {
       new JWTOAuthTokenVerifier(keyring, {
         issuers: 'https://auth.example.com',
         audiences: 'https://api.example.com',
       });
-      expect(warn).not.toHaveBeenCalled();
+      expect(warn).toHaveBeenCalledTimes(1);
     });
 
-    it('does not warn with an array of audiences', () => {
+    it('row 14: warns once with a legacy audience list', () => {
       new JWTOAuthTokenVerifier(keyring, {
         issuers: 'https://auth.example.com',
         audiences: ['https://api.example.com', 'https://api.example.com/mcp'],
       });
+      expect(warn).toHaveBeenCalledTimes(1);
+    });
+
+    it('rows 8a, 8g, 8h: does not warn in explicit verifier modes', () => {
+      const issuers = 'https://auth.example.com';
+      new JWTOAuthTokenVerifier(keyring, { issuers, multiResource: true, audiences: ['service'] });
+      new JWTOAuthTokenVerifier(keyring, { issuers, allowAnyAudience: true });
+      new JWTOAuthTokenVerifier(keyring, { issuers, resourceIdentifier: 'urn:example:service' });
       expect(warn).not.toHaveBeenCalled();
     });
   });
