@@ -562,9 +562,10 @@ describe('TokenExchangeClient', () => {
 
   it.each([
     ['plain error', new Error('source failed'), false],
-    ['timeout', new DOMException('source timed out', 'TimeoutError'), true],
-    ['5xx', new HTTPError('source unavailable', 503), true],
-    ['connection error', Object.assign(new Error('source unreachable'), { code: 'ECONNREFUSED' }), true],
+    ['timeout', new DOMException('source timed out', 'TimeoutError'), false],
+    ['429', new HTTPError('source rate limited', 429), false],
+    ['5xx', new HTTPError('source unavailable', 503), false],
+    ['connection error', Object.assign(new Error('source unreachable'), { code: 'ECONNREFUSED' }), false],
   ])('row 26: wraps a custom source %s without sending a request', async (_label, cause, retryable) => {
     const actor = () => { throw cause; };
     const client = new TokenExchangeClient(ISSUER, { actor });

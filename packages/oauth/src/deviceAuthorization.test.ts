@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  DeviceAuthorizationClient,
   pollDeviceToken,
   requestDeviceAuthorization,
   systemClock,
@@ -1081,6 +1082,26 @@ describe('device authorization grant', () => {
     });
   });
 
+  it('keeps device client defaults when per-call values are undefined', async () => {
+    const { signal } = new AbortController();
+    const calls = mockFetch({ device: json(200, DEVICE_RESPONSE) });
+    const client = new DeviceAuthorizationClient(ISSUER, {
+      clientId: 'device-client',
+      metadata: METADATA,
+      signal,
+      timeoutMs: 0,
+    });
+
+    await client.requestDeviceAuthorization({
+      metadata: undefined,
+      signal: undefined,
+      timeoutMs: undefined,
+    });
+
+    expect(calls.map((call) => call.url)).toEqual([DEVICE_ENDPOINT]);
+    expect(calls[0].init.signal).toBe(signal);
+  });
+
   describe('one flow with a WebIdentity credential', () => {
     let storageDir: string;
 
@@ -1090,6 +1111,27 @@ describe('device authorization grant', () => {
 
     afterEach(() => {
       rmSync(storageDir, { recursive: true, force: true });
+    });
+
+    it.each(['poll', 'wait'])('row 22: binds a WebIdentity for request and %s', async (method) => {
+      const credential = new WebIdentity({ clientId: 'device-client', storageDir, serverName: 'device' });
+      const clock = new FakeClock();
+      const calls = mockFetch({ device: json(200, DEVICE_RESPONSE), polls: [pending, token] });
+      const client = new DeviceAuthorizationClient(ISSUER, { credential, metadata: METADATA });
+
+      const authorization = await client.requestDeviceAuthorization({ clock });
+      if (method === 'wait') {
+        await client.waitForDeviceToken({ authorization, clock });
+      } else {
+        await expect(client.pollDeviceToken({ authorization })).rejects.toMatchObject({
+          errorCode: 'authorization_pending',
+        });
+        await client.pollDeviceToken({ authorization });
+      }
+
+      const claims = calls.map((call) => decodeJwtPayload(call.body.get('client_assertion')!));
+      expect(claims.map((claim) => claim.aud)).toEqual([DEVICE_ENDPOINT, TOKEN_ENDPOINT, TOKEN_ENDPOINT]);
+      expect(new Set(claims.map((claim) => claim.jti)).size).toBe(3);
     });
 
     it('signs each assertion for the endpoint it is sent to, with a new jti every time', async () => {

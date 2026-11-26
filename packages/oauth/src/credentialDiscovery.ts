@@ -19,7 +19,7 @@ export type CredentialEnvironment = Readonly<Record<string, string | undefined>>
 export type ResolvedCredential =
   | { type: typeof CLIENT_SECRET_TYPE; clientId: string; clientSecret: string }
   | { type: typeof WORKLOAD_IDENTITY_TYPE; tokenFilePath: string; clientId?: string }
-  | { type: typeof WEB_IDENTITY_TYPE; storageDir?: string };
+  | { type: typeof WEB_IDENTITY_TYPE; storageDir?: string; clientId?: string };
 
 /**
  * Selects a credential from an explicit environment mapping without constructing it.
@@ -43,7 +43,7 @@ export function resolveCredentialType(
     candidates.push({ type: WORKLOAD_IDENTITY_TYPE, tokenFilePath, clientId });
   }
   if (storageDir) {
-    candidates.push({ type: WEB_IDENTITY_TYPE, storageDir });
+    candidates.push({ type: WEB_IDENTITY_TYPE, storageDir, clientId });
   }
   const resolvable = candidates.map(({ type }) => type);
 
@@ -57,7 +57,7 @@ export function resolveCredentialType(
       );
     }
     if (type === WEB_IDENTITY_TYPE) {
-      return { type, storageDir };
+      return { type, storageDir, clientId };
     }
     const selected = candidates.find((candidate) => candidate.type === type);
     if (selected) {

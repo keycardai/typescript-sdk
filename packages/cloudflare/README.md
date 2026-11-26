@@ -22,9 +22,8 @@ The fastest way to add Keycard auth to a Worker:
 import { createKeycardWorker } from "@keycardai/cloudflare";
 
 export default createKeycardWorker({
-  // Bind accepted audiences to this Worker's public URL (its resource
-  // identifier in Keycard) so tokens minted for other resources are rejected.
-  audiences: ["https://my-worker.example.workers.dev"],
+  // Set this to the exact resource identifier registered in Keycard.
+  resourceIdentifier: "https://my-worker.example.workers.dev",
   requiredScopes: ["read"],
   scopesSupported: ["read", "write"],
   resourceName: "My MCP Server",
@@ -40,6 +39,17 @@ export default createKeycardWorker({
 ```
 
 `createKeycardWorker()` handles the full lifecycle: CORS preflight, `/.well-known/*` metadata endpoints, bearer token verification, then delegates to your handler.
+
+The configured identifier supplies the exact token audience. For an HTTP(S)
+identifier, its RFC 9728 document is served at the public host root, with the
+identifier's path and query appended to the well-known URL. Keep that route
+reachable at the public host root, even when the Worker is mounted below it.
+A URN, `multiResource: true` with an `audiences` list, or
+`allowAnyAudience: true` disables protected-resource discovery. To bind by
+zone, use `KEYCARD_ISSUER` as the base issuer and set
+`resourceIdentifiersByZone` and a request-only `zoneResolver`. For shared
+discovery, use `multiResource: true` and the same HTTP(S) identifier in
+every zone and as the sole list audience instead of a resolver.
 
 ### Environment Variables
 

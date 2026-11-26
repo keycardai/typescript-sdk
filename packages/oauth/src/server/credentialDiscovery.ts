@@ -31,6 +31,7 @@ export function discoverCredential(
       return new WebIdentity({
         ...(resolved.storageDir === undefined ? {} : { storageDir: resolved.storageDir }),
         ...(webIdentityServerName === undefined ? {} : { serverName: webIdentityServerName }),
+        ...(resolved.clientId === undefined ? {} : { clientId: resolved.clientId }),
       });
   }
 }

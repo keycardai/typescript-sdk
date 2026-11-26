@@ -13,6 +13,10 @@ import {
 } from "@keycardai/oauth/errors";
 import { omitWhenPrinted } from "./printed.js";
 import type { AuthInfo, BearerAuthOptions } from "./types.js";
+import {
+  bearerChallenge, metadataChallenge, requestTarget, resolveResourceBinding, validateAudience, validateZoneResolver,
+  warnStatelessLegacy, zoneIssuers,
+} from "./resourceBinding.js";
 
 // Module-level shared keyring. The keyring caches JWKS responses per
 // (issuer, kid) with a TTL, which is the only cache that meaningfully
@@ -20,22 +24,6 @@ import type { AuthInfo, BearerAuthOptions } from "./types.js";
 // fresh `JWTVerifier` around this keyring; that construction is a handful
 // of Set literals and is sub-millisecond.
 const sharedKeyring = new JWKSOAuthKeyring();
-
-// The per-request JWTVerifier is the wrong place for a construction-time
-// warning, so the missing-audience warning is emitted at most once per
-// isolate from here.
-let warnedMissingAudience = false;
-
-function warnMissingAudienceOnce(audiences: BearerAuthOptions["audiences"]): void {
-  if (warnedMissingAudience) return;
-  if (audiences !== undefined) return;
-  warnedMissingAudience = true;
-  console.warn(
-    "verifyBearerToken: this Worker verifies tokens without an audience, so it accepts a " +
-      "token minted for any resource in the zone; set audiences to the Worker's public URL " +
-      "registered as the resource.",
-  );
-}
 
 /**
  * Constructs the OAuth Protected Resource Metadata URL for WWW-Authenticate headers.
@@ -80,11 +68,20 @@ export async function verifyBearerToken(
   request: Request,
   options: BearerAuthOptions,
 ): Promise<AuthInfo | Response> {
-  if (Array.isArray(options.audiences) && options.audiences.length === 0) {
-    throw new ConfigurationError("verifyBearerToken: audiences must not be an empty list");
-  }
+  return verifyRequest(request, options);
+}
+
+export async function verifyRequest(
+  request: Request,
+  options: BearerAuthOptions,
+  binding = resolveResourceBinding(options),
+  warn = true,
+): Promise<AuthInfo | Response> {
+  validateAudience(binding, options.audiences);
+  validateZoneResolver(binding, options.zoneResolver);
   const url = new URL(request.url);
-  const resourceMetadataUrl = getResourceMetadataUrl(url);
+  let resourceMetadataUrl: string | undefined;
+  let issuers = options.issuers;
 
   // Catch the common deployment footgun where `KEYCARD_ISSUER` is unset in
   // the Worker's env bindings and flows through as `undefined` despite the
@@ -101,16 +98,33 @@ export async function verifyBearerToken(
     );
   }
 
-  warnMissingAudienceOnce(options.audiences);
+  if ((binding.mode === "perZone" || binding.mode === "shared") && typeof issuers !== "string") {
+    throw new ConfigurationError("Zone resource binding requires a single base issuer URL");
+  }
+  const configuredIssuers = zoneIssuers(binding, typeof issuers === "string" ? issuers : undefined);
+  if (binding.mode === "legacy" && warn) warnStatelessLegacy("verifyBearerToken");
 
   try {
+    const zone = binding.mode === "perZone" ? options.zoneResolver?.(request) : undefined;
+    const identifier = binding.mode === "perZone"
+      ? (zone ? binding.entries.get(zone) : undefined)
+      : binding.mode === "single" || binding.mode === "shared" ? binding.identifier : undefined;
+    if (binding.mode === "perZone") {
+      if (!zone || !identifier) throw new UnauthorizedError("Unknown resource zone");
+      issuers = configuredIssuers.get(zone)!;
+    } else if (binding.mode === "shared") {
+      issuers = [...configuredIssuers.values()];
+    }
+    resourceMetadataUrl = binding.mode === "legacy"
+      ? getResourceMetadataUrl(url)
+      : metadataChallenge(requestTarget(request.url), identifier);
     const credentials = request.headers.get("Authorization");
     if (!credentials) {
       throw new UnauthorizedError("No credentials");
     }
 
-    const [scheme, token] = credentials.split(" ");
-    if (!token) {
+    const [scheme, token, extra] = credentials.split(" ");
+    if (!token || (binding.mode !== "legacy" && extra !== undefined)) {
       throw new BadRequestError("Malformed credentials");
     }
     if (scheme.toLowerCase() !== "bearer") {
@@ -118,8 +132,8 @@ export async function verifyBearerToken(
     }
 
     const verifier = new JWTVerifier(sharedKeyring, {
-      issuers: options.issuers,
-      audiences: options.audiences,
+      issuers,
+      audiences: identifier?.value ?? options.audiences,
     });
     const claims = await verifier.verify(token);
 
@@ -152,7 +166,7 @@ export async function verifyBearerToken(
     // only, since tokens are scoped to a resource server, not a specific path
     // or query string. A URN or other non-http(s) resource has no origin to
     // compare, so it must exactly match a configured audience.
-    if (authInfo.resource && !isIntendedResource(authInfo.resource, url, options.audiences)) {
+    if (binding.mode === "legacy" && authInfo.resource && !isIntendedResource(authInfo.resource, url, options.audiences)) {
       throw new InvalidTokenError("Token not intended for resource");
     }
 
@@ -182,7 +196,7 @@ export async function verifyBearerToken(
       return new Response(null, {
         status: 401,
         headers: {
-          "WWW-Authenticate": `Bearer resource_metadata="${resourceMetadataUrl}"`,
+          "WWW-Authenticate": bearerChallenge(resourceMetadataUrl),
         },
       });
     }
@@ -191,7 +205,7 @@ export async function verifyBearerToken(
       return new Response(null, {
         status: 403,
         headers: {
-          "WWW-Authenticate": `Bearer error="${error.errorCode}", error_description="${error.message}", resource_metadata="${resourceMetadataUrl}"`,
+          "WWW-Authenticate": bearerChallenge(resourceMetadataUrl, error.errorCode, error.message),
         },
       });
     }
@@ -200,7 +214,7 @@ export async function verifyBearerToken(
       return new Response(null, {
         status: 401,
         headers: {
-          "WWW-Authenticate": `Bearer error="${error.errorCode}", error_description="${error.message}", resource_metadata="${resourceMetadataUrl}"`,
+          "WWW-Authenticate": bearerChallenge(resourceMetadataUrl, error.errorCode, error.message),
         },
       });
     }
@@ -212,7 +226,7 @@ export async function verifyBearerToken(
       return new Response(null, {
         status: 401,
         headers: {
-          "WWW-Authenticate": `Bearer error="invalid_token", error_description="Unable to verify token signing key", resource_metadata="${resourceMetadataUrl}"`,
+          "WWW-Authenticate": bearerChallenge(resourceMetadataUrl, "invalid_token", "Unable to verify token signing key"),
         },
       });
     }

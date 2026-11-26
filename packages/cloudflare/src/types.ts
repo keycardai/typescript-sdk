@@ -1,3 +1,4 @@
+import type { ResourceBindingOptions } from "./resourceBinding.js";
 // =============================================================================
 // Environment Bindings
 // =============================================================================
@@ -77,7 +78,7 @@ export type AuthenticatedFetchHandler<Env extends KeycardEnv = KeycardEnv> = (
   auth: AuthInfo,
 ) => Response | Promise<Response>;
 
-export interface KeycardWorkerOptions<Env extends KeycardEnv = KeycardEnv> {
+export interface KeycardWorkerOptions<Env extends KeycardEnv = KeycardEnv> extends ResourceBindingOptions {
   /**
    * Audience(s) verified tokens must be intended for. Bind this to the
    * Worker's public URL (the resource identifier registered in Keycard) so
@@ -85,6 +86,8 @@ export interface KeycardWorkerOptions<Env extends KeycardEnv = KeycardEnv> {
    * same issuer.
    */
   audiences?: string | readonly string[];
+  /** Selects a zone from the request without reading the bearer token. */
+  zoneResolver?: (request: Request) => string | undefined;
   /** Required scopes for bearer auth verification. */
   requiredScopes?: string[];
   /** Scopes advertised in the protected resource metadata. */
@@ -101,7 +104,7 @@ export interface KeycardWorkerOptions<Env extends KeycardEnv = KeycardEnv> {
 // Metadata Options
 // =============================================================================
 
-export interface MetadataOptions {
+export interface MetadataOptions extends ResourceBindingOptions {
   /** Keycard Zone URL (issuer). */
   issuer: string;
   /** Timeout in milliseconds for the metadata request to the issuer (default 10 seconds). */
@@ -120,7 +123,7 @@ export interface MetadataOptions {
 // Bearer Auth Options
 // =============================================================================
 
-export interface BearerAuthOptions {
+export interface BearerAuthOptions extends ResourceBindingOptions {
   /**
    * Issuer(s) to trust. Required — tokens whose `iss` is not in this set are
    * rejected before any JWKS lookup. Pass the same Keycard zone URL you
@@ -132,6 +135,8 @@ export interface BearerAuthOptions {
    * an `aud` claim containing one of these values.
    */
   audiences?: string | readonly string[];
+  /** Selects a zone from the request without reading the bearer token. */
+  zoneResolver?: (request: Request) => string | undefined;
   /** Required scopes. Token must have all of these. */
   requiredScopes?: string[];
 }

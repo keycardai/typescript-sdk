@@ -2,20 +2,23 @@ import express, { RequestHandler } from "express";
 import type { InferredOAuthProtectedResourceMetadata, OAuthProtectedResourceMetadata } from "../../../shared/auth.js";
 import cors from 'cors';
 
-export function protectedResourceMetadataHandler(metadata: InferredOAuthProtectedResourceMetadata): RequestHandler {
+export function protectedResourceMetadataHandler(
+  metadata: InferredOAuthProtectedResourceMetadata,
+  identifier?: string,
+): RequestHandler {
   const router = express.Router();
 
   router.use(cors());
 
   router.use("/", (req, res) => {
-    let path = req.url;
-    if (path === '/' || path.indexOf('/?') === 0) {
-      path = path.slice(1);
+    let resource = identifier;
+    if (resource === undefined) {
+      let path = req.url;
+      if (path === '/' || path.indexOf('/?') === 0) {
+        path = path.slice(1);
+      }
+      resource = `${req.protocol}://${req.host}${path}`;
     }
-
-    const baseUrl = `${req.protocol}://${req.host}`;
-    const resource = `${baseUrl}${path}`;
-
     const json: OAuthProtectedResourceMetadata = { resource, ...metadata };
     res.status(200).json(json);
   });
@@ -29,6 +32,8 @@ export const DEFAULT_METADATA_TIMEOUT_MS = 10_000;
 export interface AuthorizationServerMetadataHandlerOptions {
   /** Timeout in milliseconds for the request to the issuer (default 10 seconds). */
   timeoutMs?: number;
+  zoneIssuers?: ReadonlyMap<string, string>;
+  preserveBody?: boolean;
 }
 
 export function authorizationServerMetadataHandler(
@@ -38,12 +43,18 @@ export function authorizationServerMetadataHandler(
   const router = express.Router();
   const timeoutMs = options.timeoutMs ?? DEFAULT_METADATA_TIMEOUT_MS;
 
+  if (options.zoneIssuers) {
+    const issuers = options.zoneIssuers;
+    router.use((req, _res, next) => next(issuers.has(req.path.split("/")[1]) ? undefined : "router"));
+  }
   router.use(cors());
 
-  router.get("/", async (_req, res) => {
+  router.get(options.zoneIssuers ? /^\/[^/]+(?:\/|$)/ : "/", async (req, res, next) => {
+    const selectedIssuer = options.zoneIssuers ? options.zoneIssuers.get(req.path.split("/")[1]) : issuer;
+    if (!selectedIssuer) return next();
     let resp: Response;
     try {
-      resp = await fetch(issuer + '/.well-known/oauth-authorization-server', {
+      resp = await fetch(selectedIssuer + '/.well-known/oauth-authorization-server', {
         signal: AbortSignal.timeout(timeoutMs),
       });
     } catch {
@@ -56,9 +67,11 @@ export function authorizationServerMetadataHandler(
       return;
     }
 
-    const json = await resp.json() as Record<string, unknown>;
-
-    res.status(200).json(json);
+    if (options.preserveBody) {
+      res.status(200).type("json").send(Buffer.from(await resp.arrayBuffer()));
+    } else {
+      res.status(200).json(await resp.json());
+    }
   });
 
   return router;

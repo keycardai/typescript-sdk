@@ -31,7 +31,7 @@ function expectDiscoveryError(
   }));
 }
 
-describe("discoverCredential (credential-discovery.md v2)", () => {
+describe("discoverCredential (credential-discovery.md v3)", () => {
   let dir: string;
 
   beforeEach(() => {
@@ -224,6 +224,37 @@ describe("discoverCredential (credential-discovery.md v2)", () => {
   it("row 22: reports an absent configuration error with no resolvable types for an empty mapping", () => {
     expectDiscoveryError({}, "absent", []);
     expect(() => discoverCredential({ env: {} })).toThrow(ConfigurationError);
+  });
+
+  it("row 23: attaches the client id to inferred and explicitly selected WebIdentity credentials", async () => {
+    const cwd = process.cwd();
+    process.chdir(dir);
+    try {
+      for (const selection of [{ [storageVar]: dir }, { [selector]: "web_identity" }]) {
+        const credential = discoverCredential({
+          env: { ...selection, KEYCARD_CLIENT_ID: "test-app" },
+        });
+        expect(credential).toBeInstanceOf(WebIdentity);
+        const endpoint = "https://issuer.example/token";
+        const auth = await (credential as WebIdentity).clientAuthentication("https://issuer.example", endpoint);
+        const [, payload] = auth.form.client_assertion.split(".");
+        expect(JSON.parse(Buffer.from(payload, "base64url").toString("utf-8")))
+          .toMatchObject({ iss: "test-app", sub: "test-app" });
+      }
+    } finally {
+      process.chdir(cwd);
+    }
+  });
+
+  it("row 24: discovers inferred and explicitly selected WebIdentity credentials with an unset or empty id", () => {
+    for (const selection of [{ [storageVar]: dir }, { [selector]: "web_identity" }]) {
+      for (const clientId of [{}, { KEYCARD_CLIENT_ID: "" }]) {
+        const credential = discoverCredential({ env: { ...selection, ...clientId } });
+        expect(credential).toBeInstanceOf(WebIdentity);
+        expect(() => (credential as WebIdentity).checkClientAuthentication())
+          .toThrow("WebIdentity: clientId is required for client authentication");
+      }
+    }
   });
 
   it("treats empty variables as unset", async () => {

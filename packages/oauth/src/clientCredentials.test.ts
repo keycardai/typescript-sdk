@@ -1,7 +1,7 @@
 import { jest } from '@jest/globals';
 import { ClientCredentialsClient, type ClientCredentialsRequest } from './clientCredentials.js';
 import type { ApplicationCredential } from './credentials.js';
-import { OAuthError } from './errors.js';
+import { ConfigurationError, OAuthError } from './errors.js';
 import { ClientSecret } from './server/clientSecret.js';
 import { WorkloadIdentity } from './server/workloadIdentity.js';
 
@@ -145,6 +145,29 @@ describe('ClientCredentialsClient.requestToken', () => {
     expect(headers['Authorization']).toBe(`Basic ${btoa('id-b:sec-b')}`);
   });
 
+  it('uses Basic auth from a credential that only provides getAuth for client authentication', async () => {
+    const getAuth = jest.fn(() => ({ clientId: 'custom-id', clientSecret: 'custom-secret' }));
+    const credential: ApplicationCredential = {
+      getAuth,
+      prepareTokenExchangeRequest: async (subjectToken, resource) => ({ subjectToken, resource }),
+    };
+    const client = new ClientCredentialsClient(ISSUER, { credential });
+
+    await client.requestToken();
+
+    expect(getAuth).toHaveBeenCalledTimes(1);
+    expect(getAuth).toHaveBeenCalledWith(ISSUER);
+    expect(tokenCallHeaders()['Authorization']).toBe(`Basic ${btoa('custom-id:custom-secret')}`);
+
+    fetchMock.mockClear();
+    await client.requestToken({ clientAssertion: 'caller-jwt', clientId: 'request-id' });
+
+    expect(getAuth).toHaveBeenCalledTimes(1);
+    expect(tokenCallHeaders()['Authorization']).toBeUndefined();
+    expect(tokenCallBody().get('client_assertion')).toBe('caller-jwt');
+    expect(tokenCallBody().get('client_id')).toBe('request-id');
+  });
+
   it.each([
     ['6a', 'custom_denial'],
     ['6b', undefined],
@@ -241,6 +264,54 @@ describe('ClientCredentialsClient.requestToken', () => {
   });
 
   describe('client authentication lifted from an application credential', () => {
+    const assertionType = 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer';
+
+    it.each(['app-123', undefined])('row 4b: applies configured workload authentication (%s)', async (clientId) => {
+      const credential = new WorkloadIdentity(async () => 'workload-jwt', { clientId });
+      const authenticate = jest.spyOn(credential, 'clientAuthentication');
+      const client = new ClientCredentialsClient(ISSUER, { credential });
+
+      await client.requestToken({ scope: 'read' });
+
+      expect(authenticate).toHaveBeenCalledTimes(1);
+      expect(authenticate).toHaveBeenCalledWith(ISSUER, TOKEN_ENDPOINT);
+      const fields = tokenCallBody();
+      expect(fields.get('grant_type')).toBe('client_credentials');
+      expect(fields.get('scope')).toBe('read');
+      expect(fields.get('client_assertion')).toBe('workload-jwt');
+      expect(fields.get('client_assertion_type')).toBe(assertionType);
+      expect(fields.get('client_id')).toBe(clientId ?? null);
+      expect(tokenCallHeaders()['Authorization']).toBeUndefined();
+    });
+
+    it('row 4c: rejects a credential with separate Basic shorthand at construction', () => {
+      const credential = new ClientSecret('configured', 'secret');
+      expect(() => new ClientCredentialsClient(ISSUER, {
+        credential, clientId: 'raw', clientSecret: 'secret',
+      })).toThrow(ConfigurationError);
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      new ClientSecret('configured', 'secret'),
+      new WorkloadIdentity(async () => 'workload-jwt', { clientId: 'app-123' }),
+    ])('row 4d: bypasses configured %p for an explicit assertion', async (credential) => {
+      const authenticate = jest.spyOn(credential, 'clientAuthentication');
+      const client = new ClientCredentialsClient(ISSUER, { credential });
+      for (const clientId of ['request-id', undefined]) {
+        fetchMock.mockClear();
+        await client.requestToken({
+          clientAssertion: 'caller-jwt', clientAssertionType: assertionType, clientId,
+        });
+        const fields = tokenCallBody();
+        expect(fields.get('client_assertion')).toBe('caller-jwt');
+        expect(fields.get('client_assertion_type')).toBe(assertionType);
+        expect(fields.get('client_id')).toBe(clientId ?? null);
+        expect(tokenCallHeaders()['Authorization']).toBeUndefined();
+      }
+      expect(authenticate).not.toHaveBeenCalled();
+    });
+
     /**
      * How a caller carries an assertion credential's proof into the grant:
      * client credentials has no subject, so only the client-auth fields of a

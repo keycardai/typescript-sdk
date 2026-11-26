@@ -142,6 +142,48 @@ export type WaitForDeviceTokenOptions = DeviceClientOptions & {
   clock?: Clock;
 };
 
+/** Binds one application credential or public client to a device flow. */
+export class DeviceAuthorizationClient {
+  readonly #issuer: string;
+  readonly #options: DeviceClientOptions;
+
+  constructor(issuer: string, options: DeviceClientOptions) {
+    resolveClient(options, "DeviceAuthorizationClient");
+    this.#issuer = issuer;
+    this.#options = { ...options };
+  }
+
+  requestDeviceAuthorization(
+    options: Omit<RequestDeviceAuthorizationOptions, "credential" | "clientId"> = {},
+  ): Promise<DeviceAuthorization> {
+    return requestDeviceAuthorization(this.#issuer, this.#requestOptions(options));
+  }
+
+  pollDeviceToken(
+    options: Omit<PollDeviceTokenOptions, "credential" | "clientId">,
+  ): Promise<TokenResponse> {
+    return pollDeviceToken(this.#issuer, this.#requestOptions(options));
+  }
+
+  waitForDeviceToken(
+    options: Omit<WaitForDeviceTokenOptions, "credential" | "clientId">,
+  ): Promise<TokenResponse> {
+    return waitForDeviceToken(this.#issuer, this.#requestOptions(options));
+  }
+
+  #requestOptions<T extends object>(options: T): T & DeviceClientOptions {
+    const configured = this.#options;
+    const overrides = { ...options };
+    for (const key of Reflect.ownKeys(overrides)) {
+      if (Reflect.get(overrides, key) === undefined) Reflect.deleteProperty(overrides, key);
+    }
+    const common = { ...configured, ...overrides };
+    return configured.credential !== undefined
+      ? { ...common, credential: configured.credential, clientId: undefined }
+      : { ...common, credential: undefined, clientId: configured.clientId };
+  }
+}
+
 /**
  * Ask the zone for a device code and a user code (RFC 8628 §3.1).
  *
