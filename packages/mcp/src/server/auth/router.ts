@@ -33,12 +33,12 @@ export function mcpAuthMetadataRouter(options: InferredAuthMetadataOptions): exp
     warnLegacy("mcpAuthMetadataRouter");
     router.use(PROTECTED_RESOURCE_PATH, protectedResourceMetadataHandler(protectedResourceMetadata));
   } else {
-    const documents = new Map<string, Array<{ host: string; send: express.RequestHandler }>>();
+    const documents = new Map<string, Array<{ url: URL; send: express.RequestHandler }>>();
     const add = (identifier: ResourceIdentifier, authorization_servers: string[]) => {
       if (!identifier.metadataTarget || !identifier.metadataUrl) return;
       const entries = documents.get(identifier.metadataTarget) ?? [];
       entries.push({
-        host: new URL(identifier.metadataUrl).host.toLowerCase(),
+        url: new URL(identifier.metadataUrl),
         send: protectedResourceMetadataHandler({ ...protectedResourceMetadata, authorization_servers }, identifier.value),
       });
       documents.set(identifier.metadataTarget, entries);
@@ -53,7 +53,10 @@ export function mcpAuthMetadataRouter(options: InferredAuthMetadataOptions): exp
     if (documents.size) router.use((req, res, next) => {
       if (req.method !== "GET" && req.method !== "OPTIONS") return next();
       const entries = documents.get(requestTarget(req.url));
-      const entry = entries?.length === 1 ? entries[0] : entries?.find(candidate => candidate.host === req.headers.host?.toLowerCase());
+      const host = req.headers.host?.toLowerCase();
+      const entry = entries?.length === 1 ? entries[0] : entries?.find(({ url }) =>
+        url.host === host?.replace(url.protocol === "https:" ? /:0*443$/ : /:0*80$/, ""),
+      );
       return entry ? entry.send(req, res, next) : next();
     });
   }

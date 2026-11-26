@@ -47,6 +47,22 @@ describe('MCP Auth Metadata Router', () => {
     }
   });
 
+  it('routes same-path metadata by Host with or without the default port', async () => {
+    const app = express();
+    const a = 'https://a.example.com/mcp';
+    const b = 'https://b.example.com:8443/mcp';
+    app.enable('trust proxy');
+    app.use(mcpAuthMetadataRouter({
+      oauthMetadata: { issuer: 'https://keycard.cloud' }, resourceIdentifiersByZone: { a, b },
+    }));
+    const path = '/.well-known/oauth-protected-resource/mcp';
+    await supertest(app).get(path).set('Host', 'a.example.com:443').set('X-Forwarded-Host', 'b.example.com:8443')
+      .expect(200).expect({ resource: a, authorization_servers: ['https://a.keycard.cloud'] });
+    await supertest(app).get(path).set('Host', 'b.example.com:8443')
+      .expect(200).expect({ resource: b, authorization_servers: ['https://b.keycard.cloud'] });
+    await supertest(app).get(path).set('Host', 'b.example.com:443').expect(404);
+  });
+
   it('metadata rows 8a, 8b and 9c: standalone validates explicit modes and publishes one shared document', async () => {
     const oauthMetadata = { issuer: 'https://keycard.cloud' };
     expect(() => mcpAuthMetadataRouter({ oauthMetadata, multiResource: true, allowAnyAudience: true })).toThrow();
