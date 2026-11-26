@@ -138,15 +138,16 @@ describe("Workers bearer introspection", () => {
     expect(warn).toHaveBeenCalledWith("Bearer token introspection failed:", "invalid_client (HTTP 401)");
   });
 
-  it("bearer row 22: direct verifyRequest reuses discovery but checks token status on every call", async () => {
+  it("bearer row 22: direct calls with fresh options reuse discovery but check token status every time", async () => {
     const post = stubZone([() => Response.json({ active: true }), () => Response.json({ active: false })]);
     const fetch = jest.fn(globalThis.fetch);
-    const options = {
-      issuers: issuer, resourceIdentifier: resource, introspect: true, credential, introspectionFetch: fetch,
-    };
-    const request = await bearerRequest();
-    expect(await verifyRequest(request, options)).not.toBeInstanceOf(Response);
-    expect(await verifyRequest(request, options)).toMatchObject({ status: 401 });
+    const cacheIssuer = "https://discovery-cache-worker.keycard.cloud";
+    const request = await bearerRequest(cacheIssuer);
+    const verify = () => verifyBearerToken(request, {
+      issuers: cacheIssuer, resourceIdentifier: resource, introspect: true, credential, introspectionFetch: fetch,
+    });
+    expect(await verify()).not.toBeInstanceOf(Response);
+    expect(await verify()).toMatchObject({ status: 401 });
     expect(fetch.mock.calls.filter(([url]) =>
       String(url).endsWith("/.well-known/oauth-authorization-server"))).toHaveLength(1);
     expect(post).toHaveBeenCalledTimes(2);
