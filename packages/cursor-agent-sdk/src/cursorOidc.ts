@@ -76,7 +76,11 @@ export class CursorDeploymentTokenSource implements IdentityTokenSource {
       }
       throw new WorkloadIdentityRuntimeError(
         `Cursor deployment OIDC helper failed: ${cause instanceof Error ? cause.message : String(cause)}`,
-        { source: WORKLOAD_IDENTITY_SOURCE_CURSOR_DEPLOYMENT, cause },
+        {
+          source: WORKLOAD_IDENTITY_SOURCE_CURSOR_DEPLOYMENT,
+          cause,
+          retryable: isRetryableHelperError(cause),
+        },
       );
     }
 
@@ -126,4 +130,22 @@ function isUndeclaredAudienceError(error: unknown): boolean {
   if (typeof error !== "object" || error === null) return false;
   const candidate = error as { code?: unknown; status?: unknown };
   return candidate.code === "failed" && candidate.status === 400;
+}
+
+function isRetryableHelperError(error: unknown): boolean {
+  const seen = new Set<object>();
+  while (typeof error === "object" && error !== null && !seen.has(error)) {
+    seen.add(error);
+    const { name, code, status, cause } = error as {
+      name?: unknown;
+      code?: unknown;
+      status?: unknown;
+      cause?: unknown;
+    };
+    if (typeof status === "number") return status === 429 || (status >= 500 && status < 600);
+    if (code === "timeout" || code === "failed" || code === "rate_limited" || name === "TimeoutError") return true;
+    if (typeof code === "string" && /^(EAI_AGAIN|ECONNABORTED|ECONNREFUSED|ECONNRESET|EHOSTUNREACH|ENETDOWN|ENETUNREACH|ENOTFOUND|EPIPE|ETIMEDOUT|UND_ERR_(CONNECT_TIMEOUT|HEADERS_TIMEOUT|BODY_TIMEOUT|SOCKET))$/.test(code)) return true;
+    error = cause;
+  }
+  return false;
 }
