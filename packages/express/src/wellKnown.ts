@@ -97,9 +97,11 @@ export function metadataRouter(
   if (documents.size) {
     const findDocument: RequestHandler = (req, res, next) => {
       const entries = documents.get(requestTarget(req.url));
-      const entry = entries?.length === 1 ? entries[0] : entries?.find(candidate =>
-        new URL(candidate.identifier.metadataUrl!).host.toLowerCase() === req.headers.host?.toLowerCase(),
-      );
+      const host = req.headers.host?.toLowerCase();
+      const entry = entries?.length === 1 ? entries[0] : entries?.find(candidate => {
+        const url = new URL(candidate.identifier.metadataUrl!);
+        return url.host === host?.replace(url.protocol === "https:" ? /:0*443$/ : /:0*80$/, "");
+      });
       if (!entry) return next();
       if (req.method === "OPTIONS") return preflightHandler(req, res, next);
       return protectedResourceHandler(options, entry.identifier.value, entry.issuers)(req, res, next);

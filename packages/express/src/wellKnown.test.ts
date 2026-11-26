@@ -140,6 +140,20 @@ describe('keycardMetadataRouter', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it('routes same-path metadata by Host with or without the default port', async () => {
+    const app = express();
+    const a = 'https://a.example.com/mcp';
+    const b = 'http://b.example.com/mcp';
+    app.enable('trust proxy');
+    app.use(keycardMetadataRouter({ issuer: 'https://keycard.cloud', resourceIdentifiersByZone: { a, b } }));
+    const path = '/.well-known/oauth-protected-resource/mcp';
+    await request(app).get(path).set('Host', 'A.example.com:443').set('X-Forwarded-Host', 'b.example.com')
+      .expect(200).expect({ resource: a, authorization_servers: ['https://a.keycard.cloud'] });
+    await request(app).get(path).set('Host', 'b.example.com:80')
+      .expect(200).expect({ resource: b, authorization_servers: ['https://b.keycard.cloud'] });
+    await request(app).get(path).set('Host', 'a.example.com:8443').expect(404);
+  });
+
   it('metadata row 9c: shared discovery advertises exactly the configured zones', async () => {
     const app = express();
     const resource = 'https://api.example.com/mcp';
