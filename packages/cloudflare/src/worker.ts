@@ -115,8 +115,12 @@ export function resolveCredential<Env extends KeycardEnv>(
     return new WorkersWebIdentity(env.KEYCARD_PRIVATE_KEY, { clientId: env.KEYCARD_CLIENT_ID });
   }
 
-  const { KEYCARD_CLIENT_ID, KEYCARD_CLIENT_SECRET, KEYCARD_APPLICATION_CREDENTIAL_TYPE } = env;
-  const bindings = { KEYCARD_CLIENT_ID, KEYCARD_CLIENT_SECRET, KEYCARD_APPLICATION_CREDENTIAL_TYPE };
+  const {
+    KEYCARD_CLIENT_ID,
+    KEYCARD_CLIENT_SECRET,
+    [CREDENTIAL_TYPE_ENV_VAR]: selector,
+  }: KeycardEnv & { [CREDENTIAL_TYPE_ENV_VAR]?: string } = env;
+  const bindings = { KEYCARD_CLIENT_ID, KEYCARD_CLIENT_SECRET, [CREDENTIAL_TYPE_ENV_VAR]: selector };
   try {
     const resolved = resolveCredentialType(bindings, { tokenFileEnvVars: [] });
     if (resolved.type === CLIENT_SECRET_TYPE) {

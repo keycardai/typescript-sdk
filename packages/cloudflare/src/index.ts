@@ -40,6 +40,4 @@ export {
   JWKSUriValidationError,
   JWKSFetchError,
   JWKSKeyNotFoundError,
-  CredentialDiscoveryError,
 } from "./errors.js";
-export type { CredentialDiscoveryReason } from "./errors.js";
