@@ -1094,4 +1094,53 @@ describe("host-kv subject token retention (spec-version 5)", () => {
     expect(list.entries).toHaveLength(1);
     expect(entryKeys[0]).toContain(list.entries[0]!.id);
   });
+
+  it("prunes expired session entries from the exchange cache when later sessions run", async () => {
+    const baseMs = 1_700_000_000_000;
+    const nowSec = Math.floor(baseMs / 1000);
+    const nowSpy = jest.spyOn(Date, "now").mockReturnValue(baseMs);
+
+    const kv = createFakeKv();
+    const store = hostKvSubjectTokenStore();
+    store.attachHostKv(kv);
+
+    const client = fakeZoneClient();
+    const provider = onBehalfOf({
+      resource: CALENDAR,
+      zoneUrl: ZONE,
+      client,
+      subjectTokens: store,
+    });
+
+    const exp1 = nowSec + 120;
+    const token1 = tokenWithExp(exp1, "user-1");
+    const verify1 = keycardAuth({
+      zoneUrl: ZONE,
+      retainSubjectToken: "host-kv",
+      subjectTokens: store,
+      verify: async () => claimsFor(exp1, "user-1"),
+    });
+    const auth1 = (await verify1(token1))!;
+    await provider(session(auth1, { id: "session-finished" }));
+
+    // Advance past session-finished's expiry and run a new session.
+    nowSpy.mockReturnValue((exp1 + 10) * 1000);
+    const exp2 = exp1 + 600;
+    const token2 = tokenWithExp(exp2, "user-2");
+    const verify2 = keycardAuth({
+      zoneUrl: ZONE,
+      retainSubjectToken: "host-kv",
+      subjectTokens: store,
+      verify: async () => claimsFor(exp2, "user-2"),
+    });
+    const auth2 = (await verify2(token2))!;
+    await provider(session(auth2, { id: "session-active" }));
+
+    // Even if clocks or callers revisit session-finished with the old token,
+    // its expired entry was pruned and cannot be served from cache.
+    nowSpy.mockReturnValue(baseMs);
+    store.set(`${ZONE}|user-1`, token1, exp1);
+    await provider(session(auth1, { id: "session-finished" }));
+    expect(client.calls.exchanges).toHaveLength(3);
+  });
 });

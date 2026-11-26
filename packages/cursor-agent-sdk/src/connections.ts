@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type {
   AuthContext,
   ConnectionAuthProvider,
@@ -49,8 +50,8 @@ interface CachedToken {
   readonly token: string;
   /** Epoch milliseconds, or undefined when the zone sent no `expires_in`. */
   readonly expiresAt?: number;
-  /** Selected subject token this exchange was minted from (used in `"host-kv"` mode). */
-  readonly subjectToken?: string;
+  /** SHA-256 digest of the subject token this exchange was minted from (used in `"host-kv"` mode). */
+  readonly subjectTokenHash?: string;
 }
 
 /**
@@ -341,6 +342,22 @@ function exchangeSubjectToken(
   });
 }
 
+function hashSubjectToken(token: string): string {
+  return createHash("sha256").update(token).digest("base64url");
+}
+
+function pruneExpiredCacheEntries(
+  cache: Map<string, CachedToken>,
+  skewMs: number,
+  now: number,
+): void {
+  for (const [entryKey, entry] of cache) {
+    if (entry.expiresAt !== undefined && entry.expiresAt - skewMs <= now) {
+      cache.delete(entryKey);
+    }
+  }
+}
+
 /**
  * Serves a cached token for `key` until a skew before it expires, minting a
  * new one otherwise. `notAfter` (epoch milliseconds) caps the cached lifetime,
@@ -354,18 +371,21 @@ async function withCache(
   notAfter?: number,
   subjectToken?: string,
 ): Promise<ConnectionAuthResult> {
+  const subjectTokenHash = subjectToken === undefined ? undefined : hashSubjectToken(subjectToken);
+  pruneExpiredCacheEntries(cache, config.skewMs, Date.now());
   const cached = cache.get(key);
   if (
     cached &&
-    (subjectToken === undefined || cached.subjectToken === subjectToken) &&
-    (cached.expiresAt === undefined || cached.expiresAt - config.skewMs > Date.now())
+    (subjectTokenHash === undefined || cached.subjectTokenHash === subjectTokenHash)
   ) {
     return headers(config, cached.token);
   }
   const response = await mint();
+  const now = Date.now();
+  pruneExpiredCacheEntries(cache, config.skewMs, now);
   const zoneExpiry =
     typeof response.expiresIn === "number" && Number.isFinite(response.expiresIn)
-      ? Date.now() + response.expiresIn * 1000
+      ? now + response.expiresIn * 1000
       : undefined;
   const expiresAt =
     notAfter === undefined
@@ -373,11 +393,13 @@ async function withCache(
       : zoneExpiry === undefined
         ? notAfter
         : Math.min(zoneExpiry, notAfter);
-  cache.set(key, {
-    token: response.accessToken,
-    ...(expiresAt !== undefined ? { expiresAt } : {}),
-    ...(subjectToken !== undefined ? { subjectToken } : {}),
-  });
+  if (expiresAt === undefined || expiresAt - config.skewMs > now) {
+    cache.set(key, {
+      token: response.accessToken,
+      ...(expiresAt !== undefined ? { expiresAt } : {}),
+      ...(subjectTokenHash !== undefined ? { subjectTokenHash } : {}),
+    });
+  }
   return headers(config, response.accessToken);
 }
 
