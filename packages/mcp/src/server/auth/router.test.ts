@@ -10,6 +10,12 @@ describe('MCP Auth Metadata Router', () => {
   };
 
   describe('Router creation', () => {
+    it('rejects resource zone keys that are not DNS labels', () => {
+      expect(() => mcpAuthMetadataRouter({
+        oauthMetadata: mockOAuthMetadata, resourceIdentifiersByZone: { z_abc123: 'https://api.example.com/mcp' },
+      })).toThrow(/DNS-label zone IDs/);
+    });
+
     it('successfully creates router with valid options', () => {
       const options: InferredAuthMetadataOptions = {
         oauthMetadata: mockOAuthMetadata,

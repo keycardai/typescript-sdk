@@ -59,8 +59,8 @@ export function resolveResourceBinding(options: ResourceBindingOptions): Resourc
       throw new ConfigurationError("resourceIdentifiersByZone must be a nonempty map");
     }
     const entries = new Map(Object.entries(resourceIdentifiersByZone).map(([zone, identifier]) => {
-      if (!/^[a-z0-9](?:[a-z0-9_-]{0,61}[a-z0-9])?$/i.test(zone)) {
-        throw new ConfigurationError("Resource bindings require zone IDs valid in a host label");
+      if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(zone)) {
+        throw new ConfigurationError("Resource bindings require DNS-label zone IDs");
       }
       return [zone, parseIdentifier(identifier)];
     }));
