@@ -1,7 +1,5 @@
 import {
   CLIENT_SECRET_TYPE,
-  CREDENTIAL_TYPE_ENV_VAR,
-  WEB_IDENTITY_TYPE,
   resolveCredentialType,
 } from "@keycardai/oauth/credentialDiscovery";
 import { CredentialDiscoveryError } from "@keycardai/oauth/errors";
@@ -108,8 +106,6 @@ async function buildMetadataOptions<Env extends KeycardEnv>(
  * Resolves the appropriate ApplicationCredential from env bindings.
  *
  * Useful when building an IsolateSafeTokenCache outside of createKeycardWorker.
- * KEYCARD_PRIVATE_KEY takes precedence. Otherwise, honors KEYCARD_APPLICATION_CREDENTIAL_TYPE.
- * @throws {CredentialDiscoveryError} When the bindings do not describe a supported credential.
  */
 export function resolveCredential<Env extends KeycardEnv>(
   env: Env,
@@ -118,33 +114,20 @@ export function resolveCredential<Env extends KeycardEnv>(
     return new WorkersWebIdentity(env.KEYCARD_PRIVATE_KEY, { clientId: env.KEYCARD_CLIENT_ID });
   }
 
-  const {
-    KEYCARD_CLIENT_ID,
-    KEYCARD_CLIENT_SECRET,
-    [CREDENTIAL_TYPE_ENV_VAR]: selector,
-  }: KeycardEnv & { [CREDENTIAL_TYPE_ENV_VAR]?: string } = env;
-  const bindings = { KEYCARD_CLIENT_ID, KEYCARD_CLIENT_SECRET, [CREDENTIAL_TYPE_ENV_VAR]: selector };
+  const { KEYCARD_CLIENT_ID, KEYCARD_CLIENT_SECRET } = env;
   try {
-    const resolved = resolveCredentialType(bindings, { tokenFileEnvVars: [] });
+    const resolved = resolveCredentialType({ KEYCARD_CLIENT_ID, KEYCARD_CLIENT_SECRET }, { tokenFileEnvVars: [] });
     if (resolved.type === CLIENT_SECRET_TYPE) {
       return new WorkersClientSecret(resolved.clientId, resolved.clientSecret);
     }
-    const resolvable = KEYCARD_CLIENT_ID && KEYCARD_CLIENT_SECRET ? [CLIENT_SECRET_TYPE] as const : [];
-    throw new CredentialDiscoveryError(
-      `${CREDENTIAL_TYPE_ENV_VAR}=${WEB_IDENTITY_TYPE} requires KEYCARD_PRIVATE_KEY in Workers.`,
-      "not_satisfiable",
-      resolvable,
-    );
   } catch (error) {
-    if (!(error instanceof CredentialDiscoveryError) || error.reason !== "absent") {
+    if (!(error instanceof CredentialDiscoveryError)) {
       throw error;
     }
-
-    throw new CredentialDiscoveryError(
-      "Missing Keycard credentials in env. Set either KEYCARD_PRIVATE_KEY (WebIdentity) " +
-      "or KEYCARD_CLIENT_ID + KEYCARD_CLIENT_SECRET (ClientSecret).",
-      error.reason,
-      error.resolvable,
-    );
   }
+
+  throw new Error(
+    "Missing Keycard credentials in env. Set either KEYCARD_PRIVATE_KEY (WebIdentity) " +
+    "or KEYCARD_CLIENT_ID + KEYCARD_CLIENT_SECRET (ClientSecret).",
+  );
 }

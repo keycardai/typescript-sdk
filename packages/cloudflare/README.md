@@ -181,11 +181,9 @@ Per-user token exchange cache for Workers. See above for usage.
 ### `resolveCredential(env)`
 
 Resolves `WorkersClientSecret` or `WorkersWebIdentity` from env bindings.
-`KEYCARD_PRIVATE_KEY` takes precedence. Otherwise, the resolver honors
-`KEYCARD_APPLICATION_CREDENTIAL_TYPE`. Workers use a private key binding for
-web identity and do not support workload identity token files.
-Invalid or missing configuration throws `CredentialDiscoveryError`. Import it
-from `@keycardai/oauth`.
+`KEYCARD_PRIVATE_KEY` takes precedence. Otherwise, both `KEYCARD_CLIENT_ID` and
+`KEYCARD_CLIENT_SECRET` must be set. Workers do not use a credential selector
+or workload identity token files.
 
 ### `AuthInfo`
 

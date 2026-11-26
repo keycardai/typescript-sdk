@@ -1,5 +1,5 @@
 import { describe, it, expect, jest, beforeEach } from "@jest/globals";
-import { ConfigurationError, CredentialDiscoveryError } from "@keycardai/oauth/errors";
+import { ConfigurationError } from "@keycardai/oauth/errors";
 import type { AuthInfo, KeycardEnv } from "../types.js";
 
 // Mock auth and metadata modules
@@ -177,38 +177,24 @@ describe("resolveCredential", () => {
     ).toThrow("Missing Keycard credentials");
   });
 
-  it("preserves the private key precedence even with a selector", () => {
+  it.each(["web_identity", "unknown"])("ignores KEYCARD_APPLICATION_CREDENTIAL_TYPE=%s", (selector) => {
     const credential = resolveCredential({
       ...mockEnv,
-      KEYCARD_PRIVATE_KEY: "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----",
-      KEYCARD_APPLICATION_CREDENTIAL_TYPE: "client_secret",
-    });
-
-    expect(credential.getAuth()).toBeNull();
-  });
-
-  it("honors the client secret selector", () => {
-    const credential = resolveCredential({
-      ...mockEnv,
-      KEYCARD_APPLICATION_CREDENTIAL_TYPE: "client_secret",
+      KEYCARD_APPLICATION_CREDENTIAL_TYPE: selector,
     });
 
     expect(credential.getAuth()).toEqual({ clientId: "app-123", clientSecret: "secret-456" });
   });
 
   it.each([
-    [{}, "absent", [], "Missing Keycard credentials"],
-    [{ KEYCARD_CLIENT_SECRET: "secret-456" }, "incomplete", [], "KEYCARD_CLIENT_ID"],
-    [{ ...mockEnv, KEYCARD_APPLICATION_CREDENTIAL_TYPE: "unknown" }, "unknown_type", ["client_secret"], "KEYCARD_APPLICATION_CREDENTIAL_TYPE"],
-    [{ ...mockEnv, KEYCARD_APPLICATION_CREDENTIAL_TYPE: "workload_identity" }, "not_satisfiable", ["client_secret"], "token file"],
-    [{ ...mockEnv, KEYCARD_APPLICATION_CREDENTIAL_TYPE: "web_identity" }, "not_satisfiable", ["client_secret"], "KEYCARD_PRIVATE_KEY"],
-  ] as const)("throws a typed discovery error for %j", (bindings, reason, resolvable, hint) => {
+    { KEYCARD_CLIENT_ID: "app-123" },
+    { KEYCARD_CLIENT_SECRET: "secret-456" },
+  ])("throws the missing credentials error for incomplete bindings %j", (bindings) => {
     expect(() => resolveCredential({ KEYCARD_ISSUER: "https://auth.keycard.ai", ...bindings }))
       .toThrow(expect.objectContaining({
-        constructor: CredentialDiscoveryError,
-        reason,
-        resolvable,
-        message: expect.stringContaining(hint),
+        constructor: Error,
+        message: "Missing Keycard credentials in env. Set either KEYCARD_PRIVATE_KEY (WebIdentity) " +
+          "or KEYCARD_CLIENT_ID + KEYCARD_CLIENT_SECRET (ClientSecret).",
       }));
   });
 });
