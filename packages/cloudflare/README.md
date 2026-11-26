@@ -166,9 +166,11 @@ Returns an `ExportedHandler` with Keycard auth built in. Auto-detects credential
 
 Set `audiences` to the Worker's public URL (its registered resource identifier) so bearer tokens minted for other resources on the same issuer are rejected. Without it the Worker accepts a token minted for any resource in the zone and warns once per isolate on the first verified request.
 
+Set `introspect: true` and pass the resource owner's application credential as `credential` to check whether each locally verified token is still active. If the verifier trusts multiple zones, key the credentials by each zone's issuer URL. Introspection is off by default.
+
 ### `verifyBearerToken(request, options?)`
 
-Verifies a Bearer token. Returns `AuthInfo` on success or a `Response` (401/403) on failure.
+Verifies a Bearer token. Returns `AuthInfo` on success or an error `Response`. It accepts the same introspection options as `createKeycardWorker`.
 
 ### `handleMetadataRequest(request, options)`
 
